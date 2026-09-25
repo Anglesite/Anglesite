@@ -99,8 +99,8 @@ struct SiteWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
     /// Reduce Motion → fade the chat panel and deploy drawer in/out instead of sliding them.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The window's undo manager, published into the model so app-applied edits register with
-    /// Edit ▸ Undo (⌘Z) — see `ChatModel.editUndoCoordinator` (#527).
+    /// The window's undo manager, published into the model so structural content operations and
+    /// block-canvas edits register with Edit ▸ Undo (⌘Z) — see `SiteWindowModel.windowUndoManager`.
     @Environment(\.undoManager) private var undoManager
 
     init(
@@ -577,7 +577,7 @@ struct SiteWindow: View {
             }
             .disabled(!model.canRunBackup)
             .help(site.isValid
-                  ? "Commit and push working-tree changes to your current branch"
+                  ? "Save this site's latest changes to its online backup"
                   : "Site is missing required files")
             .accessibilityIdentifier(AXID.toolbar(.backup))
 
@@ -643,7 +643,7 @@ struct SiteWindow: View {
             }
             .disabled(!model.canRunDomainConfigAudit)
             .help(site.isValid
-                  ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
+                  ? "Check that this site's domain settings match what's live on Cloudflare"
                   : "Site is missing required files")
             .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
 
@@ -735,12 +735,12 @@ struct SiteWindow: View {
                 .accessibilityIdentifier(AXID.toolbar(.github))
             } else {
                 Button {
-                    model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                    model.publish.publish(siteID: site.id, source: site.sourceDirectory, repoName: site.name)
                 } label: {
                     Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
                 }
                 .disabled(!model.canPublishToGitHub)
-                .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
+                .help(site.isValid ? "Publish a private copy of this site to your GitHub account" : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.github))
             }
 
@@ -973,6 +973,14 @@ struct SiteWindow: View {
                             onDismiss: { model.sync.dismissBanner() }
                         )
                         .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    }
+                    // Non-blocking site-update notice (#1962): what Anglesite applied at open —
+                    // scripts it maintains, dependency bumps — phrased about the site, with the
+                    // file/package detail behind a Details popover. Replaces the two blocking
+                    // sheets that used to ask the owner to adjudicate these.
+                    if let notice = model.siteUpdateNotice {
+                        SiteUpdateNoticeBannerView(notice: notice, onDismiss: { model.dismissSiteUpdateNotice() })
+                            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                     HStack(spacing: 0) {
                         // Leading tool panel (#1588 Task 20): same Divider + fixed-width +
@@ -1370,6 +1378,23 @@ struct SiteWindow: View {
         .sheet(isPresented: $bindableModel.publish.sheetPresented) {
             PublishSheet(model: model.publish, siteName: site.name)
         }
+        // #1959: a publish or backup the source push gate refused shows the same no-override
+        // sheet a blocked deploy does — one presentation for every "this can't leave your Mac
+        // yet" outcome.
+        .sheet(isPresented: $bindableModel.publish.blockedPresented) {
+            if case .blocked(let failures, let warnings) = model.publish.phase {
+                BlockedDeploySheetView(failures: failures, warnings: warnings) {
+                    model.publish.dismissBlocked()
+                }
+            }
+        }
+        .sheet(isPresented: $bindableModel.backup.blockedPresented) {
+            if case .blocked(let failures, let warnings) = model.backup.phase {
+                BlockedDeploySheetView(context: .backup, failures: failures, warnings: warnings) {
+                    model.backup.dismissBlocked()
+                }
+            }
+        }
         .sheet(isPresented: $bindableModel.publish.tokenPromptPresented) {
             GitHubTokenPromptView(model: model.publish) {
                 model.publish.cancelTokenPrompt()
@@ -1460,47 +1485,10 @@ struct SiteWindow: View {
                 }
             }
             .frame(minWidth: 420, minHeight: 260)
-            // `loadAndStart()` suspends on a `CheckedContinuation` that only Skip/Update resume
-            // (see `SiteWindowModel.loadAndStart`). Block outside-tap/swipe dismissal so those two
-            // buttons are structurally the only way out — otherwise the continuation would leak
-            // and `preview.open()` would never run.
-            .interactiveDismissDisabled()
-        }
-        .sheet(item: $bindableModel.scriptSyncModel) { syncModel in
-            NavigationStack {
-                List(syncModel.pending) { divergence in
-                    let copy = ScriptSyncModel.rowCopy(for: divergence.relativePath)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(copy.title)
-                            .font(.headline)
-                        Text(copy.consequence)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(divergence.relativePath)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                        if syncModel.failedRelativePaths.contains(divergence.relativePath) {
-                            Label("Couldn't update this file — see the debug log for details.", systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-                        HStack {
-                            Button("Keep My Version") { syncModel.keepMine(divergence) }
-                            Spacer()
-                            Button("Update This File") { syncModel.update(divergence) }
-                                .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .navigationTitle("Site Scripts Customized")
-            }
-            .frame(minWidth: 420, minHeight: 260)
-            // Mirrors the dependency-update sheet immediately above: `loadAndStart()` suspends on
-            // a `CheckedContinuation` that only resumes once every row is resolved (see
-            // `ScriptSyncModel.remove`/`SiteWindowModel.loadAndStart`). Block outside-tap/swipe
-            // dismissal so per-row buttons are structurally the only way out.
-            .interactiveDismissDisabled()
+            // Presented only by the Security Reports "Update available" action (#975) since #1962
+            // — the site-open dependency check applies its offers directly and reports through the
+            // non-blocking `SiteUpdateNoticeBannerView` instead. Nothing suspends on this sheet, so
+            // an outside-tap dismissal is simply a Skip.
         }
         .sheet(item: $bindableModel.securityTxtMigrationModel) { migrationModel in
             NavigationStack {
@@ -1521,7 +1509,7 @@ struct SiteWindow: View {
                 .navigationTitle("security.txt")
             }
             .frame(minWidth: 420, minHeight: 220)
-            // Mirrors the scripts-sync sheet immediately above: `loadAndStart()` suspends on a
+            // The one site-open sheet that still suspends `loadAndStart()` (#1962): it awaits a
             // `CheckedContinuation` that only Adopt/Preserve resume. Block outside-tap/swipe
             // dismissal so those two buttons are structurally the only way out.
             .interactiveDismissDisabled()
@@ -1974,8 +1962,12 @@ struct SiteWindow: View {
                 // rather than silently re-arm: the page may be a different page entirely now, and
                 // an armed HUD over a listener that no longer exists waits forever (#768 final
                 // review, Finding 8). `cancel()` is a no-op unless a pick is actually in flight.
-                onPreviewNavigated: {
+                // It's also the moment the block canvas follows the owner to the page they now
+                // see (#1957 — the canvas is the window's default state, see
+                // `SiteWindowModel.syncEditMode(afterNavigationTo:)`).
+                onPreviewNavigated: { url in
                     model.effectPlacementController.cancel()
+                    model.syncEditMode(afterNavigationTo: url)
                 },
                 onWebView: { [preview = model.preview] webView in
                     preview.webView = webView
@@ -2170,7 +2162,7 @@ struct SiteWindow: View {
                 StartupProgressView(
                     title: model.preview.isUpdatingDependencies
                         ? "Updating dependencies — this may take a minute…"
-                        : "Starting dev server for \(site.name)…",
+                        : "Starting the preview for \(site.name)…",
                     model: model.startup,
                     // Deliberately ungated (unlike the ⌥⌘D menu item): the point of #560 is
                     // letting non-developers look under the hood while they wait.
@@ -2201,7 +2193,7 @@ struct SiteWindow: View {
                     Button("Show Logs") { openWindow(id: "debug") }
                         .buttonStyle(.link)
                         .font(.callout)
-                        .accessibilityHint("Opens the log of the failed dev server launch.")
+                        .accessibilityHint("Opens the log of the failed preview launch.")
                 }
             }
         case .idle:
@@ -2212,11 +2204,11 @@ struct SiteWindow: View {
                     VStack(spacing: 12) {
                         Image(systemName: "stop.circle")
                             .font(.largeTitle).foregroundStyle(.secondary)
-                        Text("Dev server stopped").font(.headline)
-                        Text("The preview is paused for \(site.name). Start the dev server to resume.")
+                        Text("Preview stopped").font(.headline)
+                        Text("The preview is paused for \(site.name). Start it again to resume.")
                             .font(.callout).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center).frame(maxWidth: 420)
-                        Button("Start Dev Server") {
+                        Button("Start Preview") {
                             model.startDevServer()
                         }
                     }

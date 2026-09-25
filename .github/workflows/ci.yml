@@ -43,7 +43,6 @@ jobs:
       pull-requests: read
     outputs:
       swift: ${{ steps.filter.outputs.swift }}
-      js: ${{ steps.filter.outputs.js }}
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
       safariExt: ${{ steps.filter.outputs.safariExt }}
       template: ${{ steps.filter.outputs.template }}
@@ -106,9 +105,8 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
+          swift=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
-          matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
@@ -117,36 +115,12 @@ jobs:
           matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
 
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
-          echo "js=$js" >> "$GITHUB_OUTPUT"
           echo "wysiwyg=$wysiwyg" >> "$GITHUB_OUTPUT"
           echo "safariExt=$safariExt" >> "$GITHUB_OUTPUT"
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
           echo "docsIndex=$docsIndex" >> "$GITHUB_OUTPUT"
-
-  edit-overlay:
-    name: JS edit-overlay (lint/typecheck/test)
-    needs: changes
-    if: needs.changes.outputs.js == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: JS/edit-overlay
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          # Track the vendored runtime (scripts/vendor-node.sh) so CI tests on the
-          # same Node major the app ships.
-          node-version-file: scripts/node-version.txt
-          cache: npm
-          cache-dependency-path: JS/edit-overlay/package-lock.json
-      - run: npm ci --no-audit --no-fund
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
 
   safari-extension:
     name: JS safari-extension (lint/typecheck/test)
@@ -272,8 +246,8 @@ jobs:
     if: needs.changes.outputs.helpBook == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Split out of edit-overlay: a Help Book-only change shouldn't pay for a full npm
-    # install/lint/typecheck/test cycle just to reach this check. Plain bash+grep, no deps.
+    # Its own lane (not a step in a JS lane): a Help Book-only change shouldn't pay for a full
+    # npm install/lint/typecheck/test cycle just to reach this check. Plain bash+grep, no deps.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check Help Book links
@@ -305,10 +279,18 @@ jobs:
     timeout-minutes: 10
     # Cross-platform port, phase 1 "purity" (2026-07-08 design §9/§10): the compiler is the
     # purity lint. Off-Darwin, Package.swift exposes only the targets that compile there —
-    # AnglesiteSiteModel and AnglesiteCore today; each seam PR that purifies more of the
-    # portable set expands that list until `swift build && swift test` covers the whole
-    # portable core. The official Swift image pins the toolchain (and ships the right
-    # libxml2), so this lane is immune to runner-image drift.
+    # AnglesiteSiteModel, AnglesiteQuickLookSupport, AnglesiteCore, AnglesiteBridgeCore, and
+    # the Linux shell's GTK-free core AnglesiteLinuxCore (#1968) with their test targets; each
+    # seam PR that purifies more of the portable set expands that list until `swift build &&
+    # swift test` covers the whole portable core. The official Swift image pins the toolchain
+    # (and ships the right libxml2), so this lane is immune to runner-image drift.
+    #
+    # The `Test` step below is what runs AnglesiteLinuxTests — `ShellModel`'s open/switch/stop
+    # lifecycle against a fake SiteRuntime, plus its engine-candidate logic — on every Swift
+    # PR (#1968, D2). Before the ShellModel split, that suite hung off the
+    # ANGLESITE_LINUX_SHELL=1-gated GTK executable and only the non-required Flatpak lane
+    # could build it; no step here names it because a plain `swift test` picks up every test
+    # target in the off-Darwin manifest.
     container:
       image: swift:6.3.3-noble
     steps:
@@ -386,6 +368,12 @@ jobs:
       - name: Test pin-cloudflare-canonical-image.sh digest rewrite
         run: scripts/pin-cloudflare-canonical-image.test.sh
 
+      # Stubs `curl` and `git` on PATH and runs against throwaway lock/Swift fixtures, then
+      # runs `--check` on the real tree — so a scripts/worker-catalog.lock.json edit that
+      # forgot to regenerate WorkerCatalogPin.swift (or vice versa) fails here (#1961).
+      - name: Test bump-worker-catalog.sh pin/lock/generated-Swift agreement
+        run: scripts/bump-worker-catalog.test.sh
+
       # Pure git grep/awk against the real tree — regression test for #1903 (sleep-lint
       # baseline drain, batch 2 of 2), no fixture or external dependency needed.
       - name: Test sleep-lint baseline batch 2 is drained
@@ -425,7 +413,7 @@ jobs:
     # Flatpak SDK (or an equivalent system install) carries. Live-verified end-to-end on a real
     # Ubuntu 26.04/aarch64 GTK box for #1293: the manifest builds, the app boots a real podman
     # container through `flatpak-spawn --host` (no conmon hang), the document-portal bind-mount
-    # resolves correctly, the overlay JS loads, and a long-lived `podman exec -i` interactive
+    # resolves correctly, the engine JS loads, and a long-lived `podman exec -i` interactive
     # session's stdio survives the same `flatpak-spawn --host` proxy — this job exercises the
     # first two of those (build + AnglesiteLinuxTests); the rest need a live GTK/podman
     # environment this headless runner doesn't have and stay manually verified.
@@ -434,15 +422,15 @@ jobs:
     # DocumentPortalResolutionTests don't execute here either) — that target isn't in
     # Package.swift's off-Darwin `portableTargets` set yet (confirmed live: it also pulls in
     # AnglesiteTestSupport, itself not purity-swept), tracked separately in #1284. Only
-    # AnglesiteLinuxTests (ShellModel's pure overlay-candidate logic) is Linux-portable today.
+    # AnglesiteLinuxTests (ShellModel's pure engine-candidate logic) is Linux-portable today.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: scripts/node-version.txt
-      - name: Build edit overlay
-        run: scripts/build-overlay.sh
+      - name: Build WYSIWYG engine
+        run: scripts/build-wysiwyg-engine.sh
 
       - name: Install flatpak + flatpak-builder
         run: |
@@ -519,7 +507,7 @@ jobs:
       # The end-to-end tests spawn the real plugin's MCP server, so CI needs the sibling repo
       # present and `npm ci`-installed. Without these, the Swift Testing suites gated with
       # `.enabled(if:)` traits skip cleanly (ANGLESITE_PLUGIN_PATH absent); with them, the full
-      # overlay → patcher → file-on-disk round-trip is exercised.
+      # bridge → patcher → file-on-disk round-trip is exercised.
       - name: Checkout sibling Anglesite plugin
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -888,8 +876,16 @@ jobs:
     #      xcodebuild-based lane builds only the macOS `Anglesite`/`AnglesiteIntents` schemes.
     #      Building AnglesiteMobile (Package.swift's `.iOS("27.0")` platform entry + the
     #      project.yml target, PR #886) for the iOS Simulator SDK makes an iOS-incompatible
-    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS fail CI instead of surfacing
-    #      only on a contributor's local build.
+    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS — and, since #1968, the shell's
+    #      own AnglesiteMobileCore library — fail CI instead of surfacing only on a
+    #      contributor's local build. The iOS app's *tests* (AnglesiteMobileCoreTests, D2) do
+    #      not run in this lane: the target's deployment target is iOS 27 and the hosted
+    #      macos-26 image ships no iOS 27 simulator runtime, so an on-simulator `xcodebuild
+    #      test` can't install the bundle there. They're a plain SwiftPM test target instead,
+    #      so `build-test`'s `swift test` runs them on the macOS host on every Swift PR; this
+    #      lane's contribution is compiling the same library for the iOS SDK. Revisit (move to
+    #      `xcodebuild test -destination 'platform=iOS Simulator,…'` here) once a runner image
+    #      carries an iOS 27 runtime.
     #   3. AppIntents schema conformance (was `appintents-schema`): see that step.
     #
     # macos-26, matching build-test's rationale: the newest available Xcode carries the most
@@ -1077,7 +1073,15 @@ jobs:
     # substitute: it needs only python3, so it runs on ubuntu-latest with no Xcode/xcodegen.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Since #1963 the script also lints catalog keys for owner-surface vocabulary (git, npm,
+      # wrangler, MCP, file layout — decision D1) outside the Debug pane and the reviewed
+      # allowlist in scripts/lib/owner-vocabulary-allowlist.txt.
       - run: scripts/check-localization-catalog.sh
+      # Self-contained fixture tests for the script above (throwaway git repos, no repo state
+      # touched). Lives here rather than in linux-build-test because it needs python3, which
+      # this ubuntu-latest lane has and the swift:6.3.3-noble image doesn't ship.
+      - name: Test check-localization-catalog.sh (owner-vocabulary lint)
+        run: scripts/check-localization-catalog.test.sh
       # scripts/git-hooks/pre-commit restores the trailing newline Xcode strips, but it's a
       # local hook — absent in any clone that skipped setup-dev-env.sh, and already bypassed
       # more than once (#970). Enforce it here so the last byte stops flip-flopping.
@@ -1098,6 +1102,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/check-test-userdefaults-suite-literal.sh
+      # #1990: no async closure parameter may default to a function/value reference (Swift 6.3.3
+      # re-emits the synthesized thunk per client module with a different context size).
+      - run: scripts/check-async-closure-default-args.sh
 
   reuse-lint:
     name: REUSE licensing lint
@@ -1145,7 +1152,6 @@ jobs:
     if: always()
     needs:
       - changes
-      - edit-overlay
       - wysiwyg-engine
       - safari-extension
       - help-book-links

@@ -6,6 +6,7 @@ struct ProcessSupervisorTests {
     @Test("Run captures standard output") func runCapturesStandardOutput() async throws {
         let supervisor = ProcessSupervisor()
         let result = try await supervisor.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/bin/echo"),
             arguments: ["hello"]
         )
@@ -17,6 +18,7 @@ struct ProcessSupervisorTests {
     @Test("Run captures standard error") func runCapturesStandardError() async throws {
         let supervisor = ProcessSupervisor()
         let result = try await supervisor.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "printf err 1>&2"]
         )
@@ -28,6 +30,7 @@ struct ProcessSupervisorTests {
     @Test("Run reports non-zero exit code") func runReportsNonZeroExitCode() async throws {
         let supervisor = ProcessSupervisor()
         let result = try await supervisor.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "exit 7"]
         )
@@ -38,6 +41,7 @@ struct ProcessSupervisorTests {
         let supervisor = ProcessSupervisor()
         await #expect(throws: ProcessSupervisor.SupervisorError.self) {
             _ = try await supervisor.run(
+                source: "test",
                 executable: URL(fileURLWithPath: "/usr/bin/definitely-not-a-real-binary-xyz"),
                 arguments: []
             )
@@ -47,6 +51,7 @@ struct ProcessSupervisorTests {
     @Test("Run passes environment") func runPassesEnvironment() async throws {
         let supervisor = ProcessSupervisor()
         let result = try await supervisor.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "printf %s \"$ANGLESITE_TEST\""],
             environment: ["ANGLESITE_TEST": "phase-1"]
@@ -61,6 +66,7 @@ struct ProcessSupervisorTests {
             defaultEnvironment: { ["ANGLESITE_DEFAULT": "from-default", "PATH": "/usr/bin:/bin"] }
         )
         let result = try await supervisor.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "printf %s \"$ANGLESITE_DEFAULT\""]
         )
@@ -74,6 +80,7 @@ struct ProcessSupervisorTests {
             defaultEnvironment: { ["ANGLESITE_DEFAULT": "from-default"] }
         )
         let result = try await supervisor.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "printf %s \"${ANGLESITE_DEFAULT:-none}\""],
             environment: ["FOO": "bar"]

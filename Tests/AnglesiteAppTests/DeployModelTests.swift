@@ -630,7 +630,6 @@ struct DeployModelTests {
     @Test("a settings-activated worker without a container fails at provisioning rather than skipping composition")
     func activatingAWorkerWithoutContainerFailsAtProvisioning() async throws {
         let executor = GatedDeployExecutor()
-        await executor.resumeBuild()
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let contentGraph = SiteContentGraph()
         let catalog = [
@@ -654,6 +653,8 @@ struct DeployModelTests {
         try await configStore.save(SiteSettings(activeWorkerIDs: ["indieauth"]))
 
         model.deploy(siteID: "test-site", siteDirectory: dir, configDirectory: configDir, currentRoutes: [])
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
         try await waitUntil("the provisioning-without-container deploy to finish") { !model.isRunning }
 
         // provision() has no working runner outside a container (Task 5's ContainerCommandRunner
@@ -769,7 +770,7 @@ struct DeployModelTests {
         #expect(await providerCalls.count == 2)
     }
 
-    @Test("wasFirstDeploy is true only when CF_WORKER_DEPLOYED was absent before this deploy")
+    @Test("wasFirstDeploy is true only when workerDeployed was unset before this deploy")
     func wasFirstDeployReflectsPriorDeployHistory() async throws {
         let executor = GatedDeployExecutor()
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)

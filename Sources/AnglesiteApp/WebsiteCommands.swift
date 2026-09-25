@@ -135,7 +135,7 @@ struct WebsiteCommands: Commands {
                 } else {
                     Button("Publish to GitHub…") {
                         guard let model, let site = model.site else { return }
-                        model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                        model.publish.publish(siteID: site.id, source: site.sourceDirectory, repoName: site.name)
                     }
                     .disabled(model?.canPublishToGitHub != true)
                 }
@@ -143,7 +143,7 @@ struct WebsiteCommands: Commands {
 
             Divider()
 
-            Menu("Dev Server") {
+            Menu("Live Preview") {
                 // Dev-server lifecycle (#515). Start covers the stopped and failed states;
                 // Restart is for a wedged Astro process. Enablement rules are
                 // `DevServerControls` in AnglesiteCore.

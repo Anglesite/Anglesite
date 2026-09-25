@@ -40,6 +40,11 @@ struct PublishSheet: View {
                 Text(reason).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        case .blocked:
+            // Normally never on screen — `PublishModel` swaps this sheet for the blocked sheet
+            // the moment the gate refuses (#1959); kept exhaustive for a re-presentation.
+            Label("Anglesite's safety check stopped this publish", systemImage: "shield.lefthalf.filled")
+                .foregroundStyle(.orange)
         }
     }
 }

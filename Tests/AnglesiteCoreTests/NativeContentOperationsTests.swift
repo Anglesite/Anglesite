@@ -428,7 +428,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         try "page".write(to: repo.appendingPathComponent("p.astro"), atomically: true, encoding: .utf8)
         let sha = await NativeContentOperations.processGitCommit(repo, "p.astro", "anglesite: add page /p")
@@ -472,7 +472,7 @@ struct NativeContentOperationsTests {
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent("git-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
-        _ = try await ProcessSupervisor.shared.run(executable: git, arguments: ["init"], currentDirectoryURL: repo)
+        _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: ["init"], currentDirectoryURL: repo)
         try "[core\nthis is not valid git-config syntax".write(
             to: repo.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8)
         try "page".write(to: repo.appendingPathComponent("p.astro"), atomically: true, encoding: .utf8)
@@ -487,7 +487,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         try "page".write(to: repo.appendingPathComponent("p.astro"), atomically: true, encoding: .utf8)
 
@@ -520,20 +520,21 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "seed@t.io"], ["config", "user.name", "seed"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         try contents.write(to: repo.appendingPathComponent(relPath), atomically: true, encoding: .utf8)
         if commitSeed {
             _ = await NativeContentOperations.processGitCommit(repo, relPath, "add \(relPath)")
         }
         for args in [["config", "user.email", ""], ["config", "user.name", ""]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         return repo
     }
 
     private func lastCommitAuthor(in repo: URL) async throws -> String {
         let result = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/git"),
             arguments: ["log", "-1", "--format=%an <%ae>"], currentDirectoryURL: repo)
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -554,7 +555,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         let filePath = repo.appendingPathComponent("unused.astro")
         try "<div></div>".write(to: filePath, atomically: true, encoding: .utf8)
@@ -571,7 +572,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         let filePath = repo.appendingPathComponent("unused.astro")
         try "<div>original</div>".write(to: filePath, atomically: true, encoding: .utf8)
@@ -593,7 +594,7 @@ struct NativeContentOperationsTests {
         #expect(FileManager.default.fileExists(atPath: filePath.path))
         #expect(try String(contentsOf: filePath, encoding: .utf8) == "<div>original</div>")
 
-        let status = try await ProcessSupervisor.shared.run(executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: repo)
+        let status = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: repo)
         #expect(status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
@@ -608,7 +609,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         let filePath = repo.appendingPathComponent("search.astro")
         try "<div>original</div>".write(to: filePath, atomically: true, encoding: .utf8)
@@ -622,7 +623,7 @@ struct NativeContentOperationsTests {
         #expect(FileManager.default.fileExists(atPath: filePath.path))
         #expect(try String(contentsOf: filePath, encoding: .utf8) == "<div>original</div>")
 
-        let status = try await ProcessSupervisor.shared.run(executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: repo)
+        let status = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: repo)
         #expect(status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
     #endif
@@ -633,7 +634,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         // Commit message is a superstring of the shorter message we'll also search for below —
         // this is the exact false-positive risk the review flagged: `git log --grep` substring-
@@ -655,7 +656,7 @@ struct NativeContentOperationsTests {
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         let git = URL(fileURLWithPath: "/usr/bin/git")
         for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: repo)
         }
         // A first commit so the repo has a HEAD at all.
         try "root".write(to: repo.appendingPathComponent("root.txt"), atomically: true, encoding: .utf8)
@@ -664,7 +665,7 @@ struct NativeContentOperationsTests {
         // Staged via `git add`, but never committed.
         let filePath = repo.appendingPathComponent("staged-only.astro")
         try "<div></div>".write(to: filePath, atomically: true, encoding: .utf8)
-        _ = try await ProcessSupervisor.shared.run(executable: git, arguments: ["add", "staged-only.astro"], currentDirectoryURL: repo)
+        _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: ["add", "staged-only.astro"], currentDirectoryURL: repo)
 
         let sha = await NativeContentOperations.processGitDelete(repo, "staged-only.astro", "Remove staged-only.astro")
         #expect(sha == nil)

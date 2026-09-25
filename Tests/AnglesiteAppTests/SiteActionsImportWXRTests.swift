@@ -87,7 +87,7 @@ struct SiteActionsImportWXRTests {
         let catalog = try ThemeCatalog.load(templateURL: templateURL)
         return SiteScaffolder(
             sitesRoot: sitesRoot, templateURL: templateURL, catalog: catalog,
-            run: { exe, args, cwd in try await ProcessSupervisor.shared.run(executable: exe, arguments: args, currentDirectoryURL: cwd) },
+            run: { exe, args, cwd in try await ProcessSupervisor.shared.run(source: "test", executable: exe, arguments: args, currentDirectoryURL: cwd) },
             gitInit: { sourceDir in try GitInitRunner.run(in: sourceDir) },
             gitCommit: { _ in },
             register: { package in

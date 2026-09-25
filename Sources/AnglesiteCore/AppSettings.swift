@@ -29,6 +29,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let safariMCPBridgePort = "anglesite.safariMCPBridgePort"
         /// Backs ``AppSettings/debugPaneEnabled``.
         public static let debugPaneEnabled   = "anglesite.debugPaneEnabled"
+        /// Backs ``AppSettings/developerToolsEnabled`` (#1964).
+        public static let developerToolsEnabled = "anglesite.developerToolsEnabled"
         /// Backs ``AppSettings/botPreferenceSyncUIEnabled``.
         public static let botPreferenceSyncUIEnabled = "anglesite.botPreferenceSyncUIEnabled"
         /// Backs ``AppSettings/esiPreviewUnprocessed``.
@@ -253,6 +255,15 @@ public final class AppSettings: @unchecked Sendable {
     public var debugPaneEnabled: Bool {
         get { defaults.bool(forKey: Key.debugPaneEnabled) }
         set { defaults.set(newValue, forKey: Key.debugPaneEnabled) }
+    }
+
+    /// Opt-in toggle (Settings → Advanced → "Show developer tools", #1964) that reveals the code
+    /// editors (Component Editor Source tab, code-level Style/Metadata inspectors, the raw text
+    /// file editor) and the Safari bridge setup section. Defaults to `false` in every build —
+    /// see `DeveloperToolsVisibility` for why there is no Debug-build override.
+    public var developerToolsEnabled: Bool {
+        get { defaults.bool(forKey: Key.developerToolsEnabled) }
+        set { defaults.set(newValue, forKey: Key.developerToolsEnabled) }
     }
 
     /// Opt-in toggle (Settings → Advanced) that reveals the "Bot blocklist managed by" control in

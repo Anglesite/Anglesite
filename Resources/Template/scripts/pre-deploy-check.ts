@@ -10,7 +10,12 @@
  * - `anglesite.json` (if present) parses, is a JSON object, and declares a recognized schema
  *   version (#1173) — structural only; stays network-free, no declared-vs-live comparison here
  *
- * Usage: npx tsx scripts/pre-deploy-check.ts [--json] [--strict]
+ * Usage: npx tsx scripts/pre-deploy-check.ts [--json] [--strict] [--source]
+ *
+ * With --source: runs only the source-tree subset — the checks that need no `dist/`
+ * (anglesite.json, restricted content in `src/content/`) plus a secret/dotenv sweep of the whole
+ * source tree — so the app can gate a push of `Source/` off-device (Publish to GitHub, backups)
+ * with the same script that gates a deploy (#1959, owner decision D5). Never reads `dist/`.
  *
  * Exit code 0: all clear. Exit code 1: issues found.
  * With --json: prints the versioned {version, ok, failures, warnings} envelope (#742).
@@ -49,6 +54,7 @@ interface ScanReport {
 
 const JSON_MODE = process.argv.includes("--json");
 const STRICT_MODE = process.argv.includes("--strict");
+const SOURCE_MODE = process.argv.includes("--source");
 const DIST_DIR = join(process.cwd(), "dist");
 const HEADERS_FILE = join(DIST_DIR, "_headers");
 const CONFIG_FILE = join(process.cwd(), ".site-config");
@@ -131,6 +137,94 @@ async function* walk(dir: string): AsyncGenerator<string> {
     if (entry.isDirectory()) yield* walk(full);
     else yield full;
   }
+}
+
+/** One `exposed-token` error per secret pattern that matches `content`. Shared by the `dist/`
+ * walk and the `--source` sweep so both scan for exactly the same shapes. */
+export function checkSecrets(content: string, file: string): Issue[] {
+  const issues: Issue[] = [];
+  for (const { name, pattern } of SECRET_PATTERNS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(content)) {
+      issues.push({ severity: "error", category: "exposed-token", message: `Possible ${name} exposed`, file });
+    }
+  }
+  return issues;
+}
+
+/** `.env` and `.env.<anything>` — the same rule the app's publish preflight applies before staging. */
+export function isDotenvFile(name: string): boolean {
+  return name === ".env" || name.startsWith(".env.");
+}
+
+/** Directories the `--source` sweep never descends into: build output and dependency/tool caches
+ * (`dist/` is covered by the deploy scan; the rest never ships in a push), and `.git` itself. */
+export const SOURCE_SCAN_SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".astro", ".wrangler", ".cache"]);
+
+/** Text files the `--source` sweep reads for secrets. Anything else (images, fonts, archives) is
+ * skipped by extension rather than sniffed. */
+export const SOURCE_SCAN_TEXT_FILES = /\.(md|mdx|json|ts|tsx|js|mjs|cjs|astro|toml|ya?ml|txt|html?|css|xml|svg)$/i;
+
+/** App-owned paths the sweep skips: the app verifies these against its own copy before trusting
+ * this scan at all (#1958). */
+const SOURCE_SCAN_APP_OWNED = /^(scripts|src\/lib)\//;
+
+/** Test files and test-runner configs the sweep skips: their fixtures legitimately carry
+ * secret-shaped strings (the template's own `vitest.config.ts` embeds a throwaway ActivityPub
+ * signing key for the Worker tests), none of it ships in a build, and flagging them would block
+ * every push of an untouched site. */
+export const SOURCE_SCAN_TEST_FILES = /(^|\/)(vitest(\.[\w-]+)?\.config\.[cm]?[jt]s|[^/]+\.test\.[cm]?[jt]sx?)$/i;
+
+/**
+ * The `--source` sweep (#1959): walks the site source tree under `root` and reports every dotenv
+ * file (it would be pushed verbatim — `.gitignore` is the fix) and every text file carrying a
+ * secret-shaped string. Paths are reported relative to `root`, POSIX-style.
+ *
+ * `contentDir`, when given, folds `checkNoRestrictedContentInSource` into this same walk for
+ * `.md`/`.mdx`/`.json` files under it, reusing the content this walk already read instead of a
+ * second, separate `walk(SOURCE_CONTENT_DIR)` pass re-reading the same files (PR #1981 review —
+ * every push-gate check used to read every `src/content/*.md|mdx|json` file twice, once in
+ * `scan()`'s own loop and again here).
+ */
+export async function scanSourceTree(root: string, options: { contentDir?: string } = {}): Promise<Issue[]> {
+  const issues: Issue[] = [];
+  async function* walkSource(dir: string): AsyncGenerator<string> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SOURCE_SCAN_SKIP_DIRS.has(entry.name)) continue;
+        yield* walkSource(join(dir, entry.name));
+      } else {
+        yield join(dir, entry.name);
+      }
+    }
+  }
+  for await (const file of walkSource(root)) {
+    const rel = relative(root, file).split("\\").join("/");
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
+    if (isDotenvFile(name)) {
+      issues.push({
+        severity: "error",
+        category: "exposed-token",
+        message: `Environment file would be published: ${rel}`,
+        file: rel,
+        remediation: `Add ${rel} to .gitignore (and move any secrets it holds to Cloudflare secrets) before publishing.`,
+      });
+      continue;
+    }
+    if (SOURCE_SCAN_APP_OWNED.test(rel) || SOURCE_SCAN_TEST_FILES.test(rel)) continue;
+
+    const isUnderContentDir =
+      options.contentDir !== undefined && !relative(options.contentDir, file).startsWith("..");
+    const isContentFile = isUnderContentDir && /\.(md|mdx|json)$/i.test(name);
+    const isTextFile = SOURCE_SCAN_TEXT_FILES.test(name);
+    if (!isContentFile && !isTextFile) continue;
+
+    const content = await readFile(file, "utf-8");
+    if (isContentFile) issues.push(...checkNoRestrictedContentInSource(rel, content));
+    if (isTextFile) issues.push(...checkSecrets(content, rel));
+  }
+  return issues;
 }
 
 /**
@@ -1286,6 +1380,15 @@ async function scan(): Promise<Issue[]> {
   issues.push(...checkAnglesiteConfig(anglesiteConfigContent));
   issues.push(...checkExperimentalSection(anglesiteConfigContent));
 
+  if (SOURCE_MODE) {
+    // The push-gate subset (#1959): `scanSourceTree` covers both restricted-content-in-
+    // src/content (folded in via `contentDir`) and the whole-tree dotenv/secret sweep in one
+    // walk — no separate `walk(SOURCE_CONTENT_DIR)` pass re-reading the same files a second time
+    // (PR #1981 review). Nothing here needs a build.
+    issues.push(...(await scanSourceTree(process.cwd(), { contentDir: SOURCE_CONTENT_DIR })));
+    return issues;
+  }
+
   try {
     for await (const file of walk(SOURCE_CONTENT_DIR)) {
       if (!/\.(md|mdx|json)$/i.test(file)) continue;
@@ -1369,12 +1472,7 @@ async function scan(): Promise<Issue[]> {
       issues.push(...checkEmbedMedia(content, rel));
     }
 
-    for (const { name, pattern } of SECRET_PATTERNS) {
-      pattern.lastIndex = 0;
-      if (pattern.test(content)) {
-        issues.push({ severity: "error", category: "exposed-token", message: `Possible ${name} exposed`, file: rel });
-      }
-    }
+    issues.push(...checkSecrets(content, rel));
 
     if (isHtmlOrCss) {
       issues.push(...checkMixedContent(content, rel));

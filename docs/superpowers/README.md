@@ -26,6 +26,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-13 | [3D DOM exploder — exploded-layer view of the preview for debugging nested elements — design](specs/2026-09-13-3d-dom-exploder-design.md) | [#1999](https://github.com/Anglesite/Anglesite/issues/1999) | draft |
 | 2026-09-04 | [Design: Route Worker provisioning through the DeployCommand spine (#1821)](specs/2026-09-04-worker-provisioning-deploy-spine-design.md) | [#1821](https://github.com/Anglesite/Anglesite/issues/1821) | draft |
 | 2026-09-04 | [Safari MCP transport spike: how a sandboxed `Anglesite.app` reaches a user-launched `safaridriver --mcp`](specs/2026-09-04-safari-mcp-transport-spike.md) | [#1887](https://github.com/Anglesite/Anglesite/issues/1887), [#453](https://github.com/Anglesite/Anglesite/issues/453) | current |
 | 2026-09-03 | [Generated docs index and `Status:` convention for design docs](specs/2026-09-03-docs-index-and-status-convention-design.md) | [#1816](https://github.com/Anglesite/Anglesite/issues/1816) | current |
@@ -88,7 +89,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 | 2026-08-04 | [Inbound GitHub security reports — design (#975)](specs/2026-08-04-github-security-reports-inbound-design.md) | [#975](https://github.com/Anglesite/Anglesite/issues/975) | draft |
 | 2026-08-04 | [Fediverse identity & handle — design (#1097)](specs/2026-08-04-fediverse-handle-design.md) | [#1097](https://github.com/Anglesite/Anglesite/issues/1097) | draft |
 | 2026-08-04 | [AT Protocol Standard.site publishing — design exploration](specs/2026-08-04-atproto-standard-site-design.md) | — | — |
-| 2026-08-03 | [Modern WYSIWYG HTML Editor — vision design](specs/2026-08-03-modern-wysiwyg-editor-design.md) | [#496](https://github.com/Anglesite/Anglesite/issues/496) | current |
+| 2026-08-03 | [Modern WYSIWYG HTML Editor — vision design](specs/2026-08-03-modern-wysiwyg-editor-design.md) | [#1957](https://github.com/Anglesite/Anglesite/issues/1957) | current |
 | 2026-08-03 | [macOS Cloudflare OAuth onboarding — design](specs/2026-08-03-macos-cloudflare-oauth-design.md) | [#1204](https://github.com/Anglesite/Anglesite/issues/1204), [#1195](https://github.com/Anglesite/Anglesite/issues/1195) | current |
 | 2026-08-03 | [Anywhere runtime — WebRTC P2P remote access to the Mac-hosted site runtime](specs/2026-08-03-anywhere-runtime-webrtc-design.md) | [#71](https://github.com/Anglesite/Anglesite/issues/71) | current |
 | 2026-08-01 | [In-app domain search + purchase via Cloudflare Registrar API (#1195)](specs/2026-08-01-registrar-search-purchase-design.md) | [#1195](https://github.com/Anglesite/Anglesite/issues/1195) | historical |

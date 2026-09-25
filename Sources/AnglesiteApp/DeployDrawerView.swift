@@ -53,11 +53,15 @@ struct DeployDrawerView: View {
                 if let subtitle = headerSubtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
+                if case .failed(let reason, let exit) = model.phase,
+                   let detail = OwnerFacingCopy.operation(reason: reason, exitCode: exit).detail {
+                    FailureDetailsView(detail: detail)
+                }
                 if case .running = model.phase, let milestone = model.currentMilestone {
                     Text(milestone).font(.caption).foregroundStyle(.secondary)
                 }
                 if case .succeeded = model.phase, case .dirty = model.sourceBundleStatus {
-                    Text("Code changes not yet published to the CMS bundle.")
+                    Text("Recent changes aren't in the copy used by CMS Mode yet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -84,7 +88,7 @@ struct DeployDrawerView: View {
                         .foregroundStyle(.secondary)
                 }
                 // First-publish nudge (#1180): shown exactly once, on the deploy that flips
-                // `.site-config`'s CF_WORKER_DEPLOYED from unset to set. `wasFirstDeploy`
+                // `SiteSettings.workerDeployed` from unset to set (#1960). `wasFirstDeploy`
                 // structurally cannot be true again for this site afterward, so this line cannot
                 // reappear on a later deploy — no separate "already prompted" flag is needed.
                 // Gated on `domainAttachStatus` too: the sheet is reachable before a first
@@ -165,7 +169,7 @@ struct DeployDrawerView: View {
         case .succeeded(_, let duration):
             return String(format: "published in %.1f s", duration)
         case .failed(let reason, let exit):
-            return exit.map { "\(reason) (exit \($0))" } ?? reason
+            return OwnerFacingCopy.operation(reason: reason, exitCode: exit).summary
         default:
             return nil
         }
@@ -282,7 +286,7 @@ struct DeployDrawerView: View {
         case .running: return .running(site: siteName)
         case .succeeded(let url, _): return .succeeded(url: url.absoluteString)
         case .failed(let reason, let exit):
-            return .failed(reason: exit.map { "\(reason) (exit \($0))" } ?? reason)
+            return .failed(reason: OwnerFacingCopy.operation(reason: reason, exitCode: exit).summary)
         case .idle, .blocked, .workerNameConflict, .webmentionPaidPlanConfirmationNeeded, .domainConfigDrift: return .inactive
         }
     }

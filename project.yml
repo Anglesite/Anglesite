@@ -45,10 +45,6 @@ targets:
       - path: Resources/Attributions
         type: folder
         buildPhase: resources
-      - path: Resources/edit-overlay
-        type: folder
-        buildPhase: resources
-        optional: true
       - path: Resources/wysiwyg-engine
         type: folder
         buildPhase: resources
@@ -86,9 +82,6 @@ targets:
       # resources fails before the remaining (slower) build phases run. Debug only warns.
       - name: Check container resources
         script: "\"${PROJECT_DIR}/scripts/check-container-resources.sh\""
-        basedOnDependencyAnalysis: false
-      - name: Build edit overlay
-        script: "\"${PROJECT_DIR}/scripts/build-overlay.sh\""
         basedOnDependencyAnalysis: false
       - name: Build WYSIWYG engine
         script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
@@ -192,10 +185,6 @@ targets:
       # code both targets link, so one manifest covers both. Re-audit when P2P/QR-pairing
       # code (#1431, #1208 P2) adds categories the Mac target doesn't use.
       - path: Resources/PrivacyInfo.xcprivacy
-      - path: Resources/edit-overlay
-        type: folder
-        buildPhase: resources
-        optional: true
       - path: Resources/wysiwyg-engine
         type: folder
         buildPhase: resources
@@ -210,9 +199,6 @@ targets:
           else
             echo "warning: xcodegen not found on PATH — skipping project regeneration (brew install xcodegen)." >&2
           fi
-        basedOnDependencyAnalysis: false
-      - name: Build edit overlay
-        script: "\"${PROJECT_DIR}/scripts/build-overlay.sh\""
         basedOnDependencyAnalysis: false
       - name: Build WYSIWYG engine
         script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
@@ -256,6 +242,10 @@ targets:
         product: AnglesiteIntents
       - package: Anglesite
         product: AnglesiteIOS
+      # The shell's orchestration model and composer helpers, split out so they run under
+      # `swift test` on the macOS host (#1968) — see Package.swift's AnglesiteMobileCore comment.
+      - package: Anglesite
+        product: AnglesiteMobileCore
 
   AnglesiteQuickLookPreview:
     type: app-extension
@@ -283,6 +273,10 @@ targets:
     dependencies:
       - package: Anglesite
         product: AnglesiteQuickLookSupport
+      # The rendering half (preview view / thumbnail drawing) — a package library so it's
+      # smoke-testable under `swift test` against a fixture package (#1968).
+      - package: Anglesite
+        product: AnglesiteQuickLookUI
 
   AnglesiteQuickLookThumbnail:
     type: app-extension
@@ -310,6 +304,10 @@ targets:
     dependencies:
       - package: Anglesite
         product: AnglesiteQuickLookSupport
+      # The rendering half (preview view / thumbnail drawing) — a package library so it's
+      # smoke-testable under `swift test` against a fixture package (#1968).
+      - package: Anglesite
+        product: AnglesiteQuickLookUI
 
   # Safari share extension (#1450, spec: docs/superpowers/plans/2026-08-16-share-extension-quick-capture-plan.md):
   # posts the current Safari page as a link post without the app frontmost. See
@@ -348,6 +346,10 @@ targets:
     dependencies:
       - package: Anglesite
         product: AnglesiteCore
+      # The compose model + Safari input extraction, testable without the extension host
+      # (#1968) — see Package.swift's AnglesiteShareExtensionCore comment.
+      - package: Anglesite
+        product: AnglesiteShareExtensionCore
 
   # IndieWeb Safari Extension (#1098): standalone Manifest V3 Safari Web Extension embedded in
   # Anglesite.app. Detects h-cards, feeds, webmentions, ActivityPub, and general microformats2 on

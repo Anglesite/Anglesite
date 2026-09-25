@@ -14,14 +14,40 @@ import Foundation
 ///   availability-fallback handling (the type carries its own `QuotaUsage`/`Availability`
 ///   states). `.privateCloudCompute` remains backed by the on-device session until that
 ///   entitlement is granted and the integration is designed — this is a deliberate near-term
-///   scope choice, not an API limitation. The only observable difference today is the
-///   advertised ``AssistantCapabilities``.
+///   scope choice, not an API limitation. Per the revised LLM policy (2026-07-08, cross-platform
+///   port design §8) the alias is *labeled*, never silent: ``servingTier`` drives the advertised
+///   ``AssistantCapabilities`` (honest on-device numbers), and ``degradationNotice`` is the
+///   badge every feature designed for this tier shows (#1965).
 public enum FoundationModelTier: String, Sendable, Equatable, CaseIterable {
     /// `SystemLanguageModel.default` — the ~3B on-device model. Free, no network.
     case onDevice            = "onDevice"
-    /// Reserved. Backed by the on-device session in v1 (see type note); advertises a larger
-    /// context window via capabilities.
+    /// Reserved. Backed by the on-device session in v1 (see type note) — ``servingTier`` is
+    /// `.onDevice`, and the advertised capabilities say so.
     case privateCloudCompute = "privateCloudCompute"
+
+    /// The tier that actually serves a request for `self` today. `.privateCloudCompute` is an
+    /// alias for `.onDevice` until the PCC entitlement lands — this is the one place that flips
+    /// when it does (`ContentAssistantFactory` and the UI badges all key off it).
+    public var servingTier: FoundationModelTier {
+        switch self {
+        case .onDevice, .privateCloudCompute: return .onDevice
+        }
+    }
+
+    /// Whether a feature designed for this tier is being served by a smaller model than it was
+    /// designed for. The LLM policy requires such features to be clearly labeled rather than
+    /// silently degraded (#1965).
+    public var isDegraded: Bool { servingTier != self }
+
+    /// The BBEdit-style badge for a feature designed for this tier, or `nil` when it's served
+    /// as designed. One string for every surface — the SwiftUI sheets (`ModelTierNoticeView`)
+    /// and the canvas selection toolbar (carried on `WritingHelpOutcome.rewritten`'s `notice`).
+    public var degradationNotice: String? {
+        isDegraded ? Self.onDeviceDegradationNotice : nil
+    }
+
+    /// The badge text itself, owner-phrased: what runs it and what to expect.
+    public static let onDeviceDegradationNotice = "Runs on the on-device model; results may be shorter."
 }
 
 /// Deterministic context-budget helpers, usable without `FoundationModels`. Declared as a
@@ -191,8 +217,10 @@ public actor FoundationModelAssistant: ConversationalAssistant {
 
     /// Advertised capabilities for this backend. `nonisolated` so UI code can read it without
     /// an actor hop. The values describe what's *wired*, not per-call guarantees (see the
-    /// `supportsTools` note in the body); `maxContextTokens` and `providerName` are the only
-    /// observable differences between the two `FoundationModelTier`s in v1.
+    /// `supportsTools` note in the body). `maxContextTokens` and `providerName` follow
+    /// `tier.servingTier`, not `tier`: a `.privateCloudCompute` request is served on-device today
+    /// (#1965), and advertising the 32K PCC window for a 4K session was the silent degradation
+    /// the LLM policy forbids. The PCC branch stays so nothing else changes when the alias flips.
     public nonisolated var capabilities: AssistantCapabilities {
         AssistantCapabilities(
             supportsStreaming: true,
@@ -204,8 +232,8 @@ public actor FoundationModelAssistant: ConversationalAssistant {
             // query needs an extra entitlement there is unverified until the MAS smoke (#81, Task 11).
             // Attachment and construction are sandbox-independent, so `true` is accurate regardless.
             supportsTools: true,
-            maxContextTokens: tier == .privateCloudCompute ? 32_768 : 4_096,
-            providerName: tier == .privateCloudCompute ? "Private Cloud Compute" : "On-Device"
+            maxContextTokens: tier.servingTier == .privateCloudCompute ? 32_768 : 4_096,
+            providerName: tier.servingTier == .privateCloudCompute ? "Private Cloud Compute" : "On-Device"
         )
     }
 

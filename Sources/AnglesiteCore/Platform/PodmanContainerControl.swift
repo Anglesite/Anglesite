@@ -73,9 +73,10 @@ public struct PodmanContainerControl: LocalContainerControl {
     ///     silently pulling an unrelated public image on first run.
     ///   - podmanExecutable: The `podman` binary to invoke. Defaults to the common distro path
     ///     `/usr/bin/podman`; injectable so tests can substitute a fake CLI.
-    ///   - supervisor: The `ProcessSupervisor` all non-daemonizing podman invocations (`exec`,
-    ///     `port`, `stop`) run through — the repo's centralized spawning seam. Production uses
-    ///     `.shared`; only the boot-time `podman run -d` bypasses it (see `start`'s step 1).
+    ///   - supervisor: The `ProcessSupervisor` every podman invocation runs through — the repo's
+    ///     centralized spawning seam. `exec`/`port`/`stop` use its one-shot `run`; the boot-time
+    ///     `podman run -d` uses its `runDetaching` (see `start`'s step 1). Production uses
+    ///     `.shared`.
     ///   - astroCommand: The `sh -lc` command that serves the preview on guest port 4321.
     ///     Injectable so tests can substitute a lightweight fake — the real MCP sidecar/Astro
     ///     toolchain isn't available everywhere `PodmanContainerControl` needs to be exercised.
@@ -155,7 +156,7 @@ public struct PodmanContainerControl: LocalContainerControl {
         // investigation doc §6. A no-op outside a Flatpak sandbox.
         let cloneSource = try await DocumentPortalResolution.resolveHostPath(
             for: unresolvedCloneSource, flatpakHostSpawn: flatpakHostSpawn, supervisor: supervisor,
-            flatpakSpawnExecutable: flatpakSpawnExecutable)
+            flatpakSpawnExecutable: flatpakSpawnExecutable, logCenter: logCenter)
         let name = Self.containerName(for: siteID)
 
         // 1. Boot a bare, long-lived container (podman's equivalent of Apple Containerization's
@@ -166,15 +167,17 @@ public struct PodmanContainerControl: LocalContainerControl {
         //    published to OS-assigned host ports. `--rm` means `podman stop` alone tears down the
         //    whole thing — no separate `podman rm`.
         //
-        //    Deliberately NOT `ProcessSupervisor.run`/Foundation's `Process` here: `podman run -d`
-        //    forks `conmon`, a monitor process that outlives the `podman` CLI invocation and — when
-        //    spawned through `Process` on Linux — leaves `waitUntilExit()`/the exit-detection path
+        //    Deliberately `runDetaching`, not the plain `run`: `podman run -d` forks `conmon`, a
+        //    monitor process that outlives the `podman` CLI invocation and — when spawned through
+        //    Foundation's `Process` on Linux — leaves `waitUntilExit()`/the exit-detection path
         //    hanging indefinitely, even with output fully redirected away from any pipe `Process`
         //    holds. Verified empirically on this box: a raw `posix_spawn`+`waitpid()` for the exact
-        //    same command returns in well under a second, so `spawnDetachedPodmanRun` below bypasses
-        //    `Process` entirely for this one call. Every other podman invocation in this file
-        //    (`exec`, `port`, `stop` — none of which daemonize) goes through `ProcessSupervisor`
-        //    normally and is unaffected.
+        //    same command returns in well under a second. That primitive used to live here as a
+        //    raw-C one-off (`spawnDetachedPodmanRun`) with its output in a temp file read only on
+        //    failure; #1966 moved it into the supervisor as `runDetaching`, so this one spawn now
+        //    gets the same sudden-termination lease, `LogCenter` replay under `podman`, and
+        //    spawn-failure translation as every other. Every other podman invocation in this file
+        //    (`exec`, `port`, `stop` — none of which daemonize) uses the ordinary `run`.
         do {
             let invocation = podmanInvocation([
                 "run", "-d", "--rm", "--name", name,
@@ -183,10 +186,13 @@ public struct PodmanContainerControl: LocalContainerControl {
                 "-p", "127.0.0.1::\(Self.mcpPort)",
                 image, "sleep", "infinity",
             ])
-            try Self.spawnDetachedPodmanRun(
-                podmanExecutable: invocation.executable,
-                arguments: invocation.arguments
-            )
+            let result = try await supervisor.runDetaching(
+                source: Self.logSource, executable: invocation.executable,
+                arguments: invocation.arguments, logCenter: logCenter)
+            guard result.exitCode == 0 else {
+                throw LocalContainerError.bootFailed(
+                    "podman run failed (exit \(result.exitCode)): \(result.stderr.isEmpty ? result.stdout : result.stderr)")
+            }
         } catch let error as LocalContainerError {
             throw error
         } catch {
@@ -346,7 +352,12 @@ public struct PodmanContainerControl: LocalContainerControl {
         arguments.append(name)
         arguments += argv
         let invocation = podmanInvocation(arguments)
-        let result = try await supervisor.run(executable: invocation.executable, arguments: invocation.arguments)
+        // `.relayed`: the protocol's `onOutput` is the delivery path (the runtime tags it per
+        // site, and `ContainerEditExport` filters a base64 bundle off stdout); streaming here too
+        // would show every line twice in the debug pane.
+        let result = try await supervisor.run(
+            source: Self.logSource, executable: invocation.executable, arguments: invocation.arguments,
+            logging: .relayed(via: "onOutput"), logCenter: logCenter)
         if !result.stdout.isEmpty { onOutput(result.stdout, .stdout) }
         if !result.stderr.isEmpty { onOutput(result.stderr, .stderr) }
         return ContainerExecResult(exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr)
@@ -415,15 +426,24 @@ public struct PodmanContainerControl: LocalContainerControl {
 
     // MARK: - Internals
 
+    /// The `LogCenter` source every podman CLI invocation here logs under (#1966). One tag for
+    /// the lifecycle commands (`run -d`, `port`, `stop`) keeps the Debug pane's Source picker
+    /// short; the guest processes inside the container keep their own tags (`astro`, `mcp`, and
+    /// whatever the runtime assigns to `exec` output via `onOutput`).
+    static let logSource = "podman"
+
     /// `podman exec`, capturing the full output as one shot and replaying it through `onOutput` —
     /// setup commands (hosts/clone/checkout) are fast, so losing true line-by-line liveness in
     /// exchange for the simpler one-shot `run()` path is an acceptable trade (unlike astro/mcp,
     /// which genuinely run for the container's whole lifetime and use `launch()` instead).
+    /// `.relayed` for the same reason as `exec`: `onOutput` is the delivery path.
     private func execOneShot(
         name: String, label: String, onOutput: @escaping @Sendable (String, LogCenter.Stream) -> Void, _ argv: [String]
     ) async throws {
         let invocation = podmanInvocation(["exec", name] + argv)
-        let result = try await supervisor.run(executable: invocation.executable, arguments: invocation.arguments)
+        let result = try await supervisor.run(
+            source: Self.logSource, executable: invocation.executable, arguments: invocation.arguments,
+            logging: .relayed(via: "onOutput"), logCenter: logCenter)
         for line in result.stdout.split(separator: "\n", omittingEmptySubsequences: true) {
             onOutput("[\(label)] \(line)", .stdout)
         }
@@ -440,7 +460,8 @@ public struct PodmanContainerControl: LocalContainerControl {
     private func resolvedHostPort(name: String, guestPort: Int) async throws -> Int {
         let invocation = podmanInvocation(["port", name, "\(guestPort)/tcp"])
         let result = try await supervisor.run(
-            executable: invocation.executable, arguments: invocation.arguments)
+            source: Self.logSource, executable: invocation.executable, arguments: invocation.arguments,
+            logCenter: logCenter)
         guard result.exitCode == 0 else {
             throw LocalContainerError.bootFailed("podman port lookup failed for \(guestPort): \(result.stderr)")
         }
@@ -461,9 +482,14 @@ public struct PodmanContainerControl: LocalContainerControl {
         return Int(portString)
     }
 
+    /// Best-effort teardown: a failure here has nowhere useful to go (every caller is already on
+    /// an error or shutdown path), but `run` still streams podman's complaint — and a spawn
+    /// failure's marker — into the debug pane under `podman`, so it isn't lost.
     private func stopContainer(name: String) async {
         let invocation = podmanInvocation(["stop", "-t", "5", name])
-        _ = try? await supervisor.run(executable: invocation.executable, arguments: invocation.arguments)
+        _ = try? await supervisor.run(
+            source: Self.logSource, executable: invocation.executable, arguments: invocation.arguments,
+            logCenter: logCenter)
     }
 
     /// Podman container names must start with an alphanumeric and contain only
@@ -472,45 +498,6 @@ public struct PodmanContainerControl: LocalContainerControl {
     static func containerName(for siteID: String) -> String {
         let sanitized = siteID.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == "." ? $0 : "-" }
         return "anglesite-" + String(sanitized)
-    }
-
-    /// Runs `podman <arguments>` via raw `posix_spawn`/`waitpid`, bypassing Foundation's `Process`
-    /// entirely — see the long comment on `start()`'s step 1 for why. No shell involved (argv is
-    /// passed directly), so no quoting/injection concerns. Output is redirected to a throwaway
-    /// temp file (not discarded to `/dev/null`) so a failure still has a diagnostic to report.
-    static func spawnDetachedPodmanRun(podmanExecutable: URL, arguments: [String]) throws {
-        let logPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("anglesite-podman-boot-\(UUID().uuidString).log").path
-        defer { try? FileManager.default.removeItem(atPath: logPath) }
-
-        var fileActions = posix_spawn_file_actions_t()
-        posix_spawn_file_actions_init(&fileActions)
-        defer { posix_spawn_file_actions_destroy(&fileActions) }
-        let openResult = logPath.withCString { path in
-            posix_spawn_file_actions_addopen(&fileActions, 1, path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-        }
-        guard openResult == 0 else {
-            throw LocalContainerError.bootFailed("couldn't prepare boot log file (errno \(openResult))")
-        }
-        posix_spawn_file_actions_adddup2(&fileActions, 1, 2)  // stderr -> same file as stdout
-
-        let argv = ([podmanExecutable.path] + arguments).map { strdup($0) } + [nil]
-        defer { for pointer in argv { free(pointer) } }
-
-        var pid: pid_t = 0
-        let spawnResult = posix_spawn(&pid, podmanExecutable.path, &fileActions, nil, argv, environ)
-        guard spawnResult == 0 else {
-            throw LocalContainerError.bootFailed("posix_spawn failed (errno \(spawnResult))")
-        }
-
-        var status: Int32 = 0
-        waitpid(pid, &status, 0)
-        let exitCode = (status >> 8) & 0xff
-
-        if exitCode != 0 {
-            let bootLog = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
-            throw LocalContainerError.bootFailed("podman run failed (exit \(exitCode)): \(bootLog)")
-        }
     }
 
     /// Polls `url` with a plain HTTP GET until it answers or `timeout` elapses. Podman's port
