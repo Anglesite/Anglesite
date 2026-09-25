@@ -735,7 +735,7 @@ struct SiteWindow: View {
                 .accessibilityIdentifier(AXID.toolbar(.github))
             } else {
                 Button {
-                    model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                    model.publish.publish(siteID: site.id, source: site.sourceDirectory, repoName: site.name)
                 } label: {
                     Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
                 }
@@ -973,6 +973,14 @@ struct SiteWindow: View {
                             onDismiss: { model.sync.dismissBanner() }
                         )
                         .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    }
+                    // Non-blocking site-update notice (#1962): what Anglesite applied at open —
+                    // scripts it maintains, dependency bumps — phrased about the site, with the
+                    // file/package detail behind a Details popover. Replaces the two blocking
+                    // sheets that used to ask the owner to adjudicate these.
+                    if let notice = model.siteUpdateNotice {
+                        SiteUpdateNoticeBannerView(notice: notice, onDismiss: { model.dismissSiteUpdateNotice() })
+                            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                     HStack(spacing: 0) {
                         // Leading tool panel (#1588 Task 20): same Divider + fixed-width +
@@ -1370,6 +1378,23 @@ struct SiteWindow: View {
         .sheet(isPresented: $bindableModel.publish.sheetPresented) {
             PublishSheet(model: model.publish, siteName: site.name)
         }
+        // #1959: a publish or backup the source push gate refused shows the same no-override
+        // sheet a blocked deploy does — one presentation for every "this can't leave your Mac
+        // yet" outcome.
+        .sheet(isPresented: $bindableModel.publish.blockedPresented) {
+            if case .blocked(let failures, let warnings) = model.publish.phase {
+                BlockedDeploySheetView(failures: failures, warnings: warnings) {
+                    model.publish.dismissBlocked()
+                }
+            }
+        }
+        .sheet(isPresented: $bindableModel.backup.blockedPresented) {
+            if case .blocked(let failures, let warnings) = model.backup.phase {
+                BlockedDeploySheetView(context: .backup, failures: failures, warnings: warnings) {
+                    model.backup.dismissBlocked()
+                }
+            }
+        }
         .sheet(isPresented: $bindableModel.publish.tokenPromptPresented) {
             GitHubTokenPromptView(model: model.publish) {
                 model.publish.cancelTokenPrompt()
@@ -1460,47 +1485,10 @@ struct SiteWindow: View {
                 }
             }
             .frame(minWidth: 420, minHeight: 260)
-            // `loadAndStart()` suspends on a `CheckedContinuation` that only Skip/Update resume
-            // (see `SiteWindowModel.loadAndStart`). Block outside-tap/swipe dismissal so those two
-            // buttons are structurally the only way out — otherwise the continuation would leak
-            // and `preview.open()` would never run.
-            .interactiveDismissDisabled()
-        }
-        .sheet(item: $bindableModel.scriptSyncModel) { syncModel in
-            NavigationStack {
-                List(syncModel.pending) { divergence in
-                    let copy = ScriptSyncModel.rowCopy(for: divergence.relativePath)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(copy.title)
-                            .font(.headline)
-                        Text(copy.consequence)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(divergence.relativePath)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                        if syncModel.failedRelativePaths.contains(divergence.relativePath) {
-                            Label("Couldn't update this file — see the debug log for details.", systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-                        HStack {
-                            Button("Keep My Version") { syncModel.keepMine(divergence) }
-                            Spacer()
-                            Button("Update This File") { syncModel.update(divergence) }
-                                .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .navigationTitle("Site Scripts Customized")
-            }
-            .frame(minWidth: 420, minHeight: 260)
-            // Mirrors the dependency-update sheet immediately above: `loadAndStart()` suspends on
-            // a `CheckedContinuation` that only resumes once every row is resolved (see
-            // `ScriptSyncModel.remove`/`SiteWindowModel.loadAndStart`). Block outside-tap/swipe
-            // dismissal so per-row buttons are structurally the only way out.
-            .interactiveDismissDisabled()
+            // Presented only by the Security Reports "Update available" action (#975) since #1962
+            // — the site-open dependency check applies its offers directly and reports through the
+            // non-blocking `SiteUpdateNoticeBannerView` instead. Nothing suspends on this sheet, so
+            // an outside-tap dismissal is simply a Skip.
         }
         .sheet(item: $bindableModel.securityTxtMigrationModel) { migrationModel in
             NavigationStack {
@@ -1521,7 +1509,7 @@ struct SiteWindow: View {
                 .navigationTitle("security.txt")
             }
             .frame(minWidth: 420, minHeight: 220)
-            // Mirrors the scripts-sync sheet immediately above: `loadAndStart()` suspends on a
+            // The one site-open sheet that still suspends `loadAndStart()` (#1962): it awaits a
             // `CheckedContinuation` that only Adopt/Preserve resume. Block outside-tap/swipe
             // dismissal so those two buttons are structurally the only way out.
             .interactiveDismissDisabled()

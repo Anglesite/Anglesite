@@ -135,7 +135,7 @@ struct WebsiteCommands: Commands {
                 } else {
                     Button("Publish to GitHub…") {
                         guard let model, let site = model.site else { return }
-                        model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                        model.publish.publish(siteID: site.id, source: site.sourceDirectory, repoName: site.name)
                     }
                     .disabled(model?.canPublishToGitHub != true)
                 }

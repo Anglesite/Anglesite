@@ -117,6 +117,15 @@ New `SiteConfigStore` (in `AnglesiteCore`) reads/writes
 - Replaces app-global per-site state. Genuinely global keys (e.g.
   `lastOpenedSiteID`) stay in `AppSettings`, now holding a UUID.
 
+> **Amendment (2026-09-08, #1960 / decision D6):** `Config/` also holds the generated
+> `wrangler.toml` (`AnglesitePackage.wranglerConfigURL`) and the deploy markers that used to
+> be `.site-config` keys (`SiteSettings.workerDeployed` / `.workerProvisioned` /
+> `.sourceBundleBucket`). They carry provisioned Cloudflare resource ids and deploy history —
+> infrastructure the app manages on the owner's behalf, not site content — so they never enter
+> the `Source/` repo; the deploy path stages `wrangler.toml` into the guest. The full
+> content-versus-config classification of every app-written file is in
+> [`../../specs/2026-09-08-site-file-ownership-classification-decision.md`](../../specs/2026-09-08-site-file-ownership-classification-decision.md).
+
 ## 5. Create / Import / Export
 
 **New site.** Scaffold writes into `<pkg>/Source/`:

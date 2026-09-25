@@ -9,7 +9,12 @@ import Foundation
 /// A deploy is a single foreground action, run through the injected `DeployExecutor` seam for the
 /// steps this spine owns directly (build, preflight). Container runtimes run the steps in a
 /// guest; the default process-backed executor fails explicitly after embedded Node retirement.
-///   1. `target.authorize(siteDirectory:)` — credential resolution plus any target-specific
+///   0. `AppOwnedScriptsGate.enforce` — the app-owned `scripts/` + `src/lib/` set (the pre-deploy
+///      gate itself and the modules it imports) is verified against the app's own copy, in the
+///      host repo and in the executor's runtime copy (#1958, owner decision D5). A mismatch
+///      refuses the deploy, restores the app's copy, commits it, and surfaces as `.blocked` with
+///      no override; a runtime copy the gate can't read is `.failed`, never skipped.
+///   1. `target.authorize(siteDirectory:configDirectory:)` — credential resolution plus any target-specific
 ///      fail-fast checks (e.g. Cloudflare's worker-name-conflict and domain-config-drift checks).
 ///      `.blocked` short-circuits immediately, before any build time is spent.
 ///   2. `executor.runBuildWithClaimManifest(…)` so `dist/` is fresh — the build carries the derived
@@ -55,7 +60,7 @@ public actor DeployCommand {
         case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning])
         /// The candidate Worker name (`.site-config`'s `CF_PROJECT_NAME`) already exists on the
         /// connected Cloudflare account, and this site has never deployed before
-        /// (`CF_WORKER_DEPLOYED` is not yet set in `.site-config`) — refusing to silently let
+        /// (`SiteSettings.workerDeployed` is not yet set, #1960) — refusing to silently let
         /// `wrangler deploy` take over an unrelated (or stale) Worker. Carries the taken name for
         /// the UI's rename prompt (#740).
         case workerNameConflict(name: String)
@@ -139,6 +144,15 @@ public actor DeployCommand {
     /// every real consumer here.
     public nonisolated let executor: any DeployExecutor
 
+    /// Where the app's own copy of the app-owned script set lives — the reference
+    /// `AppOwnedScriptsGate` verifies every site's `scripts/` + `src/lib/` against before a
+    /// deploy (#1958, owner decision D5). Defaults to the running app's template
+    /// (`TemplateRuntime.resolve()`, so a template author's Settings override is honored the same
+    /// way site-open sync honors it — the two must never disagree about what "the app's copy"
+    /// is); tests point it at a fixture. `nil` means the app can't find its template at all —
+    /// logged loudly as unverifiable, never mistaken for intact.
+    private nonisolated let templateDirectory: @Sendable () -> URL?
+
     /// The target `deploy(siteID:siteDirectory:…)` would publish `siteDirectory` through.
     ///
     /// Public so a caller that needs the concrete conformer for a companion command can downcast
@@ -158,17 +172,23 @@ public actor DeployCommand {
     /// resolver and a scripted executor, never touching the network or spawning a process.
     public init(
         targetResolver: @escaping DeployTargetSelection.Resolver = DeployTargetSelection.fromSiteConfig,
-        executor: any DeployExecutor = HostDeployExecutor()
+        executor: any DeployExecutor = HostDeployExecutor(),
+        templateDirectory: @escaping @Sendable () -> URL? = { TemplateRuntime.resolve().url }
     ) {
         self.targetResolver = targetResolver
         self.executor = executor
+        self.templateDirectory = templateDirectory
     }
 
     /// Pins one target for every site this command deploys, bypassing the site's own declaration.
     /// For a caller whose deploy is target-specific by construction — `SocialWorkerProvisionCommand`'s
     /// Cloudflare-only publish — and for tests driving a scripted conformer.
-    public init(target: any DeployTarget, executor: any DeployExecutor = HostDeployExecutor()) {
-        self.init(targetResolver: { _ in target }, executor: executor)
+    public init(
+        target: any DeployTarget,
+        executor: any DeployExecutor = HostDeployExecutor(),
+        templateDirectory: @escaping @Sendable () -> URL? = { TemplateRuntime.resolve().url }
+    ) {
+        self.init(targetResolver: { _ in target }, executor: executor, templateDirectory: templateDirectory)
     }
 
     /// This command with its selection frozen to `target`, keeping its executor.
@@ -186,7 +206,7 @@ public actor DeployCommand {
     /// - Parameter target: The conformer to publish every site through, normally the result of
     ///   ``target(for:)`` for the site this attempt is about to deploy.
     public nonisolated func pinning(target: any DeployTarget) -> DeployCommand {
-        DeployCommand(target: target, executor: executor)
+        DeployCommand(target: target, executor: executor, templateDirectory: templateDirectory)
     }
 
     /// Run a deploy for `siteID`. Returns once the target's publish step has resolved (or before,
@@ -196,13 +216,11 @@ public actor DeployCommand {
     public func deploy(
         siteID: String,
         siteDirectory: URL,
-        /// The site's `Config/` directory. `nil` skips route-coverage scanning and the
-        /// deployed-routes snapshot write entirely — callers that don't pass it (tests, and the
-        /// two non-primary deploy paths in `SocialWorkerProvisionCommand`/`SiteOperations`) are
-        /// unaffected (#530).
-        configDirectory: URL? = nil,
-        /// The site's currently published route set (from `SiteContentGraph`), used only when
-        /// `configDirectory` is non-nil.
+        /// The site's `Config/` directory — home of the generated `wrangler.toml`, the deploy
+        /// markers (#1960), and the deployed-routes snapshot that route-coverage scanning
+        /// compares against (#530).
+        configDirectory: URL,
+        /// The site's currently published route set (from `SiteContentGraph`).
         currentRoutes: [String] = [],
         /// Effective active dynamic `/.well-known/` route claims (#746), already validated via
         /// `WorkerRouteClaims.activeClaims` and filtered with `WorkerRouteClaims.wellKnownClaims`.
@@ -215,6 +233,27 @@ public actor DeployCommand {
         onMarkdownForAgents: MarkdownForAgentsObserver? = nil,
         onProgress: ProgressHandler? = nil
     ) async -> Result {
+        // #1958 (owner decision D5): before anything else — before credentials, before a build,
+        // before the scan — verify the app-owned script set (the pre-deploy gate and the modules
+        // it imports) against the app's own copy, in the host repo and in whatever copy the
+        // executor actually runs the scan from. A mismatch refuses this deploy, restores the
+        // app's copy, commits it, and tells the owner in owner terms; there is no keep-mine and
+        // no override. This is the one implementation for every deploy path (GUI and headless
+        // App Intents both reach `deploy` through `SocialWorkerProvisionCommand.provision`).
+        let scriptsOutcome = await AppOwnedScriptsGate.enforce(
+            sourceDirectory: siteDirectory, configDirectory: configDirectory,
+            templateDirectory: templateDirectory(),
+            runtimeCopy: AppOwnedScriptsGate.RuntimeCopy(executor: executor, source: "deploy:\(siteID)"),
+            source: "deploy:\(siteID)")
+        if let failure = AppOwnedScriptsGate.scanFailure(for: scriptsOutcome) {
+            let outcome = PreDeployCheck.Outcome.blocked(failures: [failure], warnings: [])
+            onPreflight?(outcome)
+            return .blocked(failures: [failure], warnings: [])
+        }
+        if let reason = AppOwnedScriptsGate.failureReason(for: scriptsOutcome) {
+            return .failed(reason: reason, exitCode: nil)
+        }
+
         // Which host this site publishes to (#1682) — read once, here, so authorization and the
         // publish hand-off below can't disagree about the target even if the site's declaration
         // changes mid-deploy.
@@ -225,7 +264,7 @@ public actor DeployCommand {
         // build or scan. The credential comes back opaque here — only the target that produced it
         // knows what to do with it.
         let credential: String
-        switch await target.authorize(siteDirectory: siteDirectory) {
+        switch await target.authorize(siteDirectory: siteDirectory, configDirectory: configDirectory) {
         case .blocked(let result):
             return result
         case .ready(let resolvedCredential):
@@ -356,15 +395,13 @@ public actor DeployCommand {
         // Swift-computed warnings, not emitted by the JS scan script — merged into the outcome
         // the same way `RouteCoverageScanner`'s `.orphanedRoute` findings always have been.
         var extraWarnings = wellKnownScanWarnings + wellKnownArtifactWarnings
-        if let configDirectory {
-            let previousRoutes = DeployedRoutesSnapshot.load(from: configDirectory)
-            let redirects = (try? RedirectsStore(sourceDirectory: siteDirectory).load()) ?? []
-            extraWarnings += RouteCoverageScanner.scan(
-                currentRoutes: currentRoutes,
-                previousRoutes: previousRoutes,
-                redirectSources: Set(redirects.map(\.source))
-            )
-        }
+        let previousRoutes = DeployedRoutesSnapshot.load(from: configDirectory)
+        let redirects = (try? RedirectsStore(sourceDirectory: siteDirectory).load()) ?? []
+        extraWarnings += RouteCoverageScanner.scan(
+            currentRoutes: currentRoutes,
+            previousRoutes: previousRoutes,
+            redirectSources: Set(redirects.map(\.source))
+        )
         if !extraWarnings.isEmpty {
             switch preflightOutcome {
             case .passed(let warnings):

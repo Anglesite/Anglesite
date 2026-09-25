@@ -100,8 +100,13 @@ public enum MicropubContentCommitter {
         configDirectory: URL,
         fileManager: FileManager = .default,
         now: @Sendable () -> Date = Date.init,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) async -> Int {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
         var state = readSyncState(from: configDirectory)
         let currentURLs = Set(posts.map(\.url))
 

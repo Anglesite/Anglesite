@@ -193,4 +193,67 @@ struct PreviewModelContainerCapabilityTests {
 
         #expect(await runtime.persistedCommits == ["deadbeef"])
     }
+
+    // MARK: - hasNoContainerCapability / sourcePublishGateProvider (#1959, PR #1981 review)
+
+    @Test("hasNoContainerCapability is true for a runtime with no container capability at all")
+    func hasNoContainerCapabilityTrueForNonCapableRuntime() async {
+        let model = PreviewModel(runtime: UnavailableSiteRuntime(reason: "no container capability"))
+
+        #expect(model.hasNoContainerCapability)
+    }
+
+    @Test("hasNoContainerCapability is false for a container-capable runtime, booted or not")
+    func hasNoContainerCapabilityFalseForCapableRuntime() async {
+        let runtime = FakeContainerCapableSiteRuntime()
+        let model = PreviewModel(runtime: runtime)
+
+        #expect(model.hasNoContainerCapability == false)
+
+        await runtime.start(siteID: "custom-site", siteDirectory: URL(fileURLWithPath: "/unused"))
+        #expect(model.hasNoContainerCapability == false)
+    }
+
+    @Test("sourcePublishGateProvider() reports .error for a non-capable runtime, not nil (nil reads as \"still booting, retry\")")
+    func sourcePublishGateProviderErrorsForNonCapableRuntime() async throws {
+        let model = PreviewModel(runtime: UnavailableSiteRuntime(reason: "no container capability"))
+        let provider = PreviewModel.sourcePublishGateProvider(for: model)
+
+        guard let runtime = await provider() else {
+            Issue.record("expected a Runtime whose scan reports the unsupported-runtime error, not nil")
+            return
+        }
+        guard case .error = await runtime.scan(URL(fileURLWithPath: "/unused")) else {
+            Issue.record("expected the scan to report .error for a runtime with no container capability")
+            return
+        }
+    }
+
+    @Test("sourcePublishGateProvider() returns nil while a container-capable runtime hasn't booted yet")
+    func sourcePublishGateProviderNilWhileBooting() async {
+        let runtime = FakeContainerCapableSiteRuntime()
+        let model = PreviewModel(runtime: runtime)
+        let provider = PreviewModel.sourcePublishGateProvider(for: model)
+
+        let resolved = await provider()
+
+        #expect(resolved == nil)
+    }
+
+    @Test("sourcePublishGateProvider() resolves a real container Runtime once the container is up")
+    func sourcePublishGateProviderResolvesOnceBooted() async {
+        let runtime = FakeContainerCapableSiteRuntime()
+        let siteDirectory = URL(fileURLWithPath: "/unused")
+        await runtime.start(siteID: "custom-site", siteDirectory: siteDirectory)
+        let model = PreviewModel(runtime: runtime, openSiteDirectory: siteDirectory)
+        let provider = PreviewModel.sourcePublishGateProvider(for: model)
+
+        guard let resolved = await provider() else {
+            Issue.record("expected a Runtime once the container-capable runtime has booted")
+            return
+        }
+        // `containerRuntime(...)` always supplies a scripts copy (the container's own); the
+        // no-capability branch above never does — this distinguishes which path resolved.
+        #expect(resolved.scriptsCopy != nil)
+    }
 }

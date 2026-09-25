@@ -80,6 +80,12 @@ public actor PreDeployCheck {
             /// `dist/` output — restricted content must only ever be served through the Worker's
             /// IndieAuth read gate (#1568), never the static build (#963 §2.1, #1569).
             case restrictedContentInDist = "restricted-content-in-dist"
+            /// An app-owned script (`scripts/`, `src/lib/` — the pre-deploy gate itself, or a
+            /// module it imports) differed from the app's own copy at deploy time, so the deploy
+            /// was refused and the app's copy restored and committed (`AppOwnedScriptsGate`,
+            /// #1958, owner decision D5). Computed Swift-side, never emitted by the scan script —
+            /// the script is exactly what can't be trusted when this fires.
+            case appOwnedScriptRestored = "app-owned-script-restored"
             /// Any category code this build doesn't recognize yet — decoding falls back here
             /// instead of throwing, so a future/typo'd category can't crash the whole scan (#742).
             case other = "other"

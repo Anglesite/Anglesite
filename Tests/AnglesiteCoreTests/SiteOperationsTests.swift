@@ -32,7 +32,8 @@ struct SiteOperationsTests {
                     }
                 },
                 streamer: { _, _, _ in (0, "") },
-                clock: { Date(timeIntervalSince1970: 1_780_000_000) }
+                clock: { Date(timeIntervalSince1970: 1_780_000_000) },
+                gate: .passing
             )
         }
     }
@@ -202,8 +203,34 @@ struct SiteOperationsTests {
         #expect(arguments.contains(["kv", "namespace", "create", "blue-bottle-cafe-social"]))
         #expect(!arguments.contains(["d1", "migrations", "apply", "AUTH_DB", "--remote"]))
         let toml = try String(
-            contentsOf: package.appendingPathComponent("Source/wrangler.toml"), encoding: .utf8)
+            contentsOf: package.appendingPathComponent("Config/wrangler.toml"), encoding: .utf8)
         #expect(!toml.contains("[[r2_buckets]]"))
+    }
+
+    @Test("provisionSocialWorker migrates a legacy Source/wrangler.toml out of the repo before provisioning (#1960)")
+    func provisionSocialWorkerMigratesLegacyWranglerConfig() async throws {
+        // Regression for the review finding on #1976: `provisionSocialWorker` (the headless "turn
+        // on social basics" App Intent/Shortcut) never ran `ExistingSiteMigration.runNoninteractively`
+        // before provisioning, unlike `deploy(site:)`. A pre-#1960 site touched only through this
+        // Shortcut — never opened in a window, never deployed via `deploy(site:)` — kept its stale,
+        // git-tracked `Source/wrangler.toml` indefinitely: `provision()`'s legacy-recovery fallback
+        // reads it for ids, but the regenerated config is persisted only to `Config/wrangler.toml`,
+        // leaving the `Source/` copy right where #1960 says it must not be.
+        let package = try temporaryPackage()
+        defer { try? FileManager.default.removeItem(at: package) }
+        let site = makeSite(name: "Blue Bottle Cafe", packageURL: package)
+        let legacyURL = WranglerConfigFile.legacyURL(sourceDirectory: site.sourceDirectory)
+        try "name = \"blue-bottle-cafe-social\"\nd1_databases = []\n".write(
+            to: legacyURL, atomically: true, encoding: .utf8)
+        let recorder = SocialWorkerRecorder()
+        let ops = SiteOperations(factory: SocialWorkerFactory(recorder: recorder), store: throwawayStore())
+
+        _ = await ops.provisionSocialWorker(site: site)
+
+        #expect(
+            !FileManager.default.fileExists(atPath: legacyURL.path),
+            "the legacy Source/wrangler.toml must be migrated away before provisioning, mirroring deploy(site:)"
+        )
     }
 
     @Test("social worker provisioning maps missing folder grants to failed results")
@@ -365,7 +392,7 @@ struct SiteOperationsTests {
             return
         }
         let wranglerToml = try String(
-            contentsOf: site.sourceDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+            contentsOf: site.configDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8)
         #expect(wranglerToml.contains(#"AP_ACTOR_TYPE = "Group""#))
         #expect(wranglerToml.contains(#"AP_MODERATORS = "https://mastodon.social/users/mod""#))
 
@@ -684,7 +711,7 @@ private struct FlakyKVFactory: CommandFactory {
     let recorder: FlakyKVRecorder
 
     func deploy() -> DeployCommand { DeployCommand() }
-    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
+    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }, gate: .passing) }
     func audit() -> AuditCommand {
         AuditCommand(
             executor: HostAuditExecutor(resolveCommand: { _ in { _ in .unavailable(reason: "noop") } }),
@@ -711,7 +738,7 @@ private struct SocialWorkerFactory: CommandFactory {
     let recorder: SocialWorkerRecorder
 
     func deploy() -> DeployCommand { DeployCommand() }
-    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
+    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }, gate: .passing) }
     func audit() -> AuditCommand {
         AuditCommand(
             executor: HostAuditExecutor(resolveCommand: { _ in { _ in .unavailable(reason: "noop") } }),

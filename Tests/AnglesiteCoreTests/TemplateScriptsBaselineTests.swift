@@ -14,14 +14,24 @@ import Foundation
         #expect(TemplateScriptsBaseline.load(from: config) == TemplateScriptsBaseline())
     }
 
-    @Test func saveThenLoadRoundTripsEntriesIncludingAcknowledgedHash() throws {
+    @Test func saveThenLoadRoundTripsEntries() throws {
         let config = tmpDir()
         var baseline = TemplateScriptsBaseline()
         baseline.files["scripts/pre-deploy-check.ts"] = .init(baselineHash: "abc")
-        baseline.files["scripts/edge-artifacts.ts"] = .init(baselineHash: "def", acknowledgedTemplateHash: "ghi")
+        baseline.files["scripts/edge-artifacts.ts"] = .init(baselineHash: "def")
         try baseline.save(to: config)
 
         #expect(TemplateScriptsBaseline.load(from: config) == baseline)
+    }
+
+    @Test func loadTolerantlyIgnoresAPreExistingAcknowledgedTemplateHashKey() throws {
+        // Written by the pre-#1962 "keep my version" path; no longer read (owner decision D1/D5).
+        let config = tmpDir()
+        let legacy = #"{"files":{"scripts/edge-artifacts.ts":{"baselineHash":"def","acknowledgedTemplateHash":"ghi"}}}"#
+        try Data(legacy.utf8).write(to: config.appendingPathComponent(TemplateScriptsBaseline.filename))
+
+        let loaded = TemplateScriptsBaseline.load(from: config)
+        #expect(loaded.files["scripts/edge-artifacts.ts"] == .init(baselineHash: "def"))
     }
 
     @Test func loadReturnsEmptyWhenFileIsCorrupt() throws {

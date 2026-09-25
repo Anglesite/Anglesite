@@ -20,6 +20,11 @@ import Foundation
 ///
 /// Then the action steps stream their output to `LogCenter` under
 /// `backup:<siteID>`, so the drawer UI can show progress in real time.
+///
+/// Every push — the normal add→commit→push and the ahead-of-origin recovery — runs behind
+/// `SourcePublishGate` first (#1959, owner decision D5): the app-owned scripts are verified
+/// against the app's copy and the source-tree scan runs in the site's runtime. A refusal is the
+/// `.blocked` result with no override.
 public actor BackupCommand {
     /// Terminal outcome of one ``BackupCommand/backup(siteID:siteDirectory:onProgress:)`` run.
     /// Deliberately a
@@ -34,6 +39,13 @@ public actor BackupCommand {
         /// Clean working tree *and* HEAD in sync with `origin/<branch>` — nothing was committed
         /// or pushed. A clean tree alone isn't enough; see pre-flight check 3 on the type.
         case noChanges
+        /// The source push gate (`SourcePublishGate`, #1959) refused the push: the site's
+        /// safety check had been changed, or the source scan found something that must not leave
+        /// the Mac. Carries the same structures the deploy's blocked sheet renders, so the UI
+        /// shares one presentation; there is no override. A commit this run created stays local
+        /// and is pushed by the next backup once the finding is fixed (#246's ahead-of-origin
+        /// recovery).
+        case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning])
         /// `exitCode` is `nil` for pre-spawn refusals (on `main`, no remote) and for
         /// spawn failures; otherwise it's the failing git subprocess's exit code.
         case failed(reason: String, exitCode: Int32?)
@@ -55,19 +67,24 @@ public actor BackupCommand {
     private let runner: GitRunner
     private let streamer: GitStreamer
     private let clock: @Sendable () -> Date
+    private let gate: SourcePublishGate
 
     /// Creates a backup command with injectable seams; production callers take the defaults
     /// (`defaultRunner`/`defaultStreamer` — in-process SwiftGit2 on Darwin, subprocess `git`
     /// elsewhere). `clock` feeds the commit-message timestamp so tests can pin it to a known
-    /// instant instead of matching a live `Date()`.
+    /// instant instead of matching a live `Date()`. `gate` runs before every push (#1959); its
+    /// default, `SourcePublishGate.live`, scans in the site's registered runtime and refuses the
+    /// push when there is none — there is no "no gate" value.
     public init(
         runner: @escaping GitRunner = BackupCommand.defaultRunner,
         streamer: @escaping GitStreamer = BackupCommand.defaultStreamer,
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        gate: SourcePublishGate = .live
     ) {
         self.runner = runner
         self.streamer = streamer
         self.clock = clock
+        self.gate = gate
     }
 
     /// Runs the full pre-flight + `add` → `commit` → `push` sequence described on the type.
@@ -149,7 +166,8 @@ public actor BackupCommand {
                 return .failed(reason: "`git status` exited \(result.exitCode)", exitCode: result.exitCode)
             }
             if result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return await pushPendingCommitsIfAhead(branch: branch, remoteURL: remoteURL, in: siteDirectory, source: source, onProgress: onProgress)
+                return await pushPendingCommitsIfAhead(
+                    siteID: siteID, branch: branch, remoteURL: remoteURL, in: siteDirectory, source: source, onProgress: onProgress)
             }
         } catch {
             return .failed(reason: "couldn't run `git status`: \(error)", exitCode: nil)
@@ -181,12 +199,32 @@ public actor BackupCommand {
             return .failed(reason: "couldn't read commit SHA: \(error)", exitCode: nil)
         }
         if Task.isCancelled { return .failed(reason: "backup canceled", exitCode: nil) }
+        // #1959: gate the push — after the commit, so the scan sees exactly the commit about to
+        // leave the Mac, and before `git push`, so a refused one never does. A `.blocked` leaves
+        // the local commit for the next backup's ahead-of-origin recovery to push once fixed.
+        if let refusal = await gatePush(siteID: siteID, siteDirectory: siteDirectory, source: source) {
+            return refusal
+        }
         onProgress?(.backupPushing)
         if let failure = await streamGit(["push", "origin", branch], in: siteDirectory, source: source, label: "git push") {
             return failure
         }
 
         return .succeeded(commitSHA: sha, branch: branch, remote: remoteURL)
+    }
+
+    /// Runs the source push gate and maps a refusal into a terminal `Result`; `nil` means the
+    /// push may proceed. Both push sites (the normal add→commit→push path and the
+    /// ahead-of-origin recovery) go through here so neither can skip it.
+    private func gatePush(siteID: String, siteDirectory: URL, source: String) async -> Result? {
+        switch await gate.check(siteID: siteID, sourceDirectory: siteDirectory, configDirectory: nil, source: source) {
+        case .passed:
+            return nil
+        case .blocked(let failures, let warnings):
+            return .blocked(failures: failures, warnings: warnings)
+        case .error(let reason):
+            return .failed(reason: reason, exitCode: nil)
+        }
     }
 
     // MARK: - Helpers
@@ -222,6 +260,7 @@ public actor BackupCommand {
     /// was never pushed), `git rev-list` exits non-zero; we treat that as "can't determine"
     /// and preserve the historical `.noChanges` rather than erroring or pushing blindly.
     private func pushPendingCommitsIfAhead(
+        siteID: String,
         branch: String,
         remoteURL: String,
         in siteDirectory: URL,
@@ -255,6 +294,11 @@ public actor BackupCommand {
         // error and push anyway) actually short-circuits, matching the step-level guards the
         // normal add→commit→push path gets from the cancellation work (#238).
         if Task.isCancelled { return .failed(reason: "backup canceled", exitCode: nil) }
+        // #1959: the stranded commit(s) are about to leave the Mac too — same gate as the
+        // normal path.
+        if let refusal = await gatePush(siteID: siteID, siteDirectory: siteDirectory, source: source) {
+            return refusal
+        }
         onProgress?(.backupPushing)
         if let failure = await streamGit(["push", "origin", branch], in: siteDirectory, source: source, label: "git push") {
             return failure

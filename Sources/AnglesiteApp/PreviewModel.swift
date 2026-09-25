@@ -333,8 +333,9 @@ final class PreviewModel {
         ))
     }
 
-    init(runtime: any SiteRuntime) {
+    init(runtime: any SiteRuntime, openSiteDirectory: URL? = nil) {
         self.runtime = runtime
+        self.openSiteDirectory = openSiteDirectory
         self.editRouter = MCPApplyEditRouter(
             mcpClient: { [weak runtime] in
                 // `runtime` is the actor instance; reading `mcpClient` hops onto the actor.
@@ -767,6 +768,62 @@ final class PreviewModel {
     func syncContentFromHost() async {
         guard let capability = runtime.containerCapability else { return }
         try? await capability.syncFromHost()
+    }
+
+    /// `syncContentFromHost()` for a caller that must know the sync landed — the source push
+    /// gate (#1959) scans the guest's clone, so a failed fast-forward has to refuse the push
+    /// rather than scan stale content. Throws when there is no container to sync.
+    func syncContentFromHostOrThrow() async throws {
+        guard let capability = runtime.containerCapability else {
+            throw SiteRuntimePersistenceError.runtimeNotRunning
+        }
+        try await capability.syncFromHost()
+    }
+
+    /// True when this window's runtime has no container capability *at all* (#823) —
+    /// `RemoteSandboxSiteRuntime`/`UnavailableSiteRuntime` — as opposed to a container runtime
+    /// that simply hasn't finished booting yet. `activeContainerControl()` returns `nil` for both
+    /// cases; this distinguishes them for a caller (the source publish gate, #1959) that must
+    /// tell "this runtime kind will never support this" from "wait for the preview to start."
+    var hasNoContainerCapability: Bool {
+        runtime.containerCapability == nil
+    }
+
+    /// Builds the provider `SiteWindowModel.loadAndStart()` registers into
+    /// `SourcePublishGateRegistry` for this window's site (#1959) — resolved at check time, not
+    /// at registration time, since the container is often still booting when the site opens (a
+    /// check before it's ready must refuse rather than skip).
+    ///
+    /// A runtime with no container capability at all can never satisfy this gate no matter how
+    /// long the caller waits — there is no in-container copy of the site to scan
+    /// (`RemoteSandboxSiteRuntime`'s LAN/Cloudflare-sandbox path, `UnavailableSiteRuntime`).
+    /// Returning `nil` for that case too (as an earlier version of this code did) reads to
+    /// `SourcePublishGate.check` as "no runtime registered," producing the same "open the site…
+    /// wait for its preview to start" refusal it gives a site that isn't open at all — misleading
+    /// here, since the site *is* open and its (gate-unsupported) runtime *is* running fine. This
+    /// distinguishes the two: still `nil` (retry-worthy) while a container-capable runtime is
+    /// booting, but an explicit `.error` scan outcome for a runtime kind the gate doesn't support
+    /// (PR #1981 review).
+    static func sourcePublishGateProvider(for preview: PreviewModel) -> SourcePublishGateRegistry.Provider {
+        { [preview] in
+            guard let cc = await preview.activeContainerControl() else {
+                guard await preview.hasNoContainerCapability else { return nil }
+                return SourcePublishGate.Runtime(
+                    scriptsCopy: nil,
+                    scan: { _ in
+                        .error(
+                            reason: "this site's preview is running on a remote or LAN host, which doesn't "
+                                + "support Anglesite's safety scan yet — Publish and Backup need the local "
+                                + "container preview")
+                    })
+            }
+            guard let siteDirectory = await preview.openSiteDirectory else { return nil }
+            let configDirectory = siteDirectory.deletingLastPathComponent()
+                .appendingPathComponent("Config", isDirectory: true)
+            return SourcePublishGate.containerRuntime(
+                control: cc.control, siteID: cc.siteID, configDirectory: configDirectory,
+                syncFromHost: { try await preview.syncContentFromHostOrThrow() })
+        }
     }
 
     /// Forwards a Workers-tab toggle (#710) to the running runtime so a live local wrangler-dev

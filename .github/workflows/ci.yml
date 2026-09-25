@@ -1102,6 +1102,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/check-test-userdefaults-suite-literal.sh
+      # #1990: no async closure parameter may default to a function/value reference (Swift 6.3.3
+      # re-emits the synthesized thunk per client module with a different context size).
+      - run: scripts/check-async-closure-default-args.sh
 
   reuse-lint:
     name: REUSE licensing lint
