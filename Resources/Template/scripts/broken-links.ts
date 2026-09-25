@@ -297,11 +297,12 @@ export function classify(rawReference: string, siteHosts: Set<string>): Classifi
     const authority = (end === -1 ? authorityAndRest : authorityAndRest.slice(0, end)).toLowerCase();
     let host = authority.includes("@") ? authority.slice(authority.lastIndexOf("@") + 1) : authority;
     if (host.includes(":")) host = host.slice(0, host.lastIndexOf(":"));
-    if (!siteHosts.has(host)) {
-      const hash = remainder.indexOf("#");
-      return { kind: "external", url: hash === -1 ? remainder : remainder.slice(0, hash) };
-    }
     const rest = end === -1 ? "" : authorityAndRest.slice(end);
+    if (!siteHosts.has(host)) {
+      // Scheme and authority are case-insensitive, so fold them for dedupe; path and query aren't.
+      const hash = rest.indexOf("#");
+      return { kind: "external", url: `${name}://${authority}${hash === -1 ? rest : rest.slice(0, hash)}` };
+    }
     remainder = rest === "" ? "/" : rest;
   }
 

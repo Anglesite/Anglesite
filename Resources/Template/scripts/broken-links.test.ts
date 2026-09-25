@@ -133,6 +133,15 @@ test("externalReferences lists each distinct off-site URL once while the count s
   assert.deepEqual(report.externalReferences, ["https://other.example/page"]);
 });
 
+test("externalReferences folds scheme and host case but keeps the path's", () => {
+  const report = scanFiles({
+    "a.html": '<a href="HTTPS://Other.EXAMPLE/Path">1</a>',
+    "b.html": '<a href="https://other.example/Path">2</a> <a href="https://other.example/path">3</a>',
+  });
+  assert.deepEqual(report.externalReferences, ["https://other.example/Path", "https://other.example/path"]);
+  assert.equal(report.externalReferencesSkipped, 3);
+});
+
 test("externalReferences keeps first-seen order across pages, the query and the path's case", () => {
   const report = scanFiles({
     "a.html": '<a href="https://z.example/Path?q=1">z</a> <a href="//cdn.example/lib.js">c</a>',
