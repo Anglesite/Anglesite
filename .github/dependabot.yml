@@ -20,7 +20,7 @@ updates:
         update-types: ["version-update:semver-major"]
       # Held back until their dependents accept the new majors (see #2036):
       # @astrojs/check needs typescript ^5 || ^6, @cloudflare/vitest-pool-workers
-      # needs vitest ^4.1, astro-seo-schema needs schema-dts ^1.1.5.
+      # needs vitest ^4.1, astro-seo-schema needs schema-dts ^1.1.0.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       - dependency-name: "vitest"
