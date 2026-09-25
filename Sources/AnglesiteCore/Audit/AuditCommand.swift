@@ -184,13 +184,14 @@ public actor AuditCommand {
         .unavailable(reason: HostNodeRetirement.reason("broken-link check"))
     }
 
-    /// Default runner set: `A11yAuditRunner`, `SecurityTxtAuditRunner` (#843), and
-    /// `BrokenLinkAuditRunner` (#1996, the first `.seo` runner). Further SEO / perf runners are
-    /// mechanical follow-ups that slot into this list without changing the actor or sheet UI
-    /// (#86 follow-ups).
+    /// Default runner set: `A11yAuditRunner`, `SecurityTxtAuditRunner` (#843),
+    /// `BrokenLinkAuditRunner` (#1996), and `SEOAuditRunner` (#2004) — the `.seo` category's two
+    /// runners. Further perf runners are mechanical follow-ups that slot into this list without
+    /// changing the actor or sheet UI (#86 follow-ups).
     public static let defaultRunners: [any AuditRunner] = [
         A11yAuditRunner(),
         SecurityTxtAuditRunner(),
-        BrokenLinkAuditRunner()
+        BrokenLinkAuditRunner(),
+        SEOAuditRunner()
     ]
 }

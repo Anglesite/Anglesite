@@ -46,6 +46,9 @@ interface Props {
   image?: string;
   /** The `og:type` this page advertises. Defaults to "website"; BlogPost overrides "article". */
   ogType?: string;
+  /** When this page was first published — renders `article:published_time`. BlogPost passes its
+   * `pubDate`; omit for every other page, which then carries no `article:` tag at all. */
+  publishedTime?: Date;
   /**
    * Overrides the canonical URL this page advertises, as a root-relative path (e.g. `/pricing`).
    * Omit for ordinary pages, which canonicalize to their own URL. Set by a scaffolded A/B-test
@@ -55,7 +58,7 @@ interface Props {
   canonicalPath?: string;
 }
 
-const { title, description, lang, documentPath, image, ogType = "website" } = Astro.props;
+const { title, description, lang, documentPath, image, ogType = "website", publishedTime } = Astro.props;
 // Standard.site (Atmosphere) verification links (#1232, increment 2 of #1230): both at-URIs are
 // computable at build time with no network call — see standard-site.ts's doc comment. Gated on
 // both `.site-config` keys `StandardSitePublishCommand` persists on first successful publish
@@ -119,6 +122,9 @@ const ogImage = image ? new URL(image, Astro.site ?? Astro.url).href : undefined
 // PWA_THEME_COLOR is only written to .site-config by the PWA integration (derived from the
 // site's own --color-primary) — a site without it simply renders no theme-color meta.
 const themeColor = readConfig("PWA_THEME_COLOR");
+// #2003: og:site_name only when the owner set SITE_NAME — never the "Home" literal the theme
+// pack headers fall back to, which would publish wrong metadata rather than none.
+const siteName = readConfig("SITE_NAME");
 ---
 
 <!doctype html>
@@ -145,6 +151,14 @@ const themeColor = readConfig("PWA_THEME_COLOR");
     <meta property="og:url" content={canonical} />
     <meta property="og:type" content={ogType} />
     {ogImage && <meta property="og:image" content={ogImage} />}
+    {effectiveTitle && <meta property="og:title" content={effectiveTitle} />}
+    {effectiveDescription && <meta property="og:description" content={effectiveDescription} />}
+    {siteName && <meta property="og:site_name" content={siteName} />}
+    {effectiveLang && <meta property="og:locale" content={effectiveLang} />}
+    {publishedTime && <meta property="article:published_time" content={publishedTime.toISOString()} />}
+    <meta name="twitter:card" content={ogImage ? "summary_large_image" : "summary"} />
+    {effectiveTitle && <meta name="twitter:title" content={effectiveTitle} />}
+    {effectiveDescription && <meta name="twitter:description" content={effectiveDescription} />}
     <link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml" />
     <link rel="alternate" type="application/atom+xml" title="Atom" href="/atom.xml" />
     <link rel="alternate" type="application/feed+json" title="JSON Feed" href="/feed.json" />
