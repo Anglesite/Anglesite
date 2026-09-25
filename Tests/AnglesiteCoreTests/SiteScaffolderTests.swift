@@ -323,11 +323,12 @@ struct SiteScaffolderTests {
         let configDir = pkgURL.appendingPathComponent("Config")
         let baseline = DependencyBaseline.load(from: configDir)
         #expect(baseline != nil)
-        // Read the expected range from the template itself so dependency bumps
-        // (e.g. Dependabot's template-deps group) don't break this test.
-        let templatePackage = try JSONSerialization.jsonObject(
-            with: Data(contentsOf: templateURL.appendingPathComponent("package.json"))) as? [String: Any]
-        let templateAstro = (templatePackage?["dependencies"] as? [String: String])?["astro"]
+        // Read the expected range from the template itself, via the same extractor
+        // SiteScaffolder uses, so dependency bumps (e.g. Dependabot's template-deps
+        // group) don't break this test.
+        let templateAstro = try PackageJSONDependencies.extract(
+            from: String(contentsOf: templateURL.appendingPathComponent("package.json"), encoding: .utf8)
+        )["astro"]
         #expect(templateAstro != nil)
         #expect(baseline?["astro"] == templateAstro)
 
