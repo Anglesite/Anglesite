@@ -79,11 +79,12 @@ describe("image drop onto an <img> (#1957)", () => {
   let dispose: () => void;
 
   beforeAll(() => {
-    if (typeof URL.createObjectURL === "undefined") {
-      let blobCounter = 0;
-      URL.createObjectURL = () => `blob:http://localhost/${++blobCounter}`;
-      URL.revokeObjectURL = () => { /* no-op in test */ };
-    }
+    // Always stub, even when URL.createObjectURL exists: vitest's jsdom environment wraps it
+    // with a compat shim that reads jsdom's Blob internals via a hidden impl symbol, and
+    // jsdom 30.1 moved those internals to private fields, so the wrapped call throws.
+    let blobCounter = 0;
+    URL.createObjectURL = () => `blob:http://localhost/${++blobCounter}`;
+    URL.revokeObjectURL = () => { /* no-op in test */ };
   });
 
   beforeEach(() => {
