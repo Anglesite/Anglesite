@@ -59,7 +59,7 @@ struct SafariVerificationSheetView: View {
     private var headerSubtitle: String? {
         switch model.phase {
         case .idle:
-            return "Uses the connected Safari MCP session to inspect the live preview."
+            return "Opens the live preview in Safari to check it for problems."
         case .running:
             return "Loading the preview in Safari and collecting console, network, and page data…"
         case .succeeded(let report, _):
@@ -115,7 +115,7 @@ struct SafariVerificationSheetView: View {
                 .foregroundStyle(.secondary)
             Text("Verify with Safari?")
                 .font(.headline)
-            Text("Runs one read-only inspection pass of the live preview over the connected Safari MCP session — console errors, failed network requests, a page-content summary, and a screenshot. It never edits site files.")
+            Text("Runs one read-only check of the live preview in Safari — console errors, failed network requests, a page-content summary, and a screenshot. It never changes your site.")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)

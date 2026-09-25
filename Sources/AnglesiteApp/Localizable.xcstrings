@@ -3820,7 +3820,7 @@
     "Running a Safari-backed verification pass…" : {
 
     },
-    "Runs one read-only inspection pass of the live preview over the connected Safari MCP session — console errors, failed network requests, a page-content summary, and a screenshot. It never edits site files." : {
+    "Runs one read-only check of the live preview in Safari — console errors, failed network requests, a page-content summary, and a screenshot. It never changes your site." : {
 
     },
     "Runtime host" : {
