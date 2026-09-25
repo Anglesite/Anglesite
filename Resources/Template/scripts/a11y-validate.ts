@@ -287,15 +287,16 @@ function customProperties(body: string): Map<string, string> {
   let depth = 0;
   let start = 0;
   const declarations: string[] = [];
-  for (let i = 0; i <= body.length; i++) {
+  for (let i = 0; i < body.length; i++) {
     const ch = body[i];
     if (ch === "(") depth++;
     else if (ch === ")") depth--;
-    else if ((ch === ";" && depth === 0) || i === body.length) {
+    else if (ch === ";" && depth === 0) {
       declarations.push(body.slice(start, i));
       start = i + 1;
     }
   }
+  declarations.push(body.slice(start)); // the last declaration needs no trailing `;`
   for (const declaration of declarations) {
     const colon = declaration.indexOf(":");
     if (colon < 0) continue;
