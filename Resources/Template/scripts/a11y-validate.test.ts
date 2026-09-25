@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -272,6 +272,35 @@ test("validateContrast: every shipped theme pack's global.css passes too", () =>
   for (const pack of ["astropaper", "astroplate", "astrowind", "cactus", "starfolio"]) {
     const css = readFileSync(join(TEMPLATE_ROOT, "packs", pack, "src/styles/global.css"), "utf8");
     assert.deepEqual(validateContrast(css), [], pack);
+  }
+});
+
+/** Every `<style>` block in the given `.astro` files (paths relative to the template root). */
+function componentCss(files: string[]): string {
+  return files
+    .map((file) => readFileSync(join(TEMPLATE_ROOT, file), "utf8"))
+    .flatMap((source) => [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]))
+    .join("\n");
+}
+
+/** The `.astro` files directly under `dir` (relative to the template root), if it exists. */
+function astroFiles(dir: string): string[] {
+  const abs = join(TEMPLATE_ROOT, dir);
+  return existsSync(abs) ? readdirSync(abs).filter((f) => f.endsWith(".astro")).map((f) => join(dir, f)) : [];
+}
+
+test("validateContrast: chassis and pack component styles pass on every pack's palette (#2047)", () => {
+  // Packs keep --color-primary at its light value in their dark palette and flip their own link
+  // token instead, so any component painting text with --color-primary fails there.
+  const chassis = componentCss([...astroFiles("src/components"), ...astroFiles("src/layouts"), "src/pages/404.astro"]);
+  assert.match(chassis, /trust-badge/, "fixture must include the Interactions styles");
+  for (const pack of ["astropaper", "astroplate", "astrowind", "cactus", "starfolio"]) {
+    const css = readFileSync(join(TEMPLATE_ROOT, "packs", pack, "src/styles/global.css"), "utf8");
+    const own = componentCss([
+      ...astroFiles(`packs/${pack}/src/components`),
+      ...astroFiles(`packs/${pack}/src/layouts`),
+    ]);
+    assert.deepEqual(validateContrast(`${css}\n${chassis}\n${own}`), [], pack);
   }
 });
 
