@@ -62,10 +62,11 @@ private actor ControllableATProtoDIDTransport {
 
         model.domainInput = "example.com"
         model.resolveAndLoad()
-        // `while model.isRunning { await Task.yield() }` is this codebase's established pattern
-        // for driving a Task-spawning `@Observable` model to completion in tests — see e.g.
-        // `Tests/AnglesiteAppTests/OnionRoutingModelTests.swift`. That pattern relies on `isRunning`
-        // already being true the instant the sync entry point returns, because those models flip
+        // `waitUntil(_:timeout:isolation:_:)` (`Tests/AnglesiteTestSupport/WaitUntil.swift`) is this
+        // codebase's established pattern for driving a Task-spawning `@Observable` model to
+        // completion in tests — see e.g. `Tests/AnglesiteAppTests/OnionRoutingModelTests.swift`.
+        // That pattern relies on `isRunning` already being true the instant the sync entry point
+        // returns, because those models flip
         // `phase` to a running case *before* spawning the `Task`. `DomainModel.resolveAndLoad()` /
         // `submitAddRecord()` instead flip `phase` from inside the spawned `Task`'s body, so a
         // plain `while` can observe `isRunning == false` before that `Task` has run even once and

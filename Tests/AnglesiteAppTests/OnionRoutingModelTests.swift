@@ -38,7 +38,7 @@ struct OnionRoutingModelTests {
 
         model.domainInput = "  Example.com "
         model.load()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the load to finish") { !model.isRunning }
 
         #expect(reader.resolvedDomain == "example.com")
         #expect(model.phase == .configured(domain: "example.com", enabled: true))
@@ -54,7 +54,7 @@ struct OnionRoutingModelTests {
 
         model.domainInput = "missing.com"
         model.load()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the load to finish") { !model.isRunning }
 
         guard case .error(let message) = model.phase else {
             Issue.record("expected .error phase, got \(model.phase)")
@@ -77,10 +77,10 @@ struct OnionRoutingModelTests {
 
         model.domainInput = "example.com"
         model.load()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the load to finish") { !model.isRunning }
 
         model.toggle()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the toggle to finish") { !model.isRunning }
 
         #expect(writer.lastOnionRoutingZoneID == "z1")
         #expect(writer.lastOnionRoutingEnabled == true)
@@ -96,7 +96,7 @@ struct OnionRoutingModelTests {
         let model = OnionRoutingModel(reader: StubCloudflareReader(), writer: writer)
 
         model.toggle()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the toggle to finish") { !model.isRunning }
 
         #expect(writer.lastOnionRoutingEnabled == nil)
         #expect(model.phase == .idle)

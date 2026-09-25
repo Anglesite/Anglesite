@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 /// A `DeployExecutor` that records which steps ran and answers each with a canned success, so a
@@ -65,7 +66,7 @@ struct DeployModelDeployTargetTests {
         let directory = try makeSiteDirectory(deployTarget: GitHubPagesDeployTarget.id)
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         // `SocialWorkerProvisionCommand` is a Cloudflare Workers concept end to end, so with a
         // GitHub Pages target its injected `tokenSource`/`workerScriptNamesSource` closures return
@@ -95,7 +96,7 @@ struct DeployModelDeployTargetTests {
         let directory = try makeSiteDirectory(deployTarget: nil)
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         #expect(executor.ran(.wrangler))
         #expect(!executor.ran(.githubPagesPublish))
@@ -134,7 +135,7 @@ struct DeployModelDeployTargetTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         #expect(resolutions.value == 1, "the attempt re-read the declaration \(resolutions.value) times")
         #expect(executor.ran(.wrangler), "the attempt must publish through the target it started with")

@@ -64,7 +64,7 @@ struct DomainConfigAuditModelTests {
         model.configure(site: site)
 
         model.runAudit()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the audit to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")
@@ -85,7 +85,7 @@ struct DomainConfigAuditModelTests {
         model.configure(site: site)
 
         model.runAudit()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the audit to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")
@@ -112,7 +112,7 @@ struct DomainConfigAuditModelTests {
 
         model.runAudit()
         #expect(model.isRunning)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the audit to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")
@@ -138,7 +138,7 @@ struct DomainConfigAuditModelTests {
         model.configure(site: site)
         let auditToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         model.runAudit()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the audit to finish") { !model.isRunning }
         auditToken.release()
         guard case .results = model.phase else {
             Issue.record("expected .results before exercising reconcile()'s no-token path, got \(model.phase)")
@@ -150,7 +150,7 @@ struct DomainConfigAuditModelTests {
 
         model.reconcile()
         #expect(model.isRunning)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the reconcile to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")
@@ -174,7 +174,7 @@ struct DomainConfigAuditModelTests {
         model.configure(site: site)
 
         model.runAudit()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the audit to finish") { !model.isRunning }
 
         guard case .results(let findings, let plan, let domain, let zoneID) = model.phase else {
             Issue.record("expected .results, got \(model.phase)")
@@ -202,10 +202,10 @@ struct DomainConfigAuditModelTests {
         model.configure(site: site)
 
         model.runAudit()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the audit to finish") { !model.isRunning }
 
         model.reconcile()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the reconcile to finish") { !model.isRunning }
 
         guard case .succeeded(let result) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)")
@@ -304,7 +304,7 @@ struct DomainConfigAuditModelTests {
         #expect(model.phase == .auditing(domain: "fresh.example"))
 
         await reader.resolve(callIndex: 1, zoneID: "fresh-zone")
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the fresh audit to finish") { !model.isRunning }
 
         guard case .results(_, _, let domain, let zoneID) = model.phase else {
             Issue.record("expected .results, got \(model.phase)")

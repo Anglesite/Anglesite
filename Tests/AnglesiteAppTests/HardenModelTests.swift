@@ -56,7 +56,7 @@ struct HardenModelTests {
 
         model.resolveAndPlan()
         #expect(model.isRunning)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the resolve and plan to finish") { !model.isRunning }
 
         guard case .preview(let plan, let domain, let zoneID) = model.phase else {
             Issue.record("expected .preview, got \(model.phase)")
@@ -82,7 +82,7 @@ struct HardenModelTests {
         let model = HardenModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: keychain)
         model.domainInput = "example.com"
         model.resolveAndPlan()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the resolve and plan to finish") { !model.isRunning }
         guard case .preview(let plan, _, _) = model.phase, !plan.isEmpty else {
             Issue.record("expected a non-empty .preview phase before exercising apply(), got \(model.phase)")
             return
@@ -93,7 +93,7 @@ struct HardenModelTests {
         // This second call must observe phase already flipped to `.applying` (not `.preview`), so
         // its own `guard case .preview = phase` rejects it — no second `inFlight` Task, no restart.
         model.apply()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the apply to finish") { !model.isRunning }
 
         guard case .succeeded(let result) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)")
@@ -160,7 +160,7 @@ struct HardenModelTests {
         #expect(model.phase == .resolvingZone(domain: "fresh.example"))
 
         await reader.resolve(callIndex: 1, zoneID: "fresh-zone")
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the fresh resolve and plan to finish") { !model.isRunning }
 
         guard case .preview(_, let domain, let zoneID) = model.phase else {
             Issue.record("expected .preview, got \(model.phase)")
