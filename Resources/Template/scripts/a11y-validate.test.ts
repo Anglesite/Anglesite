@@ -342,6 +342,17 @@ test("validateContrast: a @media block overriding only one token inherits the re
   assert.match(issues[0].message, /prefers-color-scheme: dark/);
 });
 
+test("validateContrast: a media block that changes a pair only through var() still re-checks it", () => {
+  // --color-text points at --ink; the dark block overrides only --ink, never --color-text itself.
+  const css = LIGHT.replace("--color-text: #1e293b;", "--ink: #1e293b; --color-text: var(--ink);") + `
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #eeeeee; }
+}${USAGE}`;
+  const issues = validateContrast(css).filter((i) => i.message.startsWith("--color-text on --color-background"));
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /prefers-color-scheme: dark/);
+});
+
 test("validateContrast: a media block that overrides none of a pair's tokens doesn't re-report it", () => {
   const css = LIGHT.replace("--color-text: #1e293b;", "--color-text: #999999;") +
     "@media (min-width: 48rem) { :root { --spacing-unit: 0.3rem; } }" + USAGE;

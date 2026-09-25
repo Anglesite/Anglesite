@@ -447,8 +447,8 @@ function drawsPair(css: string, fg: string, bg: string): boolean {
 /**
  * Checks the template's token pairs in every `:root` block of `css` (#2022). Top-level `:root`
  * blocks merge into the "light" palette; each `@media` `:root` is checked against that palette
- * with its own overrides applied, and only for pairs it actually overrides, so a light-mode
- * failure isn't reported again under every unrelated media query.
+ * with its own overrides applied, and only for pairs whose colours it actually changes, so a
+ * light-mode failure isn't reported again under every unrelated media query.
  *
  * A pair is checked only when `css` actually draws it ({@link drawsPair}). A theme pack that
  * draws its dark-mode links with its own token (`--ap-link`) instead of `--color-primary`, or
@@ -465,11 +465,14 @@ export function validateContrast(css: string): A11yIssue[] {
   }
   const issues: A11yIssue[] = [];
   const seen = new Set<string>();
-  const check = (tokens: Map<string, string>, label: string, overridden?: Map<string, string>) => {
+  // `baseline` is the light palette a media block inherits from: a pair is re-checked there only
+  // when either colour *resolves* differently, so an override reached through `var()` (the block
+  // redefines `--ink`, which `--color-text: var(--ink)` points at) still counts.
+  const check = (tokens: Map<string, string>, label: string, baseline?: Map<string, string>) => {
     for (const { fg, bg, kind } of rendered) {
-      if (overridden && !overridden.has(fg) && !overridden.has(bg)) continue;
       const fgValue = resolveToken(tokens, fg);
       const bgValue = resolveToken(tokens, bg);
+      if (baseline && fgValue === resolveToken(baseline, fg) && bgValue === resolveToken(baseline, bg)) continue;
       const fgColor = fgValue === undefined ? undefined : parseOpaqueColor(fgValue);
       const bgColor = bgValue === undefined ? undefined : parseOpaqueColor(bgValue);
       if (!fgColor || !bgColor) continue;
@@ -489,7 +492,7 @@ export function validateContrast(css: string): A11yIssue[] {
   check(base, "light");
   for (const block of blocks) {
     if (block.media === undefined) continue;
-    check(new Map([...base, ...block.tokens]), `@media ${block.media}`, block.tokens);
+    check(new Map([...base, ...block.tokens]), `@media ${block.media}`, base);
   }
   return issues;
 }
