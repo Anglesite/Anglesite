@@ -4,7 +4,9 @@
  * Runs WCAG 2.1 AA checks against the built site in `dist/`:
  *
  * 1. Heuristic checks (always run, no install required) — uses `html-validate`
- *    via `scripts/a11y-validate.ts` for heading hierarchy, link text, alt text.
+ *    via `scripts/a11y-validate.ts` for heading hierarchy, link text, alt text,
+ *    plus a contrast check of the design-token pairs in each page's stylesheets
+ *    (#2022) — superseded per page by tiers 2–3's browser-computed contrast.
  * 2. pa11y-ci or pa11y (when installed) — full WCAG 2.1 AA scan including
  *    contrast, ARIA, labels, landmarks. Requires `npm install -D pa11y` or
  *    `pa11y-ci`.
@@ -29,7 +31,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
-import { validateHtml, type A11yIssue } from "./a11y-validate";
+import { validateContrast, validateHtml, type A11yIssue } from "./a11y-validate";
 import { readConfig } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -185,13 +187,35 @@ export function walkHtml(dir: string): string[] {
 // Heuristic scan (always available)
 // ---------------------------------------------------------------------------
 
+/**
+ * All the CSS a built page loads: its inline `<style>` blocks plus every local
+ * `<link rel="stylesheet">` it references (resolved within `distDir`; remote and missing sheets
+ * are skipped). Feeds the token-contrast check, which needs the page's rules as well as its
+ * `:root` blocks.
+ */
+export function pageCss(html: string, file: string, distDir: string, cache = new Map<string, string>()): string {
+  const parts: string[] = [];
+  for (const [, css] of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) parts.push(css);
+  for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
+    if (!/\brel\s*=\s*["']?stylesheet\b/i.test(tag)) continue;
+    const href = tag.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+    const path = (href?.[1] ?? href?.[2] ?? href?.[3])?.split(/[?#]/)[0];
+    if (!path || /^[a-z][\w+.-]*:|^\/\//i.test(path)) continue;
+    const sheet = path.startsWith("/") ? join(distDir, path) : join(dirname(file), path);
+    if (!cache.has(sheet)) cache.set(sheet, existsSync(sheet) ? readFileSync(sheet, "utf-8") : "");
+    parts.push(cache.get(sheet)!);
+  }
+  return parts.join("\n");
+}
+
 export function runHeuristicScan(distDir: string): A11yAuditIssue[] {
   if (!existsSync(distDir)) return [];
   const issues: A11yAuditIssue[] = [];
+  const sheets = new Map<string, string>();
   for (const file of walkHtml(distDir)) {
     const html = readFileSync(file, "utf-8");
     const rel = relative(distDir, file) || file;
-    for (const issue of validateHtml(html)) {
+    for (const issue of [...validateHtml(html), ...validateContrast(pageCss(html, file, distDir, sheets))]) {
       issues.push({
         page: rel,
         rule: issue.rule,
@@ -475,6 +499,28 @@ export async function runAxeScan(htmlFiles: string[], distDir: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Tier dedup
+// ---------------------------------------------------------------------------
+
+/** Whether a tier-2/3 finding is a contrast failure: axe's `color-contrast`, or a pa11y code for
+ * WCAG SC 1.4.3 (`…Guideline1_4.1_4_3…`). */
+function isBrowserContrast(issue: A11yAuditIssue): boolean {
+  return issue.tool !== "heuristic" && (issue.rule === "color-contrast" || issue.rule.includes("1_4_3"));
+}
+
+/**
+ * Drops the heuristic token-contrast findings (#2022) for every page where pa11y or axe-core
+ * reported contrast themselves: their browser-computed result sees the real cascade, so it wins.
+ * Pages those tools didn't flag keep the heuristic findings.
+ */
+export function dedupContrast(issues: A11yAuditIssue[]): A11yAuditIssue[] {
+  const browserChecked = new Set(issues.filter(isBrowserContrast).map((issue) => issue.page));
+  return issues.filter(
+    (issue) => !(issue.tool === "heuristic" && issue.rule === "color-contrast" && browserChecked.has(issue.page)),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -501,7 +547,7 @@ export async function runAudit(distDir = "dist"): Promise<A11yAuditReport> {
     issues.push(...axeIssues);
   }
 
-  return aggregateReport(issues, toolsRun);
+  return aggregateReport(dedupContrast(issues), toolsRun);
 }
 
 async function isPackageAvailable(name: string): Promise<boolean> {

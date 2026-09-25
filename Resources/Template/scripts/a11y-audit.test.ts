@@ -8,9 +8,11 @@ import {
   classifyAxeSeverity,
   classifyHeuristicSeverity,
   classifyPa11ySeverity,
+  dedupContrast,
   exitCodeFor,
   extractWcagCriteria,
   formatReport,
+  pageCss,
   runHeuristicScan,
   suggestFix,
   walkHtml,
@@ -285,4 +287,79 @@ test("runHeuristicScan: uses paths relative to the dist directory", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Token contrast (#2022): page stylesheets + tier dedup
+// ---------------------------------------------------------------------------
+
+/** A palette whose body text fails AA (#999999 on white, 2.8:1), drawn through the chassis rule. */
+const FAILING_CSS =
+  ":root{--color-background:#ffffff;--color-text:#999999}" +
+  "html{color:var(--color-text);background-color:var(--color-background)}";
+
+const PAGE = (head: string) =>
+  `<!doctype html><html lang="en"><head>${head}</head><body><h1>Hello</h1></body></html>`;
+
+test("pageCss: gathers inline <style> and local linked stylesheets, skipping remote and missing ones", () => {
+  const dir = mkdtempSync(join(tmpdir(), "a11y-audit-"));
+  try {
+    mkdirSync(join(dir, "_astro"));
+    mkdirSync(join(dir, "blog"));
+    writeFileSync(join(dir, "_astro", "site.css"), "/* root-relative */");
+    writeFileSync(join(dir, "blog", "post.css"), "/* page-relative */");
+    const html = PAGE(
+      '<style>/* inline */</style>' +
+        '<link rel="stylesheet" href="/_astro/site.css?v=1">' +
+        '<link href="post.css" rel="stylesheet">' +
+        '<link rel="stylesheet" href="https://cdn.example.com/x.css">' +
+        '<link rel="stylesheet" href="/missing.css">' +
+        '<link rel="icon" href="/favicon.ico">',
+    );
+    const css = pageCss(html, join(dir, "blog", "index.html"), dir);
+    assert.match(css, /inline/);
+    assert.match(css, /root-relative/);
+    assert.match(css, /page-relative/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runHeuristicScan: reports failing token contrast from a page's linked stylesheet", () => {
+  const dir = mkdtempSync(join(tmpdir(), "a11y-audit-"));
+  try {
+    mkdirSync(join(dir, "_astro"));
+    writeFileSync(join(dir, "_astro", "index.css"), FAILING_CSS);
+    writeFileSync(join(dir, "index.html"), PAGE('<link rel="stylesheet" href="/_astro/index.css">'));
+    const issues = runHeuristicScan(dir).filter((i) => i.rule === "color-contrast");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].page, "index.html");
+    assert.equal(issues[0].severity, "error");
+    assert.equal(issues[0].tool, "heuristic");
+    assert.match(issues[0].message, /--color-text on --color-background/);
+    assert.match(issues[0].suggestion, /contrast/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dedupContrast: a page's browser-computed contrast result wins over the token check", () => {
+  const issue = (page: string, rule: string, tool: A11yAuditIssue["tool"]): A11yAuditIssue => ({
+    page, rule, tool, severity: "error", message: rule, suggestion: "",
+  });
+  const issues = [
+    issue("a.html", "color-contrast", "heuristic"),
+    issue("a.html", "color-contrast", "axe-core"),
+    issue("b.html", "color-contrast", "heuristic"),
+    issue("b.html", "WCAG2AA.Principle1.Guideline1_4.1_4_3.G18.Fail", "pa11y"),
+    issue("c.html", "color-contrast", "heuristic"),
+    issue("c.html", "img-alt-missing", "heuristic"),
+  ];
+  const kept = dedupContrast(issues).map((i) => `${i.page} ${i.tool} ${i.rule}`);
+  assert.deepEqual(kept, [
+    "a.html axe-core color-contrast",
+    "b.html pa11y WCAG2AA.Principle1.Guideline1_4.1_4_3.G18.Fail",
+    "c.html heuristic color-contrast",
+    "c.html heuristic img-alt-missing",
+  ]);
 });
