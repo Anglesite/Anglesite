@@ -18,6 +18,15 @@ updates:
       # their own, while they are still beta.
       - dependency-name: "@dwk/*"
         update-types: ["version-update:semver-major"]
+      # Held back until their dependents accept the new majors (see #2036):
+      # @astrojs/check needs typescript ^5 || ^6, @cloudflare/vitest-pool-workers
+      # needs vitest ^4.1, astro-seo-schema needs schema-dts ^1.1.5.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "schema-dts"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/Workers/ControlWorker"
@@ -27,6 +36,10 @@ updates:
       control-worker-dependencies:
         patterns:
           - "*"
+    ignore:
+      # @cloudflare/vitest-pool-workers needs vitest ^4.1 (see #1942).
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/Workers/anglesite-oauth-callback"
