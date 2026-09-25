@@ -2,13 +2,14 @@
 //
 // Port-contract lint (spec §2, docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md):
 // markers, HomepageWriter sentinels, flat component dirs, the 12 base tokens, LICENSE,
-// thumbnail, and a complete catalog entry.
+// thumbnail, a complete catalog entry, and (#2038) <head>/Props lockstep with the chassis
+// BaseLayout.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validatePack, REQUIRED_ROOT_VARS } from "./check-pack";
+import { layoutParityErrors, validatePack, REQUIRED_ROOT_VARS } from "./check-pack";
 import type { ThemeRecord } from "./themes";
 
 const ENTRY: ThemeRecord = {
@@ -125,4 +126,78 @@ test("a pack that overrides nothing structural still needs LICENSE + entry only"
   writeFileSync(join(dir, "src", "styles", "global.css"), GLOBAL_CSS);
   try { assert.deepEqual(validatePack(dir, ENTRY), []); }
   finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// #2038: a forked BaseLayout must keep the chassis <head> and Props in lockstep. The chassis
+// fixture carries a doc comment mentioning <head> in its frontmatter, like the real one does.
+const CHASSIS_LAYOUT = `---
+// anglesite:imports
+interface Props {
+  title: string;
+  /** Advertised in <head>. */
+  description?: string;
+}
+---
+<html>
+  <head>
+    <title>{title}</title>
+    <meta property="og:title" content={title} />
+    <!-- anglesite:head-end -->
+  </head>
+  <body><!-- anglesite:nav --><main id="main"><slot /></main><!-- anglesite:body-end --></body>
+</html>`;
+
+function makeChassis(layout = CHASSIS_LAYOUT): string {
+  const dir = mkdtempSync(join(tmpdir(), "anglesite-chassis-"));
+  mkdirSync(join(dir, "src", "layouts"), { recursive: true });
+  writeFileSync(join(dir, "src", "layouts", "BaseLayout.astro"), layout);
+  return dir;
+}
+
+test("a forked BaseLayout matching the chassis head and Props passes, whatever its body chrome", () => {
+  const pack = CHASSIS_LAYOUT.replace("<!-- anglesite:nav -->", "<PaperNav><!-- anglesite:nav --></PaperNav>");
+  assert.deepEqual(layoutParityErrors(CHASSIS_LAYOUT, pack), []);
+  const chassis = makeChassis();
+  const dir = makePack((d) => writeFileSync(join(d, "src", "layouts", "BaseLayout.astro"), pack));
+  try { assert.deepEqual(validatePack(dir, ENTRY, chassis), []); }
+  finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(chassis, { recursive: true, force: true });
+  }
+});
+
+test("a forked BaseLayout missing a chassis <head> line is reported", () => {
+  const pack = CHASSIS_LAYOUT.replace('    <meta property="og:title" content={title} />\n', "");
+  const errors = layoutParityErrors(CHASSIS_LAYOUT, pack);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /<head> is missing chassis line <meta property="og:title"/);
+});
+
+test("a forked BaseLayout with an extra or reordered <head> line is reported", () => {
+  const extra = CHASSIS_LAYOUT.replace("<!-- anglesite:head-end -->", '<meta name="x" content="y" />\n    <!-- anglesite:head-end -->');
+  assert.ok(layoutParityErrors(CHASSIS_LAYOUT, extra).some((e) => e.includes("a line the chassis doesn't")));
+  const reordered = CHASSIS_LAYOUT.replace(
+    '    <title>{title}</title>\n    <meta property="og:title" content={title} />',
+    '    <meta property="og:title" content={title} />\n    <title>{title}</title>',
+  );
+  assert.ok(layoutParityErrors(CHASSIS_LAYOUT, reordered).some((e) => e.includes("out of order")));
+});
+
+test("a forked BaseLayout missing a chassis prop is reported", () => {
+  const pack = CHASSIS_LAYOUT.replace("  /** Advertised in <head>. */\n  description?: string;\n", "");
+  assert.deepEqual(layoutParityErrors(CHASSIS_LAYOUT, pack), [
+    "src/layouts/BaseLayout.astro: Props is missing chassis prop description",
+  ]);
+});
+
+test("validatePack checks parity only when given a chassis directory", () => {
+  const chassis = makeChassis();
+  const dir = makePack(); // BASE_LAYOUT has none of the chassis head lines
+  try {
+    assert.deepEqual(validatePack(dir, ENTRY), []);
+    assert.ok(validatePack(dir, ENTRY, chassis).some((e) => e.includes("missing chassis line")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(chassis, { recursive: true, force: true });
+  }
 });
