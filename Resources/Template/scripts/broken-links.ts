@@ -58,12 +58,22 @@ export interface BrokenLinkProblem {
   resolvedPath: string;
 }
 
+/** Cap on {@link BrokenLinkReport.externalReferences}, bounding the `--json` payload. */
+export const MAX_EXTERNAL_REFERENCES = 500;
+
 export interface BrokenLinkReport {
   version: 1;
   pagesScanned: number;
   referencesChecked: number;
-  /** Off-site `http(s)` references seen and deliberately not checked. */
+  /** Off-site `http(s)` references seen and deliberately not checked — every occurrence, uncapped. */
   externalReferencesSkipped: number;
+  /**
+   * The distinct off-site URLs behind that count (#2026), first-seen order, fragment stripped and
+   * protocol-relative references given `https:`. At most {@link MAX_EXTERNAL_REFERENCES}; past
+   * that the list is silently truncated while the count above stays exact. For the opt-in external
+   * verification (#2001) to probe — this scan itself never fetches them.
+   */
+  externalReferences: string[];
   /** Sorted by page, then resolved path, then reference — deterministic across runs. */
   problems: BrokenLinkProblem[];
 }
@@ -265,8 +275,8 @@ export function anchorIds(html: string): Set<string> {
 export type Classification =
   /** Non-HTTP scheme, empty, or otherwise not something the output can answer for. */
   | { kind: "skip" }
-  /** An `http(s)` reference to a host that isn't this site. */
-  | { kind: "external" }
+  /** An `http(s)` reference to a host that isn't this site, as an absolute URL without its fragment. */
+  | { kind: "external"; url: string }
   /** A path to look up (empty for a fragment-only reference) plus the fragment. Query strings are dropped. */
   | { kind: "internal"; path: string; fragment: string | null };
 
@@ -287,8 +297,12 @@ export function classify(rawReference: string, siteHosts: Set<string>): Classifi
     const authority = (end === -1 ? authorityAndRest : authorityAndRest.slice(0, end)).toLowerCase();
     let host = authority.includes("@") ? authority.slice(authority.lastIndexOf("@") + 1) : authority;
     if (host.includes(":")) host = host.slice(0, host.lastIndexOf(":"));
-    if (!siteHosts.has(host)) return { kind: "external" };
     const rest = end === -1 ? "" : authorityAndRest.slice(end);
+    if (!siteHosts.has(host)) {
+      // Scheme and authority are case-insensitive, so fold them for dedupe; path and query aren't.
+      const hash = rest.indexOf("#");
+      return { kind: "external", url: `${name}://${authority}${hash === -1 ? rest : rest.slice(0, hash)}` };
+    }
     remainder = rest === "" ? "/" : rest;
   }
 
@@ -381,6 +395,7 @@ export function scan(distDir: string, options: ScanOptions = {}): BrokenLinkRepo
   const anchorCache = new Map<string, Set<string>>();
   let referencesChecked = 0;
   let externalSkipped = 0;
+  const externalReferences = new Set<string>();
 
   for (const relativePath of [...htmlPaths, ...cssPaths]) {
     const contents = readFileSync(join(distDir, relativePath), "utf-8");
@@ -395,6 +410,7 @@ export function scan(distDir: string, options: ScanOptions = {}): BrokenLinkRepo
       if (classification.kind === "skip") continue;
       if (classification.kind === "external") {
         externalSkipped += 1;
+        if (externalReferences.size < MAX_EXTERNAL_REFERENCES) externalReferences.add(classification.url);
         continue;
       }
       const { path, fragment } = classification;
@@ -433,6 +449,7 @@ export function scan(distDir: string, options: ScanOptions = {}): BrokenLinkRepo
     pagesScanned: htmlPaths.length,
     referencesChecked,
     externalReferencesSkipped: externalSkipped,
+    externalReferences: [...externalReferences],
     problems: sorted,
   };
 }
