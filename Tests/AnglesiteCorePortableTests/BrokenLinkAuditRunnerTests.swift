@@ -128,6 +128,24 @@ struct BrokenLinkAuditRunnerTests {
         ]))
     }
 
+    @Test("parse carries the distinct off-site URLs alongside the occurrence count (#2026)")
+    func parseExternalReferences() throws {
+        let raw = """
+        {"version":1,"pagesScanned":1,"referencesChecked":0,"externalReferencesSkipped":3,
+         "externalReferences":["https://a.example/x","https://b.example/"],"problems":[]}
+        """
+        let report = try BrokenLinkAuditRunner.parse(json: Data(raw.utf8))
+        #expect(report.externalReferencesSkipped == 3)
+        #expect(report.externalReferences == ["https://a.example/x", "https://b.example/"])
+    }
+
+    @Test("a report without externalReferences (an older template copy) parses to an empty list")
+    func missingExternalReferencesKey() throws {
+        let report = try BrokenLinkAuditRunner.parse(json: Data(Self.json([], external: 4).utf8))
+        #expect(report.externalReferencesSkipped == 4)
+        #expect(report.externalReferences == [])
+    }
+
     @Test("an unknown problem kind throws rather than being guessed at")
     func unknownKindThrows() {
         let raw = Self.json([#"{"kind":"missing-planet","page":"/","reference":"/x","resolvedPath":"/x"}"#])

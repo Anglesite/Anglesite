@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  MAX_EXTERNAL_REFERENCES,
   NoBuiltPagesError,
   classify,
   collectSiteInputs,
@@ -115,6 +116,50 @@ test("mailto, tel, javascript, data and off-site http links are never flagged", 
   assert.deepEqual(report.problems, []);
   assert.equal(report.referencesChecked, 0);
   assert.equal(report.externalReferencesSkipped, 2);
+});
+
+// ---------------------------------------------------------------------------
+// External references (#2026)
+// ---------------------------------------------------------------------------
+
+test("externalReferences lists each distinct off-site URL once while the count stays per occurrence", () => {
+  const report = scanFiles({
+    "index.html": `
+      <a href="https://other.example/page">1</a>
+      <a href="https://other.example/page">2</a>
+      <a href="https://other.example/page#section">3</a>`,
+  });
+  assert.equal(report.externalReferencesSkipped, 3);
+  assert.deepEqual(report.externalReferences, ["https://other.example/page"]);
+});
+
+test("externalReferences keeps first-seen order across pages, the query and the path's case", () => {
+  const report = scanFiles({
+    "a.html": '<a href="https://z.example/Path?q=1">z</a> <a href="//cdn.example/lib.js">c</a>',
+    "b.html": '<a href="https://z.example/Path?q=2">z2</a> <a href="https://z.example/Path?q=1">again</a>',
+  });
+  assert.deepEqual(report.externalReferences, [
+    "https://z.example/Path?q=1",
+    "https://cdn.example/lib.js",
+    "https://z.example/Path?q=2",
+  ]);
+  assert.equal(report.externalReferencesSkipped, 4);
+});
+
+test("a scan with no off-site links reports an empty externalReferences", () => {
+  const report = scanFiles({ "index.html": '<a href="/">home</a> <a href="mailto:me@example.com">m</a>' });
+  assert.deepEqual(report.externalReferences, []);
+  assert.equal(report.externalReferencesSkipped, 0);
+});
+
+test("externalReferences is capped while the count stays exact", () => {
+  const total = MAX_EXTERNAL_REFERENCES + 25;
+  const links = Array.from({ length: total }, (_, i) => `<a href="https://other.example/p${i}">${i}</a>`).join("");
+  const report = scanFiles({ "index.html": links });
+  assert.equal(report.externalReferences.length, MAX_EXTERNAL_REFERENCES);
+  assert.equal(report.externalReferences[0], "https://other.example/p0");
+  assert.equal(report.externalReferences.at(-1), `https://other.example/p${MAX_EXTERNAL_REFERENCES - 1}`);
+  assert.equal(report.externalReferencesSkipped, total);
 });
 
 test("absolute links to the site's own host are checked like root-relative ones", () => {
@@ -288,7 +333,8 @@ test("classify splits scheme, host, query and fragment", () => {
   const hosts = new Set(["example.com"]);
   assert.deepEqual(classify("", hosts), { kind: "skip" });
   assert.deepEqual(classify("mailto:a@b.c", hosts), { kind: "skip" });
-  assert.deepEqual(classify("https://other.example/x", hosts), { kind: "external" });
+  assert.deepEqual(classify("https://other.example/x", hosts), { kind: "external", url: "https://other.example/x" });
+  assert.deepEqual(classify("//cdn.example/A.js?v=1#top", hosts), { kind: "external", url: "https://cdn.example/A.js?v=1" });
   assert.deepEqual(classify("https://example.com", hosts), { kind: "internal", path: "/", fragment: null });
   assert.deepEqual(classify("https://user@example.com:8443/p?q#f", hosts), { kind: "internal", path: "/p", fragment: "f" });
   assert.deepEqual(classify("/a?b=c#d", hosts), { kind: "internal", path: "/a", fragment: "d" });
@@ -376,7 +422,9 @@ test("collectSiteInputs reads DOMAIN, redirects.json, dist/_redirects and worker
 });
 
 test("formatReport and exitCodeFor summarize a report", () => {
-  const clean = { version: 1 as const, pagesScanned: 2, referencesChecked: 3, externalReferencesSkipped: 0, problems: [] };
+  const clean = {
+    version: 1 as const, pagesScanned: 2, referencesChecked: 3, externalReferencesSkipped: 0, externalReferences: [], problems: [],
+  };
   assert.equal(exitCodeFor(clean), 0);
   assert.match(formatReport(clean), /every internal reference resolves/);
   const dirty = { ...clean, externalReferencesSkipped: 4, problems: [problem("missing-target", "/", "/x", "/x")] };
