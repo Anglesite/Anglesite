@@ -137,6 +137,20 @@ struct BrokenLinkExternalCheckTests {
         #expect(lines[1] == "off-site link check: 3 checked, 1 no longer work, 1 couldn't be verified")
     }
 
+    @Test("a list at the script's 500-link limit says there may be more, and a shorter one doesn't")
+    func logNotesTheListLimit() async throws {
+        let full = (0..<BrokenLinkAuditRunner.externalReferenceCap).map { "https://site\($0).example/" }
+        let logCenter = LogCenter()
+        _ = try await Self.run(external: full, enabled: true, probe: FakeProbe(), logCenter: logCenter)
+        let line = try #require(await logCenter.snapshot().map(\.text).last)
+        #expect(line == "off-site link check: 500 checked (the list's 500-link limit was reached, so there may be more), 0 no longer work, 0 couldn't be verified")
+
+        let shortLog = LogCenter()
+        _ = try await Self.run(external: Array(full.prefix(499)), enabled: true, probe: FakeProbe(), logCenter: shortLog)
+        let shortLine = try #require(await shortLog.snapshot().map(\.text).last)
+        #expect(!shortLine.contains("limit"))
+    }
+
     // MARK: - The live setting
 
     @Test("the live gate reads SiteSettings.externalLinkCheckEnabled from the package's Config/")

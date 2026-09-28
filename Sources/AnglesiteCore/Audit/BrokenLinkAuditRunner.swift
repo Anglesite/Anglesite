@@ -11,9 +11,9 @@ import Foundation
 /// broken in a layout is broken on every page, and one finding that says "linked from 40 pages"
 /// points at one fix, whereas 40 identical findings would bury everything else in the sheet.
 ///
-/// Off-site links are only counted unless the owner opts in (`SiteSettings.externalLinkCheckEnabled`,
-/// #2001): then the distinct URLs the script reports are probed host-side through
-/// ``ExternalLinkProbing``. Only a definitive "gone" (404/410) becomes a finding with teeth
+/// Off-site links are only *counted* by default; when the owner opts in
+/// (`SiteSettings.externalLinkCheckEnabled`, #2001), the distinct URLs the script reports are also
+/// probed host-side through ``ExternalLinkProbing``. Only a definitive "gone" (404/410) becomes a finding with teeth
 /// (`.warning`, never critical); everything the probe couldn't settle is one `.info` note, so a
 /// flaky remote host or a bot challenge can't make the audit badge flap.
 public struct BrokenLinkAuditRunner: AuditRunner {
@@ -104,8 +104,10 @@ public struct BrokenLinkAuditRunner: AuditRunner {
             let results = await externalLinks.probe.probe(externalURLs)
             let gone = results.values.filter { $0 == .unreachable }.count
             let unsettled = results.values.filter { $0 == .indeterminate }.count
+            // The script's list stops at the cap and never exceeds it, so a full list can't tell
+            // "exactly 500" from "500 of more" — say only what's known.
             let capped = report.externalReferences.count >= Self.externalReferenceCap
-                ? " (the first \(Self.externalReferenceCap) distinct links)" : ""
+                ? " (the list's \(Self.externalReferenceCap)-link limit was reached, so there may be more)" : ""
             await logCenter.append(
                 source: source,
                 stream: .stdout,
