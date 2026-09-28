@@ -8,12 +8,13 @@ applied at its original rank — enough to reproduce the full tokenizer exactly 
 
     gen-tokenizer-golden.py <kev-0.5b checkpoint dir> <out.json>     (pip install tokenizers regex)
 """
-import json, re, sys, unicodedata
+import json, sys, unicodedata
+from pathlib import Path
 from tokenizers import Tokenizer
 src = sys.argv[1]; out = sys.argv[2]
 tok = Tokenizer.from_file(src + "/tokenizer.json")
-vocab = json.load(open(src + "/vocab.json"))
-merges = [l.rstrip("\n") for l in open(src + "/merges.txt", encoding="utf-8") if not l.startswith("#") and l.strip()]
+vocab = json.loads(Path(src, "vocab.json").read_text(encoding="utf-8"))
+merges = [l for l in Path(src, "merges.txt").read_text(encoding="utf-8").split("\n") if not l.startswith("#") and l.strip()]
 rank = {tuple(m.split(" ")): i for i, m in enumerate(merges)}
 import regex  # `re` has no \p{L}; `regex` matches HF tokenizers' Rust engine on this pattern
 PAT = regex.compile(r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+")
@@ -73,6 +74,6 @@ for g in golden:
 for (a, b) in applied: final_tokens.add(a); final_tokens.add(b); final_tokens.add(a+b)
 reduced_vocab = {t: vocab[t] for t in sorted(final_tokens, key=lambda t: vocab[t]) if t in vocab}
 reduced_merges = [f"{a} {b}" for (a, b), r in sorted(applied.items(), key=lambda kv: kv[1])]
-json.dump({"pattern": PAT.pattern, "vocab": reduced_vocab, "merges": reduced_merges, "samples": golden},
-          open(out, "w"), ensure_ascii=False, indent=0, sort_keys=True)
-print("samples", len(golden), "reduced vocab", len(reduced_vocab), "reduced merges", len(reduced_merges), "bytes", len(open(out,'rb').read()))
+Path(out).write_text(json.dumps({"pattern": PAT.pattern, "vocab": reduced_vocab, "merges": reduced_merges, "samples": golden},
+                                ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
+print("samples", len(golden), "reduced vocab", len(reduced_vocab), "reduced merges", len(reduced_merges), "bytes", Path(out).stat().st_size)

@@ -9,10 +9,11 @@ allow matrix exactly.
     gen-packer-golden.py <kev-0.5b checkpoint dir> <out.json>     (pip install tokenizers)
 """
 import json, re, sys
+from pathlib import Path
 from tokenizers import Tokenizer
 src, out = sys.argv[1], sys.argv[2]
 tok = Tokenizer.from_file(src + "/tokenizer.json")
-added = json.load(open(src + "/added_tokens.json"))
+added = json.loads(Path(src, "added_tokens.json").read_text(encoding="utf-8"))
 SPECIAL = ["<|fim_prefix|>", "<|fim_middle|>", "<|box_start|>", "<|box_end|>", "<|fim_suffix|>"]
 _SPECIAL_RE = re.compile(r"<\|([A-Za-z0-9_]+)\|>")
 OPT_NONE, OPT_DECIDE = -1, -2
@@ -65,5 +66,5 @@ for iso in (False, True):
     golden["encodings"]["isolated" if iso else "shared"] = enc
 # token ids of the escaped state / instr / options so the Swift test can run the packer without the full vocab
 golden["tokens"] = {"state": user_tokens(rec["state"]), "questions": [{"instr": user_tokens(q["instr"]), "options": [user_tokens(o) for o in q["options"]]} for q in rec["questions"]]}
-json.dump(golden, open(out, "w"), ensure_ascii=False)
-e = golden["encodings"]["shared"]; print("L", len(e["ids"]), "decide", e["decide_idx"], "opt_idx", e["opt_idx"], "bytes", len(open(out,'rb').read()))
+Path(out).write_text(json.dumps(golden, ensure_ascii=False), encoding="utf-8")
+e = golden["encodings"]["shared"]; print("L", len(e["ids"]), "decide", e["decide_idx"], "opt_idx", e["opt_idx"], "bytes", Path(out).stat().st_size)
