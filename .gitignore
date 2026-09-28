@@ -120,3 +120,7 @@ build-smoke/
 # xcconfig/Signing-Release.xcconfig) — machine-specific Apple Developer Team, never shared.
 xcconfig/Signing-Debug.local.xcconfig
 xcconfig/Signing-Release.local.xcconfig
+
+# Python bytecode caches (scripts/kev, scripts/*.py)
+__pycache__/
+*.pyc
