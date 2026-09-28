@@ -186,6 +186,37 @@ struct ReceivedInteractionSyncTests {
         #expect(count == 0)
     }
 
+    // MARK: - fetchInteractions (#2066)
+
+    @Test("fetchInteractions maps the verified inbox without touching git")
+    func fetchInteractionsMapsInbox() async throws {
+        let body = Self.d1Body("""
+        {"id": "wm-abc123", "source": "https://alice.example/post", "target": "https://me.example/blog/hi",
+         "verified_at": 1753300000000, "interaction_type": "reply", "author_name": "Alice",
+         "author_url": null, "author_photo": null, "content": "Great post!", "published_at": 1753299000000},
+        {"id": "wm-bad", "source": "", "target": "https://me.example/blog/hi",
+         "verified_at": 1753300000000, "interaction_type": null, "author_name": null,
+         "author_url": null, "author_photo": null, "content": null, "published_at": null}
+        """)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token", transport: { _ in (body, Self.response(200)) })
+        let interactions = try #require(await ReceivedInteractionSync.fetchInteractions(client: client))
+        #expect(interactions.map(\.id) == ["wm-abc123"])
+        #expect(interactions[0].author?.name == "Alice")
+    }
+
+    @Test("fetchInteractions is nil, not empty, when the D1 query fails")
+    func fetchInteractionsNilOnFailure() async {
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token", transport: { _ in (Data(), Self.response(500)) })
+        let result = await ReceivedInteractionSync.fetchInteractions(client: client)
+        #expect(result == nil)
+        let empty = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token", transport: { _ in (Self.d1Body(""), Self.response(200)) })
+        let none = await ReceivedInteractionSync.fetchInteractions(client: empty)
+        #expect(none == [])
+    }
+
     // MARK: - pullAndCommit with a screener
 
     /// Answers the spam question with a fixed `p(spam)` keyed on the source host in the state.

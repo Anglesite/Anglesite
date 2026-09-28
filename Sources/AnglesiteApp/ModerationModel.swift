@@ -23,6 +23,14 @@ final class ModerationModel {
     private(set) var moderators: [String] = []
     private(set) var pendingFollowers: [PendingFollower] = []
     private(set) var reports: [FlagReport] = []
+    /// Comments the spam screen held for the owner (#2066): the ledger's unresolved holds joined
+    /// with the live inbox record. Empty — and the section hidden — unless a decision model is
+    /// installed (``isScreeningEnabled``), since without one nothing can ever be held.
+    private(set) var heldInteractions: [HeldInteraction] = []
+    /// Whether a Kev decision model is installed on this Mac (`KevModelLocator.installedAssets()`
+    /// non-nil), read once per ``configure(site:)``. Gates the held-comments section the way
+    /// `SiteWindowModel.isHostedCommunity` gates the community sections.
+    private(set) var isScreeningEnabled = false
     var errorMessage: String?
     /// Cleared by whichever confirmation-dialog button runs — same no-op-setter/
     /// clear-in-button-action contract `SiteWindow.swift:898-916`'s delete confirmation uses
@@ -70,6 +78,7 @@ final class ModerationModel {
            let siteURL = URL(string: siteURLString) {
             ownActorURL = ActivityPubActor.actorURL(siteURL: siteURL)
         }
+        isScreeningEnabled = await Self.screeningEnabled()
         await reload()
     }
 
@@ -95,11 +104,13 @@ final class ModerationModel {
             AnnouncedPost.self, from: sourceDirectory.appendingPathComponent("data/community-posts"))
         async let loadedPending = loadPendingFollowers()
         async let loadedReports = loadReports()
+        async let loadedHeld = loadHeldInteractions()
         moderators = settings.moderators ?? []
         members = await loadedMembers
         posts = await loadedPosts
         pendingFollowers = await loadedPending
         reports = await loadedReports
+        heldInteractions = await loadedHeld
         // A member banned in-app and then restored some other way (direct Worker/git access,
         // another Anglesite session) would otherwise show up in both lists at once.
         let currentMemberIDs = Set(members.map(\.id))
@@ -148,6 +159,64 @@ final class ModerationModel {
             errorMessage = String(localized: "Couldn't load reports: \(error.localizedDescription)")
             return []
         }
+    }
+
+    /// The held-comments queue (#2066): the ledger's unresolved holds joined with the current
+    /// inbox. Skips the network entirely when nothing is held or no model is installed. A failed
+    /// inbox fetch still lists the holds (with no author/content) rather than hiding them — the
+    /// owner can always clear a stale hold — matching ``loadPendingFollowers()``'s "a bad read
+    /// must never make the pane unusable" stance.
+    private func loadHeldInteractions() async -> [HeldInteraction] {
+        guard isScreeningEnabled, let configDirectory else { return [] }
+        return await Self.loadHeld(configDirectory: configDirectory, secretStore: secretStore)
+    }
+
+    /// Off the main actor for the same reason as ``decodeAll(_:from:)``: the ledger read and
+    /// `SiteConfigStore.read` are synchronous disk I/O inside the `.anglesite` package.
+    nonisolated private static func loadHeld(configDirectory: URL, secretStore: any SecretStore) async -> [HeldInteraction] {
+        let held = InteractionScreeningLedger(configDirectory: configDirectory).held()
+        guard !held.isEmpty else { return [] }
+        let interactions = await ReceivedInteractionSync.fetchInteractionsIfConfigured(
+            configDirectory: configDirectory, secretStore: secretStore) ?? []
+        return HeldInteractionQueue.build(held: held, interactions: interactions)
+    }
+
+    /// Whether a decision model is installed. Off-main: five `fileExists` probes inside
+    /// Application Support.
+    nonisolated private static func screeningEnabled() async -> Bool {
+        KevModelLocator.installedAssets() != nil
+    }
+
+    /// The owner's "show this comment": records an approving ruling in the ledger and re-runs the
+    /// inbox sync so the comment is snapshotted into git on this click, not at the next site
+    /// open. No confirmation dialog — publishing a comment is reversible via ``keepHidden(_:)``
+    /// on the next reload, the same rationale ``approve(_:)`` uses.
+    func showComment(_ item: HeldInteraction) async {
+        await rule(item, approved: true)
+    }
+
+    /// The owner's "keep it hidden": records a rejecting ruling. The comment stays in the
+    /// Worker's inbox and out of git; nothing is deleted, per the screening design's "the gate
+    /// never loses an interaction" rule.
+    func keepHidden(_ item: HeldInteraction) async {
+        await rule(item, approved: false)
+    }
+
+    private func rule(_ item: HeldInteraction, approved: Bool) async {
+        guard let sourceDirectory, let configDirectory else { return }
+        await Self.record(id: item.id, approved: approved, sourceDirectory: sourceDirectory,
+                          configDirectory: configDirectory, secretStore: secretStore)
+        heldInteractions.removeAll { $0.id == item.id }
+    }
+
+    nonisolated private static func record(
+        id: String, approved: Bool, sourceDirectory: URL, configDirectory: URL, secretStore: any SecretStore
+    ) async {
+        InteractionScreeningLedger(configDirectory: configDirectory).rule(id, approved: approved)
+        guard approved else { return }
+        _ = await ReceivedInteractionSync.pullAndCommitIfConfigured(
+            siteDirectory: sourceDirectory, configDirectory: configDirectory, secretStore: secretStore,
+            screener: InteractionScreenerFactory.makeDefault())
     }
 
     /// Reads every `.json` file in `directory` and decodes it as `T`, skipping (not throwing on)

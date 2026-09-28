@@ -259,6 +259,12 @@ final class SiteWindowModel {
     /// and deploying it in the same window session enables the menu item live, without requiring
     /// the owner to close and reopen the site.
     private(set) var isHostedCommunity = false
+    /// Cached "a Kev decision model is installed" (`KevModelLocator.installedAssets() != nil`),
+    /// refreshed alongside ``isHostedCommunity`` — the second gate for Website ▸ Moderation…
+    /// (#2066): a personal site with an inbox has held comments to review once a model is
+    /// installed, even though it has no community to moderate. Cached for the same reason as
+    /// `isHostedCommunity`: `canOpenModeration` must be synchronous for `.disabled(...)`.
+    private(set) var isScreeningEnabled = false
     var harden = HardenModel()
     var aiSearch = AISearchModel()
     var domainConfigAudit = DomainConfigAuditModel()
@@ -574,6 +580,8 @@ final class SiteWindowModel {
     private func refreshIsHostedCommunity() async {
         guard let site else { return }
         isHostedCommunity = ((try? await SiteConfigStore(configDirectory: site.configDirectory).load())?.communityActorURL) != nil
+        // Five `fileExists` probes under Application Support; off the main actor like the load above.
+        isScreeningEnabled = await Task.detached { KevModelLocator.installedAssets() != nil }.value
     }
 
     var activeEditorFile: FileRef? {
@@ -853,7 +861,9 @@ final class SiteWindowModel {
     /// after a successful deploy with a Group actor (Phase 2), not at creation time. Unlike
     /// Communities/Followers (always enabled once a site is focused), a personal site or an
     /// undeployed community never enables this — there's nothing to moderate yet.
-    var canOpenModeration: Bool { isHostedCommunity }
+    /// Since #2066 also enabled when a decision model is installed (``isScreeningEnabled``), so
+    /// the held-comments queue is reachable on a personal site with an inbox.
+    var canOpenModeration: Bool { isHostedCommunity || isScreeningEnabled }
 
     /// Presents the Review Copy sheet (#465). Reconstructs a `ProjectConventionsStore` from the
     /// site's `configDirectory` — the same expression `ProjectConventionsModel.init` uses for
