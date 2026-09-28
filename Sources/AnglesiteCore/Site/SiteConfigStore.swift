@@ -146,6 +146,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// infrastructure, hence `Config/` (#1960).
     public var sourceBundleBucket: String?
 
+    /// Owner opt-in to checking off-site links during audits (#2001). `nil`/`false` (the default)
+    /// means off: `BrokenLinkAuditRunner` only counts external links, never fetches them — probing
+    /// needs the network, is slow, and trips bot challenges, so network-dependent findings stay
+    /// out of every audit the owner didn't ask for. `true` means the owner turned it on in Site
+    /// Settings.
+    public var externalLinkCheckEnabled: Bool?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -171,7 +178,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         contentImportCompleted: Bool? = nil,
         workerDeployed: Bool? = nil,
         workerProvisioned: Bool? = nil,
-        sourceBundleBucket: String? = nil
+        sourceBundleBucket: String? = nil,
+        externalLinkCheckEnabled: Bool? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -195,6 +203,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.workerDeployed = workerDeployed
         self.workerProvisioned = workerProvisioned
         self.sourceBundleBucket = sourceBundleBucket
+        self.externalLinkCheckEnabled = externalLinkCheckEnabled
     }
 }
 
