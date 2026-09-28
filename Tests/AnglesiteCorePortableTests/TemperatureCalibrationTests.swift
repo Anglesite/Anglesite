@@ -77,4 +77,23 @@ struct TemperatureCalibrationTests {
         let data = try JSONEncoder().encode(original)
         #expect(try JSONDecoder().decode(TemperatureCalibration.self, from: data) == original)
     }
+
+    @Test("decoding a non-positive temperature clamps it, same as the initializer")
+    func decodeClampsNonPositive() throws {
+        for json in [#"{"temperature": 0}"#, #"{"temperature": -3}"#] {
+            let decoded = try JSONDecoder().decode(TemperatureCalibration.self, from: Data(json.utf8))
+            #expect(decoded.temperature > 0)
+            #expect(decoded == TemperatureCalibration(temperature: 0))
+        }
+    }
+
+    @Test("decoding a missing or non-numeric temperature fails rather than defaulting")
+    func decodeRejectsMalformed() {
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(TemperatureCalibration.self, from: Data(#"{}"#.utf8))
+        }
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(TemperatureCalibration.self, from: Data(#"{"temperature": "hot"}"#.utf8))
+        }
+    }
 }

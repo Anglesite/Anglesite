@@ -32,6 +32,20 @@ public struct TemperatureCalibration: Codable, Sendable, Equatable {
         self.temperature = max(temperature, 1e-6)
     }
 
+    /// Decodes through ``init(temperature:)`` so a hand-edited or corrupt calibration file
+    /// (`{"temperature": 0}`, a negative value, or NaN) can't smuggle in a non-positive
+    /// temperature past the clamp the synthesized conformance would otherwise bypass. NaN is
+    /// clamped too: `max(NaN, floor)` returns NaN in Swift, so it is checked explicitly.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decode(Double.self, forKey: .temperature)
+        self.init(temperature: raw.isNaN ? 1e-6 : raw)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case temperature
+    }
+
     /// Fits the temperature that minimises negative log-likelihood of `samples` — a 1-D convex
     /// problem, solved here by golden-section search over `log T ∈ [−4, 4]` (T from ~0.018 to
     /// ~55), which is deterministic, dependency-free and converges in a few dozen evaluations.
