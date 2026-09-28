@@ -42,6 +42,17 @@ enum InspectorContext: Identifiable {
         }
     }
     var id: String { model.file.id }
+
+    /// The page's site-absolute route, common to all three inspector model types — what
+    /// `PreviewNavigation.targetURL(base:route:)` needs to build this page's live-preview URL for
+    /// the "Shared as" share-card section (#2005).
+    var route: String {
+        switch self {
+        case .typed(let m): m.route
+        case .page(let m): m.route
+        case .generic(let m): m.route
+        }
+    }
 }
 
 /// The unified inspector's current subject (#714 slice 3): the page selected in the navigator,
