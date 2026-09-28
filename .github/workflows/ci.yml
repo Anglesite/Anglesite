@@ -45,6 +45,7 @@ jobs:
       swift: ${{ steps.filter.outputs.swift }}
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
       safariExt: ${{ steps.filter.outputs.safariExt }}
+      emdashGate: ${{ steps.filter.outputs.emdashGate }}
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
