@@ -7,6 +7,7 @@ import AnglesiteCore
 /// chrome. (Previously a full-pane editor; the chrome moved to the inspector.)
 struct TypedEntryForm: View {
     @Bindable var model: TypedEntryEditorModel
+    var pageURL: URL?
 
     var body: some View {
         Form {
@@ -20,6 +21,7 @@ struct TypedEntryForm: View {
                 control(for: field)
             }
             RobotsSettingsSection(route: model.route, noindex: model.noindexBinding(), disallowCrawl: model.disallowCrawlBinding())
+            SharePreviewSection(pageURL: pageURL)
             if let body = bodyField {
                 Section("Body") {
                     MarkdownTextView(

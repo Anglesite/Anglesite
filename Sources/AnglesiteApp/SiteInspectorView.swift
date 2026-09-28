@@ -51,7 +51,7 @@ struct SiteInspectorView: View {
     @ViewBuilder private var content: some View {
         switch (selection, tab) {
         case (.page(let context), .metadata):
-            PageInspectorView(context: context)
+            PageInspectorView(context: context, previewBaseURL: previewBaseURL)
         case (.component(let model), .metadata):
             if developerTools.showsCodeEditors {
                 ComponentMetadataInspectorPane(model: model)
