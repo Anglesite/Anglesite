@@ -49,6 +49,15 @@ form of option B.
    package marker (`Info.plist`) rather than `Config/settings.plist`, so a clone or import reads
    it back unambiguously. Changing kind is a migration (export from one, import into the other),
    not a toggle.
+
+   The key is `AnglesiteSiteKind` (`anglesite` | `emdash`), modelled by
+   `AnglesitePackage.SiteKind`. A marker with no key is an Anglesite site, which covers every
+   package made before site kinds existed. EmDash markers are stamped `AnglesiteFormatVersion` 2,
+   and Anglesite markers stay at 1. A build that predates site kinds (and ignores unknown keys)
+   therefore keeps opening Anglesite sites normally. It opens an EmDash site read-only, through
+   the existing too-new path, instead of treating its content as git-backed and deploying a
+   static build over it. A kind this build doesn't recognise also opens read-only. The app's
+   `Info.plist` editor exposes only the site title, so the kind can't be edited in-app.
 2. **In an EmDash site, EmDash is canonical for content and media.** The app never copies
    articles or artwork into `Source/`. Git holds only what the site *is* (theme, templates,
    configuration the template reads). By the
