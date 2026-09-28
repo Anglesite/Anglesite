@@ -51,8 +51,9 @@ public actor SiteStore {
         /// package as missing files, and instead of silently going dead with no explanation.
         public var needsReauthorization: Bool
         /// The site kind recorded in the package marker (#2050). Identity-level and never edited
-        /// in-app, so it's read from the marker by ``make(package:fileManager:)`` rather than
-        /// trusted from `recents.json`. Drives which editing surfaces the app offers
+        /// in-app. `recents.json` persists it as a cache; the marker is the source of truth, re-read
+        /// by ``make(package:fileManager:)`` (every open, record and rename) and by each
+        /// `load()`'s filesystem refresh. Drives which editing surfaces the app offers
         /// (``SiteEditingSurfaces``).
         public var kind: AnglesitePackage.SiteKind
 
@@ -273,15 +274,23 @@ public actor SiteStore {
             // path — under sandboxing it will read as "every sentinel missing" even though the
             // package is untouched, which is exactly the misleading state #776 reported.
             let validation = AnglesitePackage(url: site.packageURL).sourceValidation(fileManager: fileManager)
+            // Re-read the kind while the scope is held, so every recents consumer (the launcher's
+            // capture picker, Spotlight) sees the marker's kind rather than a stale persisted one
+            // (#2050). An unreadable marker keeps the last known kind.
+            let kind = needsReauthorization
+                ? site.kind
+                : (try? AnglesitePackage(url: site.packageURL).readMarker(fileManager: fileManager).kind) ?? site.kind
             if let scoped { bookmarker.stopAccessing(scoped) }
             let isValid = needsReauthorization ? false : validation.isValid
             let missing = needsReauthorization ? [] : validation.missing
             if site.isValid != isValid
                 || site.missingSentinels != missing
-                || site.needsReauthorization != needsReauthorization {
+                || site.needsReauthorization != needsReauthorization
+                || site.kind != kind {
                 site.isValid = isValid
                 site.missingSentinels = missing
                 site.needsReauthorization = needsReauthorization
+                site.kind = kind
                 changed = true
             }
             refreshed.append(site)

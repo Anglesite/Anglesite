@@ -84,6 +84,25 @@ struct SiteStoreSiteKindTests {
         #expect(try SiteStore.Site.make(package: package).kind == kind)
     }
 
+    @Test("loading recents re-reads the kind from the marker, replacing a stale cached one")
+    func loadRefreshesStaleKind() async throws {
+        let dir = Self.tempPackageURL().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (package, marker) = try AnglesitePackage.createSkeleton(
+            at: dir.appendingPathComponent("News.anglesite"), displayName: "News", kind: .emdash)
+        let stale = SiteStore.Site(
+            id: marker.siteID.uuidString, name: "News", packageURL: package.url,
+            isValid: false, missingSentinels: [], kind: .anglesite)
+        let recents = dir.appendingPathComponent("recents.json")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode([stale]).write(to: recents)
+
+        let store = SiteStore(persistenceURL: recents)
+        try await store.load()
+        #expect(await store.find(id: stale.id)?.kind == .emdash)
+    }
+
     @Test("the kind survives a recents round-trip")
     func recentsRoundTrip() throws {
         let site = SiteStore.Site(
@@ -170,6 +189,21 @@ struct ContentCreationWorkflowEmDashTests {
         #expect(await workflow.createTyped(siteID: "s", typeID: "bookmark", title: "Link", slug: nil) == .created(filePath: "src/content/blog/a.md", identifier: "a"))
         #expect(await workflow.publish(siteID: "s", relativePath: "a.md", collection: "blog") == .created(filePath: "src/content/blog/a.md", identifier: "a"))
         #expect(recorder.calls == ["post"])
+    }
+
+    @Test("a package whose marker can't be read fails closed, unless the caller knows the kind")
+    func unreadableMarkerFailsClosed() async throws {
+        let (workflow, recorder, root) = try Self.workflow(kind: .anglesite)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = AnglesitePackage(url: root.appendingPathComponent("News.anglesite"))
+        try FileManager.default.removeItem(at: package.infoPlistURL)
+
+        let surfaces = SiteEditingSurfaces.forSourceDirectory(package.sourceURL)
+        #expect(!surfaces.typedContent)
+        #expect(SiteEditingSurfaces.forSourceDirectory(package.sourceURL, unreadableMarkerFallback: .emdash).kind == .emdash)
+        #expect(await workflow.createPost(siteID: "s", title: "Hello", collection: nil, slug: nil)
+            == .failed(reason: SiteEditingSurfaces.typedContentUnavailableReason))
+        #expect(recorder.calls.isEmpty)
     }
 
     @Test("a bare Source directory with no package marker is treated as an Anglesite site")

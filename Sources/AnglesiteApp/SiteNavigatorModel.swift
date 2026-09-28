@@ -47,7 +47,8 @@ final class SiteNavigatorModel {
     /// it just isn't undoable.
     var registerUndo: ((ContentUndoCoordinator.Mutation) -> Void)?
     /// `false` on an EmDash site (#2050, `SiteEditingSurfaces.typedContent`): its posts live in
-    /// EmDash, so the post-only verbs (Repurpose, Publish, Move to Drafts) aren't offered. Set by
+    /// EmDash, so the post verbs (Duplicate, Repurpose, Publish, Move to Drafts) aren't offered on
+    /// post rows; pages keep theirs. Set by
     /// `SiteWindowModel` when it builds this model.
     var typedContentEnabled = true
     /// Post ids seen in the last `refresh()`, so `canRepurpose` can distinguish post rows from
@@ -166,7 +167,8 @@ final class SiteNavigatorModel {
     /// the only way back. Duplicate is non-destructive — the copy lands at an ordinary route
     /// (`/home-copy`) and the home page stays where it is — so it keeps Rename's gating.
     func canDelete(_ id: String) -> Bool { kind(for: id) == .page }
-    func canDuplicate(_ id: String) -> Bool { isContentRow(id) }
+    /// A post row on an EmDash site isn't duplicated here: its posts belong in EmDash (#2050).
+    func canDuplicate(_ id: String) -> Bool { isContentRow(id) && (typedContentEnabled || !postIDs.contains(id)) }
 
     /// Repurpose (#465, Task 16) is post-only — unlike Rename/Delete/Duplicate, which apply to
     /// pages too — so it checks `postIDs` rather than the page-or-post `isContentRow`.

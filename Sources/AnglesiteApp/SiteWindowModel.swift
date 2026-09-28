@@ -262,8 +262,8 @@ final class SiteWindowModel {
     /// Which editing surfaces this site offers (#2050): an EmDash site hides the typed-content
     /// editors (New Post / Link Post / collection entries, the typed inspector form, Publish and
     /// Move to Drafts) and offers Website ▸ Open EmDash instead. Read from the package marker in
-    /// `loadAndStart()` *before* ``site`` is set, so `SiteWindow`'s once-per-window
-    /// `NewContentActions` (built on the first `site?.id` change) already sees the right kind.
+    /// `loadAndStart()` *before* ``site`` is set, so `SiteWindow`'s `NewContentActions` are right
+    /// from their first build; `SiteWindow` also rebuilds them on any later change.
     /// Cached rather than computed for the same synchronous-`.disabled(...)` reason as
     /// ``isHostedCommunity``. `ContentCreationWorkflow` re-checks on every write, so this gate is
     /// UX, not the enforcement point.
@@ -599,7 +599,7 @@ final class SiteWindowModel {
         let sourceDirectory = site.sourceDirectory
         let fallback = site.kind
         return await Task.detached(priority: .userInitiated) {
-            SiteEditingSurfaces.forSourceDirectory(sourceDirectory, fallback: fallback)
+            SiteEditingSurfaces.forSourceDirectory(sourceDirectory, unreadableMarkerFallback: fallback)
         }.value
     }
 

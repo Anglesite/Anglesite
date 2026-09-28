@@ -251,8 +251,9 @@ struct SiteWindow: View {
 
     private func refreshNewContentActions() {
         guard model.site != nil, newContentActions == nil else { return }
-        // Built once per window, which is safe for the typed-content gate: `loadAndStart()` sets
-        // `editingSurfaces` before `site`, and a window's site kind never changes (#2050).
+        // Built once per window; the typed-content gate (#2050) doesn't rely on that ordering —
+        // `onChange(of: model.editingSurfaces)` below rebuilds these if the surfaces change after
+        // the first build.
         let typedContent = model.editingSurfaces.typedContent
         newContentActions = NewContentActions(
             newPage: { model.newPagePresented = true },
@@ -307,6 +308,10 @@ struct SiteWindow: View {
                 toggleWebsite: { toggleWebsiteInspector() }
             ))
             .onChange(of: model.site?.id, initial: true) { _, _ in refreshNewContentActions() }
+            .onChange(of: model.editingSurfaces) { _, _ in
+                newContentActions = nil
+                refreshNewContentActions()
+            }
     }
 
     /// Shows the selection inspector, switching away from the website inspector if that's active;

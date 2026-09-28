@@ -590,6 +590,7 @@ struct SiteNavigatorModelPublishGatingTests {
         #expect(model.canPublish("site-1:post:draft-note") == false)
         #expect(model.canUnpublish("site-1:post:live-note") == false)
         #expect(model.canRepurpose("site-1:post:draft-note") == false)
+        #expect(model.canDuplicate("site-1:post:draft-note") == false)
         model.stop()
     }
 }

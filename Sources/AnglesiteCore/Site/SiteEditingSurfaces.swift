@@ -64,23 +64,34 @@ public struct SiteEditingSurfaces: Sendable, Equatable {
     }
 
     /// The surfaces for the site whose `Source/` is `sourceDirectory`, read from the enclosing
-    /// package's marker. A directory that isn't a package's `Source/` (or whose marker can't be
-    /// read) gets `fallback`, `.anglesite` by default: such a directory can't have been opened
-    /// through `SiteStore.Site.make`, which refuses unreadable and too-new markers, so this only
-    /// keeps bare-directory callers (tests, the import path) working as they always have. A site
-    /// window passes its recents entry's kind instead.
+    /// package's marker.
+    ///
+    /// - A directory that isn't a package's `Source/` at all (tests, the import path) is an
+    ///   Anglesite site, as it always has been.
+    /// - A package's `Source/` whose marker can't be read right now (iCloud eviction, a lost
+    ///   security scope) gets `unreadableMarkerFallback` — a site window passes its recents
+    ///   entry's kind — and otherwise **fails closed** as an unrecognised kind, so the
+    ///   ``ContentCreationWorkflow`` backstop never lets a typed write into an EmDash site through
+    ///   on a transient read error.
     public static func forSourceDirectory(
         _ sourceDirectory: URL,
-        fallback: AnglesitePackage.SiteKind = .anglesite,
+        unreadableMarkerFallback: AnglesitePackage.SiteKind? = nil,
         fileManager: FileManager = .default
     ) -> SiteEditingSurfaces {
         let packageURL = sourceDirectory.standardizedFileURL.deletingLastPathComponent()
         let package = AnglesitePackage(url: packageURL)
-        guard package.sourceURL.standardizedFileURL == sourceDirectory.standardizedFileURL,
-              let marker = try? package.readMarker(fileManager: fileManager)
-        else { return SiteEditingSurfaces(kind: fallback) }
+        guard packageURL.pathExtension == AnglesitePackage.packageExtension,
+              package.sourceURL.standardizedFileURL == sourceDirectory.standardizedFileURL
+        else { return SiteEditingSurfaces(kind: .anglesite) }
+        guard let marker = try? package.readMarker(fileManager: fileManager) else {
+            return SiteEditingSurfaces(kind: unreadableMarkerFallback ?? .unrecognized(unreadableMarkerKind))
+        }
         return SiteEditingSurfaces(kind: marker.kind)
     }
+
+    /// The placeholder kind ``forSourceDirectory(_:unreadableMarkerFallback:fileManager:)``
+    /// reports when a package's marker can't be read.
+    static let unreadableMarkerKind = "unreadable-marker"
 
     /// The `.failed(reason:)` text ``ContentCreationWorkflow`` returns when a typed-content write
     /// targets an EmDash site, surfaced verbatim by Shortcuts and AppleScript dialogs. Phrased
