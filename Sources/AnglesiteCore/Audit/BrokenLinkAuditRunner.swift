@@ -10,14 +10,53 @@ import Foundation
 /// Findings are grouped by dead *target*, not by referencing page: a navigation link that's
 /// broken in a layout is broken on every page, and one finding that says "linked from 40 pages"
 /// points at one fix, whereas 40 identical findings would bury everything else in the sheet.
+///
+/// Off-site links are only *counted* by default; when the owner opts in
+/// (`SiteSettings.externalLinkCheckEnabled`, #2001), the distinct URLs the script reports are also
+/// probed host-side through ``ExternalLinkProbing``. Only a definitive "gone" (404/410) becomes a finding with teeth
+/// (`.warning`, never critical); everything the probe couldn't settle is one `.info` note, so a
+/// flaky remote host or a bot challenge can't make the audit badge flap.
 public struct BrokenLinkAuditRunner: AuditRunner {
     /// ``AuditRunner`` conformance — dangling links are a search/discoverability defect, so they
     /// file under SEO alongside the metadata checks that category is reserved for.
     public let category: AuditReport.Finding.Category = .seo
 
-    /// Nothing to configure — the runner is stateless by design; everything it needs arrives
-    /// per-call in `run(...)`.
-    public init() {}
+    /// How the opt-in off-site check decides whether to run for a site, and how it probes.
+    public struct ExternalLinkCheck: Sendable {
+        /// Whether the owner opted in for the site whose `Source/` directory is passed.
+        public let isEnabled: @Sendable (_ siteDirectory: URL) async -> Bool
+        /// Probes the distinct off-site URLs when enabled.
+        public let probe: any ExternalLinkProbing
+
+        /// Memberwise; tests inject a fixed answer and a fake probe.
+        public init(
+            isEnabled: @escaping @Sendable (_ siteDirectory: URL) async -> Bool,
+            probe: any ExternalLinkProbing
+        ) {
+            self.isEnabled = isEnabled
+            self.probe = probe
+        }
+
+        /// Production: reads `SiteSettings.externalLinkCheckEnabled` from the package's `Config/`
+        /// (the sibling of the `Source/` directory every audit path passes) at run time, so a
+        /// toggle takes effect on the next audit; probes with ``HTTPExternalLinkProbe``. A site
+        /// with no settings file, or one that isn't a package, reads as off.
+        public static let live = ExternalLinkCheck(
+            isEnabled: { siteDirectory in
+                let configDirectory = AnglesitePackage(url: siteDirectory.deletingLastPathComponent()).configURL
+                let settings = try? await SiteConfigStore(configDirectory: configDirectory).load()
+                return settings?.externalLinkCheckEnabled == true
+            },
+            probe: HTTPExternalLinkProbe())
+    }
+
+    private let externalLinks: ExternalLinkCheck
+
+    /// Production uses ``ExternalLinkCheck/live``; tests pass their own. Optional rather than
+    /// defaulted to `.live` directly — the repo's convention for closure-bearing defaults (#1990).
+    public init(externalLinks: ExternalLinkCheck? = nil) {
+        self.externalLinks = externalLinks ?? .live
+    }
 
     /// Runs the script through `executor`, parses its `--json` stdout, and groups the problems
     /// into findings. `logCenter`/`source` receive one summary line per run on top of the
@@ -56,8 +95,31 @@ public struct BrokenLinkAuditRunner: AuditRunner {
 
         // `src/` is on the host (the guest's clone came from it), so the route → source-file map
         // is built here rather than in the script.
-        return Self.findings(from: report, sourceFilesByRoute: Self.sourceFilesByRoute(in: siteDirectory))
+        var findings = Self.findings(from: report, sourceFilesByRoute: Self.sourceFilesByRoute(in: siteDirectory))
+
+        // Opt-in off-site check (#2001). Host-side, after the internal scan, and cooperative with
+        // `AuditCommand`'s cancellation: the probe returns what it resolved and stops early.
+        let externalURLs = report.externalReferences.compactMap(URL.init(string:))
+        if !externalURLs.isEmpty, await externalLinks.isEnabled(siteDirectory) {
+            let results = await externalLinks.probe.probe(externalURLs)
+            let gone = results.values.filter { $0 == .unreachable }.count
+            let unsettled = results.values.filter { $0 == .indeterminate }.count
+            // The script's list stops at the cap and never exceeds it, so a full list can't tell
+            // "exactly 500" from "500 of more" — say only what's known.
+            let capped = report.externalReferences.count >= Self.externalReferenceCap
+                ? " (the list's \(Self.externalReferenceCap)-link limit was reached, so there may be more)" : ""
+            await logCenter.append(
+                source: source,
+                stream: .stdout,
+                text: "off-site link check: \(results.count) checked\(capped), \(gone) no longer work, "
+                    + "\(unsettled) couldn't be verified")
+            findings += Self.externalLinkFindings(from: results)
+        }
+        return findings
     }
+
+    /// `broken-links.ts`'s `MAX_EXTERNAL_REFERENCES` — the list is silently truncated there.
+    static let externalReferenceCap = 500
 
     /// Why a run produced no findings at all. Conforms to `CustomStringConvertible` because
     /// `AuditCommand` records a thrown runner error via `"\(error)"` interpolation, and that text
@@ -252,6 +314,39 @@ public struct BrokenLinkAuditRunner: AuditRunner {
                     location: location)
             }
         }
+    }
+
+    /// Findings for probed off-site links (#2001). Pure and static so tests can exercise the
+    /// wording without a network.
+    ///
+    /// Each definitively gone link (404/410) is its own `.warning`, sorted by URL so re-runs keep
+    /// a stable order. Every link the probe couldn't settle (a bot challenge, a slow or erroring
+    /// server, the run's time budget) folds into **one** `.info` note — a site linking to fifty
+    /// pages behind a bot wall shouldn't get fifty rows saying "maybe".
+    static func externalLinkFindings(from results: [URL: LinkReachability]) -> [AuditReport.Finding] {
+        let gone = results.filter { $0.value == .unreachable }.map(\.key.absoluteString).sorted()
+        let unsettled = results.filter { $0.value == .indeterminate }.count
+        var findings = gone.map { url in
+            AuditReport.Finding(
+                category: .seo,
+                severity: .warning,
+                title: "Link to another site no longer works",
+                detail: "“\(url)” says the page is gone, so visitors who follow it get a “not found” page on that site.",
+                remediation: "Update the link to the page’s new address, or remove it. Search your site for “\(url)” to find the pages that use it.",
+                location: url)
+        }
+        if unsettled > 0 {
+            findings.append(AuditReport.Finding(
+                category: .seo,
+                severity: .info,
+                title: "Some links to other sites couldn’t be checked",
+                detail: unsettled == 1
+                    ? "1 link to another site didn’t give a clear answer — the site may block automated checks, or was slow or briefly unavailable. It may be fine."
+                    : "\(unsettled) links to other sites didn’t give a clear answer — those sites may block automated checks, or were slow or briefly unavailable. They may be fine.",
+                remediation: "Nothing to do unless a visitor reports a problem; the next audit checks them again.",
+                location: nil))
+        }
+        return findings
     }
 
     // MARK: - Source mapping
