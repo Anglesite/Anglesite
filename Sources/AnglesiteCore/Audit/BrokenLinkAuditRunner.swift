@@ -99,14 +99,26 @@ public struct BrokenLinkAuditRunner: AuditRunner {
         /// Off-site `http(s)` references seen and deliberately not checked — reported so the
         /// summary can say "N links weren't verified" rather than implying they were (#2001).
         public let externalReferencesSkipped: Int
+        /// The distinct off-site URLs behind ``externalReferencesSkipped`` (#2026), first-seen
+        /// order, fragment stripped. The script caps it at 500 while the count stays exact, so
+        /// this can be shorter than the count implies. Empty when a site's template copy predates
+        /// the field. For the opt-in external verification (#2001) to probe.
+        public let externalReferences: [String]
         /// See ``Problem``; already sorted by page, then resolved path, by the script.
         public let problems: [Problem]
 
         /// Memberwise; public so tests can build reports without going through JSON.
-        public init(pagesScanned: Int, referencesChecked: Int, externalReferencesSkipped: Int, problems: [Problem]) {
+        public init(
+            pagesScanned: Int,
+            referencesChecked: Int,
+            externalReferencesSkipped: Int,
+            externalReferences: [String] = [],
+            problems: [Problem]
+        ) {
             self.pagesScanned = pagesScanned
             self.referencesChecked = referencesChecked
             self.externalReferencesSkipped = externalReferencesSkipped
+            self.externalReferences = externalReferences
             self.problems = problems
         }
     }
@@ -153,6 +165,8 @@ public struct BrokenLinkAuditRunner: AuditRunner {
         let pagesScanned: Int
         let referencesChecked: Int
         let externalReferencesSkipped: Int
+        /// Optional so a report from a template copy that predates #2026 still decodes.
+        let externalReferences: [String]?
         let problems: [WireProblem]
     }
 
@@ -172,6 +186,7 @@ public struct BrokenLinkAuditRunner: AuditRunner {
             pagesScanned: wire.pagesScanned,
             referencesChecked: wire.referencesChecked,
             externalReferencesSkipped: wire.externalReferencesSkipped,
+            externalReferences: wire.externalReferences ?? [],
             problems: problems)
     }
 
