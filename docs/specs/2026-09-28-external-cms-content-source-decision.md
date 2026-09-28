@@ -22,7 +22,7 @@ some of its collections to EmDash, and posed two options:
   frontmatter). The export is committed to `Source/`, and the site builds from `glob()` as today.
 - **B — Live source.** The build reads EmDash's API through an Astro content-layer loader.
 
-The owner decided three things on 2026-09-28:
+The owner decided four things on 2026-09-28:
 
 1. **No hybrid sites.** A site is either an Anglesite site or an EmDash site. A news site
    publishing dozens of illustrated articles a day quickly grows too large for the git-backed
@@ -33,6 +33,7 @@ The owner decided three things on 2026-09-28:
 2. **EmDash sites are server-rendered.** A static bake that rebuilds every page per publish only
    moves the growth problem from repo size to build minutes.
 3. **Decision D5's gate is re-scoped** to fit a site with no complete build output (§ Gate below).
+4. **Both provisioned and bring-your-own EmDash are supported** (decision 7 below).
 
 Option A is rejected (git as the build input is the growth problem), and so is the static-bake
 form of option B.
@@ -67,6 +68,20 @@ form of option B.
 6. **App editing surfaces.** An EmDash site hides the app's typed-content editors entirely and
    offers "Open EmDash" instead. Writers and editors work in EmDash's admin. The block editor
    (decision D4) stays the owner's surface for what git still holds: pages, layout and theme.
+7. **Two ways to get an EmDash site, one runtime.** Both end in the same shape: an EmDash Worker
+   in the owner's Cloudflare account, serving Anglesite's template server-side, with
+   `anglesite-gate` registered.
+   - **Provisioned.** Anglesite creates EmDash (Worker + D1 + R2) in the owner's account and deploys
+     it with the template. The owner never configures it (decision D1). This is the default for a
+     new EmDash site.
+   - **Bring your own.** The owner connects an existing EmDash install that runs in a Cloudflare
+     account they control, through the same token onboarding Anglesite already uses for
+     deploys. Anglesite then takes over the site's frontend deploy and registers `anglesite-gate`.
+     The install's content, users, roles and other plugins are kept. Before connecting, the app
+     says in plain terms that the site's design will switch to the Anglesite theme.
+   - **Refused:** installs Anglesite can't deploy to, such as EmDash hosted by a third-party
+     platform. Anglesite can't guarantee the gate there, so it offers #2051's import into a new
+     site instead.
 
 ## Gate: decision D5 re-scoped for server rendering
 
@@ -152,8 +167,3 @@ It is a sandboxed EmDash plugin like any other.
   Decision D5 requires the gate to stand in front of publication.
 - **Two-way sync between EmDash and git.** Two writers with a merge in between is exactly the
   adjudication decision D1 says the owner must never face.
-
-## Open question
-
-1. Should v1 support provisioned EmDash, bring-your-own EmDash, or both? A bring-your-own install
-   must accept the `anglesite-gate` plugin, or Anglesite refuses to deploy the site to it.
