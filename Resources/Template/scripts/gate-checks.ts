@@ -93,17 +93,20 @@ function containsFacebookPixel(content: string): boolean {
   const host = /facebook\.net/gi;
   const pixel = /fbevents/gi;
   const lineBreak = /[\n\r\u2028\u2029]/g;
-  let nextPixel: RegExpExecArray | null | undefined;
+  // Where the next `fbevents` starts; -1 until the first lookup. Only looked up again once a
+  // `facebook.net` ends past it, so each stretch of the input is searched for `fbevents` once.
+  let pixelAt = -1;
   for (let h = host.exec(content); h !== null; h = host.exec(content)) {
     const afterHost = h.index + h[0].length;
-    if (nextPixel === undefined || (nextPixel !== null && nextPixel.index < afterHost)) {
+    if (pixelAt < afterHost) {
       pixel.lastIndex = afterHost;
-      nextPixel = pixel.exec(content);
+      const found = pixel.exec(content);
+      if (found === null) return false; // no `fbevents` after here, so none after any later host
+      pixelAt = found.index;
     }
-    if (nextPixel === null) return false;
     lineBreak.lastIndex = h.index;
     const lineEnd = lineBreak.exec(content)?.index ?? content.length;
-    if (nextPixel.index < lineEnd) return true;
+    if (pixelAt < lineEnd) return true;
     host.lastIndex = lineEnd;
   }
   return false;
