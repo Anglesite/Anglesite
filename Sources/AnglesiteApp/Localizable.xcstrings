@@ -1314,7 +1314,7 @@
     "Condition, e.g. (min-width: 768px)" : {
 
     },
-    "Confidence: %lld%%" : {
+    "Confidence: %@" : {
 
     },
     "Config…" : {
@@ -1611,10 +1611,16 @@
     "Couldn't publish" : {
 
     },
+    "Couldn't publish this comment right now. It will be published the next time this site syncs." : {
+
+    },
     "Couldn't reach this site" : {
 
     },
     "Couldn't reach this site. Check your connection and try again." : {
+
+    },
+    "Couldn't reach your inbox." : {
 
     },
     "Couldn't read the GitHub token from the Keychain: %@" : {
@@ -2078,7 +2084,7 @@
     "Error: %@" : {
 
     },
-    "Estimated chance this is unwanted: %lld%%" : {
+    "Estimated chance this is unwanted: %@" : {
 
     },
     "Events" : {
@@ -2367,6 +2373,9 @@
 
     },
     "Hide Related Pages" : {
+
+    },
+    "Hide the comment from %@" : {
 
     },
     "Hide Website Inspector" : {
@@ -4171,6 +4180,9 @@
     "Show Source" : {
 
     },
+    "Show the comment from %@" : {
+
+    },
     "Show Website Inspector" : {
 
     },
@@ -4464,6 +4476,9 @@
 
     },
     "Syndication recorded" : {
+
+    },
+    "This comment can't be shown until your inbox is reachable." : {
 
     },
     "TLS report mailbox" : {

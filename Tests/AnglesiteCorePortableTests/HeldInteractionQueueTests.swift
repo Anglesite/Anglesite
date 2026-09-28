@@ -24,7 +24,9 @@ struct HeldInteractionQueueTests {
     @Test("joins holds with the inbox by id, keeping the ledger's order")
     func joinsByID() throws {
         let held = [Self.decision("b", at: 10), Self.decision("a", at: 20)]
-        let queue = HeldInteractionQueue.build(held: held, interactions: [try Self.interaction("a"), try Self.interaction("b")])
+        let load = HeldInteractionQueue.build(held: held, interactions: [try Self.interaction("a"), try Self.interaction("b")])
+        #expect(load.inboxReachable)
+        let queue = load.items
         #expect(queue.map(\.id) == ["b", "a"])
         #expect(queue[0].interaction?.id == "b")
         #expect(queue[1].interaction?.author?.name == "Alice")
@@ -32,8 +34,10 @@ struct HeldInteractionQueueTests {
 
     @Test("a hold whose interaction left the inbox is listed with a nil record, not dropped")
     func missingInteractionKept() throws {
-        let queue = HeldInteractionQueue.build(held: [Self.decision("gone"), Self.decision("here")],
-                                               interactions: [try Self.interaction("here")])
+        let load = HeldInteractionQueue.build(held: [Self.decision("gone"), Self.decision("here")],
+                                              interactions: [try Self.interaction("here")])
+        #expect(load.inboxReachable)
+        let queue = load.items
         #expect(queue.map(\.id) == ["gone", "here"])
         #expect(queue[0].interaction == nil)
         #expect(queue[1].interaction != nil)
@@ -43,7 +47,7 @@ struct HeldInteractionQueueTests {
     func duplicateInboxIDs() throws {
         let queue = HeldInteractionQueue.build(
             held: [Self.decision("x")],
-            interactions: [try Self.interaction("x", host: "first.example"), try Self.interaction("x", host: "second.example")])
+            interactions: [try Self.interaction("x", host: "first.example"), try Self.interaction("x", host: "second.example")]).items
         #expect(queue.count == 1)
         #expect(queue[0].interaction?.source.host() == "first.example")
     }
@@ -64,8 +68,56 @@ struct HeldInteractionQueueTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let ledger = InteractionScreeningLedger(configDirectory: dir)
         ledger.record([Self.decision("one", at: 0), Self.decision("two", at: 5)])
-        #expect(HeldInteractionQueue.build(held: ledger.held(), interactions: []).map(\.id) == ["one", "two"])
+        #expect(HeldInteractionQueue.build(held: ledger.held(), interactions: []).items.map(\.id) == ["one", "two"])
         ledger.rule("one", approved: true)
-        #expect(HeldInteractionQueue.build(held: ledger.held(), interactions: []).map(\.id) == ["two"])
+        #expect(HeldInteractionQueue.build(held: ledger.held(), interactions: []).items.map(\.id) == ["two"])
+    }
+
+    @Test("an unreachable inbox is reported as such, distinct from an empty one")
+    func unreachableInbox() {
+        let unreachable = HeldInteractionQueue.build(held: [Self.decision("a")], interactions: nil)
+        #expect(!unreachable.inboxReachable)
+        #expect(unreachable.items.map(\.id) == ["a"] && unreachable.items[0].interaction == nil)
+        let empty = HeldInteractionQueue.build(held: [Self.decision("a")], interactions: [])
+        #expect(empty.inboxReachable)
+    }
+
+    private actor PublishRecorder {
+        var calls = 0
+        var ledgerHadRulingWhenCalled: Bool?
+        func record(hadRuling: Bool) { calls += 1; ledgerHadRulingWhenCalled = hadRuling }
+    }
+
+    @Test("a ruling is recorded before publish runs, and reject never publishes")
+    func rulingOrder() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("HeldInteractionQueueTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ledger = InteractionScreeningLedger(configDirectory: dir)
+        ledger.record([Self.decision("show"), Self.decision("hide")])
+        let recorder = PublishRecorder()
+
+        let published = await HeldInteractionQueue.rule("show", approved: true, ledger: ledger) {
+            await recorder.record(hadRuling: ledger.ruling(for: "show")?.approved == true)
+            return true
+        }
+        #expect(published == .published)
+        #expect(await recorder.calls == 1)
+        #expect(await recorder.ledgerHadRulingWhenCalled == true)
+
+        let hidden = await HeldInteractionQueue.rule("hide", approved: false, ledger: ledger) {
+            await recorder.record(hadRuling: false)
+            return true
+        }
+        #expect(hidden == .hidden)
+        #expect(await recorder.calls == 1)
+        #expect(ledger.ruling(for: "hide")?.approved == false)
+        #expect(ledger.held().isEmpty)
+
+        ledger.record([Self.decision("flaky")])
+        let failed = await HeldInteractionQueue.rule("flaky", approved: true, ledger: ledger) { false }
+        #expect(failed == .publishFailed)
+        // The ruling survives a failed publish so the next sync retries it.
+        #expect(ledger.ruling(for: "flaky")?.approved == true)
     }
 }

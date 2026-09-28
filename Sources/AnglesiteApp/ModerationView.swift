@@ -6,7 +6,8 @@ import AnglesiteCore
 /// posts (with remove), and open reports (D5/#1438 — dismiss, or remove the reported target).
 /// Since #2066 it also fronts the spam screen's held-comments queue, which applies to any site
 /// with an inbox, so the community sections are shown only for a hosted community
-/// (`showsCommunitySections`) and the comments section only when a decision model is installed.
+/// (`showsCommunitySections`) and the comments section only when the queue applies to this site
+/// (`ModerationModel.canReviewComments`: a decision model is installed and the site has an inbox).
 struct ModerationView: View {
     @Bindable var moderation: ModerationModel
     /// Whether this site is a hosted community (`SiteWindowModel.isHostedCommunity`); a personal
@@ -18,8 +19,15 @@ struct ModerationView: View {
 
     var body: some View {
         List {
-            if moderation.isScreeningEnabled {
+            if moderation.canReviewComments {
                 Section("Comments") {
+                    if !moderation.inboxReachable {
+                        HStack {
+                            Text("Couldn't reach your inbox.").foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Try Again") { Task { await moderation.reloadHeldComments() } }
+                        }
+                    }
                     if moderation.heldInteractions.isEmpty {
                         Text("No comments are waiting for your review.").foregroundStyle(.secondary)
                     } else {
@@ -77,31 +85,50 @@ struct ModerationView: View {
         }
     }
 
-    /// One held comment: who, from where, what — then the two owner verdicts, with the model's
-    /// numbers behind a disclosure so they never lead the row (decision D1, #1963).
+    /// One held comment: who, from where, what (in full — the owner is deciding whether to
+    /// publish the whole thing, so nothing is truncated) — then the two owner verdicts, with the
+    /// model's numbers behind a disclosure so they never lead the row (decision D1, #1963).
+    ///
+    /// Verdicts are disabled while the row's ruling is in flight, whenever the inbox couldn't be
+    /// reached (the owner can't see what they'd be ruling on), and "Show" alone when the inbox
+    /// *was* reached but no longer has the comment — there is nothing left to publish, only a
+    /// stale hold to clear. Each button's accessibility label names the author so VoiceOver can
+    /// tell one row's verdicts from the next (`docs/mac-assed-app-spec.md`).
     @ViewBuilder
     private func heldRow(_ item: HeldInteraction) -> some View {
+        let interaction = item.interaction
+        let author = interaction.map { $0.author?.name ?? $0.source.host() ?? $0.source.absoluteString }
+        let inFlight = moderation.rulingsInFlight.contains(item.id)
+        let canRule = moderation.inboxReachable && !inFlight
         VStack(alignment: .leading, spacing: 6) {
-            if let interaction = item.interaction {
-                Text(verbatim: interaction.author?.name ?? interaction.source.host() ?? interaction.source.absoluteString)
-                    .font(.headline)
+            if let interaction, let author {
+                Text(verbatim: author).font(.headline)
                 if let content = interaction.content, !content.isEmpty {
-                    Text(verbatim: content).lineLimit(4)
+                    Text(verbatim: content).textSelection(.enabled)
                 }
                 Text(verbatim: interaction.source.absoluteString)
                     .font(.caption).foregroundStyle(.secondary)
-            } else {
+            } else if moderation.inboxReachable {
                 Text("This comment is no longer in your inbox.").foregroundStyle(.secondary)
+            } else {
+                Text("This comment can't be shown until your inbox is reachable.").foregroundStyle(.secondary)
             }
             HStack {
                 Button("Show this comment") { Task { await moderation.showComment(item) } }
+                    .disabled(!canRule || interaction == nil)
+                    .accessibilityLabel(author.map { Text("Show the comment from \($0)") } ?? Text("Show this comment"))
                 Button("Keep it hidden") { Task { await moderation.keepHidden(item) } }
+                    .disabled(!canRule)
+                    .accessibilityLabel(author.map { Text("Hide the comment from \($0)") } ?? Text("Keep it hidden"))
+                if inFlight {
+                    ProgressView().controlSize(.small)
+                }
                 Spacer()
             }
             if let spam = item.spamPercent, let confidence = item.confidencePercent {
                 DisclosureGroup("Details") {
-                    Text("Estimated chance this is unwanted: \(spam)%")
-                    Text("Confidence: \(confidence)%")
+                    Text("Estimated chance this is unwanted: \(spam.formatted(.percent))")
+                    Text("Confidence: \(confidence.formatted(.percent))")
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }

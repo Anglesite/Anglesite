@@ -259,12 +259,6 @@ final class SiteWindowModel {
     /// and deploying it in the same window session enables the menu item live, without requiring
     /// the owner to close and reopen the site.
     private(set) var isHostedCommunity = false
-    /// Cached "a Kev decision model is installed" (`KevModelLocator.installedAssets() != nil`),
-    /// refreshed alongside ``isHostedCommunity`` — the second gate for Website ▸ Moderation…
-    /// (#2066): a personal site with an inbox has held comments to review once a model is
-    /// installed, even though it has no community to moderate. Cached for the same reason as
-    /// `isHostedCommunity`: `canOpenModeration` must be synchronous for `.disabled(...)`.
-    private(set) var isScreeningEnabled = false
     var harden = HardenModel()
     var aiSearch = AISearchModel()
     var domainConfigAudit = DomainConfigAuditModel()
@@ -580,8 +574,9 @@ final class SiteWindowModel {
     private func refreshIsHostedCommunity() async {
         guard let site else { return }
         isHostedCommunity = ((try? await SiteConfigStore(configDirectory: site.configDirectory).load())?.communityActorURL) != nil
-        // Five `fileExists` probes under Application Support; off the main actor like the load above.
-        isScreeningEnabled = await Task.detached { KevModelLocator.installedAssets() != nil }.value
+        // The second Moderation… gate (#2066) lives on the model that owns the queue, so the view
+        // and this menu item read one flag; the same deploy that provisions the inbox flips it.
+        await moderation.refreshCanReviewComments()
     }
 
     var activeEditorFile: FileRef? {
@@ -680,6 +675,9 @@ final class SiteWindowModel {
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }
             activeEditor = nil
             await moderation.reload()
+            // The held-comments queue is an inbox fetch (network), so it refreshes alongside the
+            // pane rather than holding it back — `ModerationModel.reload()`'s doc has the detail.
+            Task { await moderation.reloadHeldComments() }
             await clearInspectorThenSwitchPane(to: .moderation)
         }
     }
@@ -861,9 +859,11 @@ final class SiteWindowModel {
     /// after a successful deploy with a Group actor (Phase 2), not at creation time. Unlike
     /// Communities/Followers (always enabled once a site is focused), a personal site or an
     /// undeployed community never enables this — there's nothing to moderate yet.
-    /// Since #2066 also enabled when a decision model is installed (``isScreeningEnabled``), so
-    /// the held-comments queue is reachable on a personal site with an inbox.
-    var canOpenModeration: Bool { isHostedCommunity || isScreeningEnabled }
+    /// Since #2066 also enabled when the held-comments queue applies
+    /// (`ModerationModel.canReviewComments`: a decision model is installed *and* this site has a
+    /// provisioned inbox), so the queue is reachable on a personal site with an inbox — and a
+    /// site with neither never gets an item that opens an always-empty pane.
+    var canOpenModeration: Bool { isHostedCommunity || moderation.canReviewComments }
 
     /// Presents the Review Copy sheet (#465). Reconstructs a `ProjectConventionsStore` from the
     /// site's `configDirectory` — the same expression `ProjectConventionsModel.init` uses for
