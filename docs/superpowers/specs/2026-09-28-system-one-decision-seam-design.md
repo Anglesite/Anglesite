@@ -112,14 +112,15 @@ published has no file to delete, and a published one is grandfathered.
 
 ## 4. What this PR does not do (follow-ups)
 
-- **#2059 — the Core ML `OptionScorer` and its weights.** The seam ships inert. The provider needs
-  an owner decision on the base model and licence: Kev-0.5B (Qwen2.5-0.5B LoRA + readout head,
-  MIT), jevmlx's zero-shot recipe (MIT), or a Nimble-style contrastive fine-tune (Apache-2.0)
-  convert to Core ML and satisfy "Apple frameworks only"; `system-one-gemma`'s weights are
-  CC-BY-NC and do not. Size (0.3–1 GB) argues for an on-demand asset with the same
-  missing-asset fallback `NLContextualEmbeddingProvider` uses, not an App Store bundle resource.
-  Zero-shot small models score ~64–68% on TypeSafe's public eval; the value is in the domain
-  fine-tune, which is why the ledger keeps labels from day one.
+- **#2059 — the Core ML `OptionScorer` and its weights.** The seam ships inert. **Decided
+  2026-09-28 (owner): Kev-0.5B** — Qwen2.5-0.5B + LoRA r=16 + 896→256 pointer head, Apache-2.0,
+  the attention-only prototype that Core ML can export (Kev's current Qwen3.5 checkpoints use
+  Gated DeltaNet layers coremltools can't convert). Plan:
+  [`../plans/2026-09-28-kev-coreml-scorer-plan.md`](../plans/2026-09-28-kev-coreml-scorer-plan.md).
+  Size (~1 GB) argues for an on-demand asset with the same missing-asset fallback
+  `NLContextualEmbeddingProvider` uses, not an App Store bundle resource. Kev-0.5B scores 0.799
+  on its held-out public sets; the value is in the domain fine-tune, which is why the ledger
+  keeps labels from day one.
 - **Moderation-pane wiring.** `ModerationModel` lists `ledger.held()` beside pending followers
   and calls `ledger.rule(_:approved:)` on Accept/Reject. App target; needs Xcode 27 to verify.
 - **ActivityPub and Bluesky paths.** `BlueskyBackfeedSync` and the AP inbox reuse the same

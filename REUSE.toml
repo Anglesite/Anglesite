@@ -98,3 +98,21 @@ path = "Resources/Template/packs/astroplate/**"
 precedence = "override"
 SPDX-FileCopyrightText = "2023 Zeon Studio"
 SPDX-License-Identifier = "MIT"
+
+# Kev / Qwen2 derived material for the on-device decision model (#2059).
+# `KevSequencePacker.swift` and `KevPointerHead.swift` port the row packer and
+# pointer head from Jared Palmer's Kev (`kev/model.py`, Apache-2.0); the three
+# scripts under scripts/kev/ port its encoder for fixture generation and read its
+# checkpoint format. The golden fixtures embed an excerpt (616 tokens, 360 merge
+# rules) of the Qwen2 tokenizer tables shipped with Qwen/Qwen2.5-0.5B (Apache-2.0).
+[[annotations]]
+path = ["Sources/AnglesiteCore/AI/Kev/KevSequencePacker.swift", "Sources/AnglesiteCore/AI/Kev/KevPointerHead.swift", "scripts/kev/**"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 David W. Keith", "2026 Jared Palmer"]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "Tests/AnglesiteCorePortableTests/Fixtures/Kev/**"
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 David W. Keith", "2024 Alibaba Cloud (Qwen2 tokenizer tables)"]
+SPDX-License-Identifier = "Apache-2.0"
