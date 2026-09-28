@@ -41,7 +41,9 @@ public struct KevPointerHead: Sendable {
         }
         self.hiddenSize = hiddenSize
         self.pointerSize = pointerSize
-        self.temperature = max(temperature, 1e-6)
+        // `max(NaN, floor)` returns NaN in Swift, so NaN is checked explicitly — the same guard
+        // `TemperatureCalibration.init(from:)` carries.
+        self.temperature = temperature.isNaN ? 1e-6 : max(temperature, 1e-6)
         self.qWeight = qWeight
         self.qBias = qBias
         self.kWeight = kWeight

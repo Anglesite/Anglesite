@@ -33,6 +33,16 @@ struct KevPointerHeadTests {
         #expect(abs(scaled[0] - logits[0] / 2) < 1e-9)
     }
 
+    @Test("a non-positive or NaN temperature is clamped to the positive floor")
+    func temperatureClamp() throws {
+        for bad in [0.0, -2.0, Double.nan] {
+            let head = try Self.tinyHead(temperature: bad)
+            #expect(head.temperature > 0 && head.temperature.isFinite)
+            let logits = try head.logits(decideState: [2, 3, 5], optionStates: [[1, 1, 1]])
+            #expect(logits[0].isFinite)
+        }
+    }
+
     @Test("wrong-length tensors and states are rejected")
     func sizeChecks() throws {
         #expect(throws: KevPointerHead.LoadError.unexpectedSize(expected: 6, got: 5)) {

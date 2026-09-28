@@ -102,6 +102,35 @@ struct KevOptionScorerTests {
         }
     }
 
+    @Test("assembling from assets with a pre-loaded head uses it and still checks the backbone size")
+    func assetsInitWithPreloadedHead() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("KevOptionScorerTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Tokenizer + delimiters only: no head files on disk, so the pre-loaded head is the only
+        // way this assembly can succeed.
+        var vocab: [String: Int32] = [:]
+        for (b, symbol) in BytePairEncoder.byteAlphabet.enumerated() { vocab[String(symbol)] = Int32(b) }
+        try JSONSerialization.data(withJSONObject: vocab).write(to: dir.appendingPathComponent("vocab.json"))
+        try Data().write(to: dir.appendingPathComponent("merges.txt"))
+        let added: [String: Int32] = ["<|fim_prefix|>": 300, "<|fim_middle|>": 301, "<|box_start|>": 302, "<|box_end|>": 303, "<|fim_suffix|>": 304]
+        try JSONSerialization.data(withJSONObject: added).write(to: dir.appendingPathComponent("added_tokens.json"))
+        let assets = KevModelAssets(directory: dir)
+        #expect(!assets.hasTokenizerAndHead)
+        #expect(!assets.hasTokenizerAndHead(fileManager: .default))
+
+        let good = RecordingBackbone(hiddenSize: 2) { _, _ in [0, 0] }
+        _ = try KevOptionScorer(assets: assets, head: Self.head(), backbone: good)
+        let mismatched = RecordingBackbone(hiddenSize: 3) { _, _ in [0, 0, 0] }
+        #expect(throws: DecisionError.self) {
+            _ = try KevOptionScorer(assets: assets, head: Self.head(), backbone: mismatched)
+        }
+        // Without a pre-loaded head the missing head.json surfaces as unavailable.
+        #expect(throws: DecisionError.self) {
+            _ = try KevOptionScorer(assets: assets, backbone: good)
+        }
+    }
+
     @Test("a head/backbone hidden-size mismatch is refused at assembly")
     func hiddenSizeMismatch() throws {
         let backbone = RecordingBackbone(hiddenSize: 3) { _, _ in [0, 0, 0] }

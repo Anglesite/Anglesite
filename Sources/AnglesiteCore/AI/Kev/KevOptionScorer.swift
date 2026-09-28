@@ -38,9 +38,13 @@ public struct KevModelAssets: Sendable, Equatable {
 
     /// Whether the tokenizer and head files are all present. Doesn't check the backbone: on a
     /// host where Core ML is unavailable, the tokenizer/head half still loads and tests.
-    public var hasTokenizerAndHead: Bool {
-        let fm = FileManager.default
-        return [vocabURL, mergesURL, addedTokensURL, headMetadataURL, headWeightsURL].allSatisfy { fm.fileExists(atPath: $0.path) }
+    public var hasTokenizerAndHead: Bool { hasTokenizerAndHead(fileManager: .default) }
+
+    /// ``hasTokenizerAndHead`` with an injectable file manager; the single place the required
+    /// small-file set is listed, so `KevModelLocator` can't drift from it.
+    public func hasTokenizerAndHead(fileManager: FileManager) -> Bool {
+        [vocabURL, mergesURL, addedTokensURL, headMetadataURL, headWeightsURL]
+            .allSatisfy { fileManager.fileExists(atPath: $0.path) }
     }
 
     /// Loads the delimiters from `added_tokens.json`.
@@ -102,13 +106,19 @@ public struct KevOptionScorer: OptionScorer {
 
     /// Loads tokenizer, delimiters and head from `assets` and pairs them with `backbone`.
     ///
+    /// - Parameters:
+    ///   - assets: The asset directory.
+    ///   - head: An already-loaded head, when the caller needed it earlier (e.g. to size the
+    ///     backbone); `nil` loads it from `assets`. Passing it avoids reading `head.bin` twice.
+    ///   - backbone: The transformer.
+    ///   - optionIsolation: See ``init(encoder:packer:head:backbone:optionIsolation:)``.
     /// - Throws: ``DecisionError/unavailable(_:)`` wrapping whichever file failed to load, so a
     ///   caller that only wants "is the model here?" gets one error type.
-    public init(assets: KevModelAssets, backbone: any KevBackbone, optionIsolation: Bool = false) throws {
+    public init(assets: KevModelAssets, head: KevPointerHead? = nil, backbone: any KevBackbone, optionIsolation: Bool = false) throws {
         do {
             let encoder = try assets.loadEncoder()
             let packer = KevSequencePacker(delimiters: try assets.loadDelimiters())
-            let head = try assets.loadHead()
+            let head = try head ?? assets.loadHead()
             try self.init(encoder: encoder, packer: packer, head: head, backbone: backbone, optionIsolation: optionIsolation)
         } catch let error as DecisionError {
             throw error

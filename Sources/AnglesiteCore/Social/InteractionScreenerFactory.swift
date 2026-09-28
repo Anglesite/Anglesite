@@ -31,10 +31,8 @@ public enum KevModelLocator {
             environment[environmentOverride].map { URL(fileURLWithPath: $0, isDirectory: true) },
             defaultDirectory(fileManager: fileManager),
         ].compactMap { $0 }
-        return candidates.lazy.map(KevModelAssets.init(directory:)).first { assets in
-            [assets.vocabURL, assets.mergesURL, assets.addedTokensURL, assets.headMetadataURL, assets.headWeightsURL]
-                .allSatisfy { fileManager.fileExists(atPath: $0.path) }
-        }
+        return candidates.lazy.map(KevModelAssets.init(directory:))
+            .first { $0.hasTokenizerAndHead(fileManager: fileManager) }
     }
 }
 
@@ -76,7 +74,7 @@ public enum InteractionScreenerFactory {
         }
         let backbone = CoreMLKevBackbone(modelURL: assets.backboneURL, hiddenSize: head.hiddenSize)
         do {
-            let scorer = try KevOptionScorer(assets: assets, backbone: backbone)
+            let scorer = try KevOptionScorer(assets: assets, head: head, backbone: backbone)
             return ScoringDecisionProvider(scorer: scorer)
         } catch {
             Task { await (log ?? Self.defaultLog)("Kev scorer failed to assemble from \(assets.directory.path): \(error)") }
