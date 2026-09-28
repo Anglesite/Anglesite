@@ -63,7 +63,12 @@ public enum LinkMetadataParser {
         return result
     }
 
-    private static func titleText(in html: String) -> String? {
+    /// Internal (not `private`) so `SEOAuditRunner` (#2004) can check for a literal `<title>`
+    /// element directly — `parse(html:)`'s own `title` field prefers `og:title` when present,
+    /// which is the right "best available title for a link preview" behavior for this parser's
+    /// original callers but the wrong question for an audit asking "does this page have a
+    /// `<title>` element at all."
+    static func titleText(in html: String) -> String? {
         firstCapture(pattern: "<title[^>]*>(.*?)</title>", in: html).map(decodeEntities)
     }
 

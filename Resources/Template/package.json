@@ -36,28 +36,28 @@
     "@dwk/webmention": "1.0.0-beta.2",
     "@dwk/websub": "1.0.0-beta.1",
     "@tgwf/co2": "^0.19.0",
-    "astro": "^7.3.2",
+    "astro": "^7.3.4",
     "astro-seo-schema": "^7.0.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@astrojs/react": "^6.0.5",
+    "@astrojs/react": "^7.0.0",
     "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20260910.1",
+    "@cloudflare/workers-types": "5.20260922.1",
     "@keystatic/astro": "^6.0.0",
     "@keystatic/core": "^0.6.9",
-    "@types/node": "^26.5.1",
-    "html-validate": "^11.15.0",
+    "@types/node": "^26.6.2",
+    "html-validate": "^11.16.0",
     "impeccable": "4.1.0",
     "microformats-parser": "^2.0.4",
     "pagefind": "^1.5.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "schema-dts": "^1.1.5",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "4.1.11",
-    "wrangler": "4.131.0"
+    "wrangler": "4.136.3"
   },
   "overrides": {
     "@astroanimate/core": {

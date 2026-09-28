@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 private final class StubScanner: AgentReadinessScanning, @unchecked Sendable {
@@ -96,7 +97,7 @@ struct AgentReadinessModelTests {
         model.configure(site: site)
 
         model.runScan()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the scan to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")
@@ -115,7 +116,7 @@ struct AgentReadinessModelTests {
         model.configure(site: site)
 
         model.runScan()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the scan to finish") { !model.isRunning }
 
         #expect(scanner.submittedURL == URL(string: "https://example.workers.dev"))
         #expect(scanner.submittedToken == "token")
@@ -137,7 +138,7 @@ struct AgentReadinessModelTests {
         model.configure(site: site)
 
         model.runScan()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the scan to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")

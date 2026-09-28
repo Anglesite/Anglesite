@@ -323,7 +323,14 @@ struct SiteScaffolderTests {
         let configDir = pkgURL.appendingPathComponent("Config")
         let baseline = DependencyBaseline.load(from: configDir)
         #expect(baseline != nil)
-        #expect(baseline?["astro"] == "^7.3.2")  // matches Resources/Template/package.json today
+        // Read the expected range from the template itself, via the same extractor
+        // SiteScaffolder uses, so dependency bumps (e.g. Dependabot's template-deps
+        // group) don't break this test.
+        let templateAstro = try PackageJSONDependencies.extract(
+            from: String(contentsOf: templateURL.appendingPathComponent("package.json"), encoding: .utf8)
+        )["astro"]
+        #expect(templateAstro != nil)
+        #expect(baseline?["astro"] == templateAstro)
 
         let siteConfig = try String(
             contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)

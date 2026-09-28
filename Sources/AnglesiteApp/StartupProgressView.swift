@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Determinate dev-server startup indicator: a title line, the phase progress strip, a linear
 /// progress bar driven by `StartupProgressModel.fraction`, and the current curated phase message
-/// beneath it. Replaces the indeterminate spinner the preview pane used to show while `astro dev`
-/// booted.
+/// beneath it, then a rotating tips & tricks card (`StartupTipCard`). Replaces the indeterminate
+/// spinner the preview pane used to show while `astro dev` booted.
 struct StartupProgressView: View {
     let title: String
     let model: StartupProgressModel
@@ -26,6 +26,8 @@ struct StartupProgressView: View {
                 .foregroundStyle(.secondary)
                 .frame(height: 18)
                 .animation(.easeInOut(duration: 0.2), value: model.message)
+            StartupTipCard()
+                .padding(.top, 8)
             if let onShowLogs {
                 Button("Show Logs", action: onShowLogs)
                     .buttonStyle(.link)

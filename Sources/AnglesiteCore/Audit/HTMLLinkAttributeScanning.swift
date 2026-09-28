@@ -1,9 +1,10 @@
 import Foundation
 
-/// Shared HTML `<link>`/`<a>` tag and attribute scanning, factored out of
+/// Shared HTML `<link>`/`<a>`/`<meta>` tag and attribute scanning, factored out of
 /// `WebmentionEndpointDiscovery` (webmention.org endpoint discovery) so `FeedEndpointDiscovery`
-/// (#1483, RSS/Atom feed discovery for the blogroll's OPML export) can reuse the same
-/// subtle regex/attribute-parsing logic instead of duplicating it. Neither caller's `rel`/`type`
+/// (#1483, RSS/Atom feed discovery for the blogroll's OPML export) and `SEOAuditRunner` (#2004,
+/// reading `<meta name="description">`/`<link rel="canonical">`) can reuse the same subtle
+/// regex/attribute-parsing logic instead of duplicating it. Neither caller's `rel`/`type`/`name`
 /// matching predicate lives here — only the generic "find tags, read an attribute" machinery.
 enum HTMLLinkAttributeScanning {
     /// Matches `<link ...>` and `<a ...>` tags in document order.
@@ -23,10 +24,29 @@ enum HTMLLinkAttributeScanning {
         }
     }()
 
+    /// Matches `<meta ...>` tags in document order — added for `SEOAuditRunner` (#2004) to read
+    /// `<meta name="description">` without introducing a second regex-based tag scanner type.
+    private static let metaTagPattern: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(pattern: #"<meta\b([^>]*)>"#, options: [.caseInsensitive])
+        } catch {
+            fatalError("Invalid HTML meta-tag scan regex: \(error)")
+        }
+    }()
+
     /// Returns each matched tag's raw attribute string, in document order.
     static func tagAttributeStrings(in html: String) -> [String] {
+        attributeStrings(in: html, matching: tagPattern)
+    }
+
+    /// Returns each matched `<meta>` tag's raw attribute string, in document order.
+    static func metaAttributeStrings(in html: String) -> [String] {
+        attributeStrings(in: html, matching: metaTagPattern)
+    }
+
+    private static func attributeStrings(in html: String, matching pattern: NSRegularExpression) -> [String] {
         let range = NSRange(html.startIndex..<html.endIndex, in: html)
-        return tagPattern.matches(in: html, range: range).compactMap { match in
+        return pattern.matches(in: html, range: range).compactMap { match in
             guard let attrsRange = Range(match.range(at: 1), in: html) else { return nil }
             return String(html[attrsRange])
         }
@@ -39,14 +59,18 @@ enum HTMLLinkAttributeScanning {
     /// lookup for `rel` does not match inside a longer attribute name like `data-rel=`. (A
     /// plain `\b` word-boundary anchor does *not* achieve this: `-` is a non-word character, so
     /// `\brel\b` still matches the `rel` inside `data-rel=`.)
-    /// Cached compiled regexes for the three attribute names this scanner is actually called with —
+    /// Cached compiled regexes for the attribute names this scanner is actually called with —
     /// recompiling an `NSRegularExpression` on every `attributeValue(_:in:)` call was a real
     /// performance regression versus the pre-refactor `WebmentionEndpointDiscovery`, which cached
     /// its `rel`/`href` regexes as `static let`s. This scanner runs on every `<link>`/`<a>` tag on
-    /// every target page, for both webmention discovery and (#1483) feed discovery.
+    /// every target page, for webmention discovery and (#1483) feed discovery; `name`/`content`
+    /// (#2004) run on every `<meta>` tag on every page of a whole-site SEO audit — an equally hot
+    /// path, so they're cached the same way rather than falling through to `attributeRegex(for:)`.
     private static let relRegex = attributeRegex(for: "rel")
     private static let hrefRegex = attributeRegex(for: "href")
     private static let typeRegex = attributeRegex(for: "type")
+    private static let nameRegex = attributeRegex(for: "name")
+    private static let contentRegex = attributeRegex(for: "content")
 
     static func attributeValue(_ name: String, in source: String) -> String? {
         let regex: NSRegularExpression
@@ -54,6 +78,8 @@ enum HTMLLinkAttributeScanning {
         case "rel": regex = relRegex
         case "href": regex = hrefRegex
         case "type": regex = typeRegex
+        case "name": regex = nameRegex
+        case "content": regex = contentRegex
         default: regex = attributeRegex(for: name)
         }
         let range = NSRange(source.startIndex..<source.endIndex, in: source)

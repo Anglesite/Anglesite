@@ -110,7 +110,7 @@ struct AISearchModelTests {
         // synchronously, before the Task's `await apiToken()` hop even starts, so `isRunning`
         // can't under-report while a token resolves.
         #expect(model.isRunning)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check and zone resolve to finish") { !model.isRunning }
 
         #expect(model.phase == .awaitingCostConfirmation(domain: "example.com", zoneID: "z1"))
     }
@@ -128,7 +128,7 @@ struct AISearchModelTests {
         let model = AISearchModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: dir)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check to finish") { !model.isRunning }
 
         guard case .blockedByPolicy = model.phase else {
             Issue.record("expected .blockedByPolicy, got \(model.phase)")
@@ -144,11 +144,11 @@ struct AISearchModelTests {
         let model = AISearchModel(reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check and zone resolve to finish") { !model.isRunning }
 
         model.confirmCost()
         #expect(model.isRunning)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the provisioning to finish") { !model.isRunning }
 
         guard case .succeeded(let result) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)")
@@ -168,10 +168,10 @@ struct AISearchModelTests {
             preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check and zone resolve to finish") { !model.isRunning }
 
         model.confirmCost()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the provisioning to finish") { !model.isRunning }
 
         guard case .failed(let reason) = model.phase else {
             Issue.record("expected .failed, got \(model.phase)")
@@ -195,7 +195,7 @@ struct AISearchModelTests {
             preflight: preflight, keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check and preflight to finish") { !model.isRunning }
 
         #expect(preflight.checkedDomains == ["example.com"])
         guard case .failed(let reason) = model.phase else {
@@ -216,7 +216,7 @@ struct AISearchModelTests {
             preflight: StubPreflight(.indeterminate), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check and preflight to finish") { !model.isRunning }
 
         #expect(model.phase == .awaitingCostConfirmation(domain: "example.com", zoneID: "z1"))
     }
@@ -237,7 +237,7 @@ struct AISearchModelTests {
             preflight: preflight, keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: dir)
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the policy check to finish") { !model.isRunning }
 
         guard case .blockedByPolicy = model.phase else {
             Issue.record("expected .blockedByPolicy, got \(model.phase)")
@@ -332,7 +332,7 @@ struct AISearchModelTests {
         #expect(model.phase == .resolvingZone(domain: "fresh.example"))
 
         await reader.resolve(callIndex: 1, zoneID: "fresh-zone")
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the fresh run to finish") { !model.isRunning }
 
         #expect(model.phase == .awaitingCostConfirmation(domain: "fresh.example", zoneID: "fresh-zone"))
     }
