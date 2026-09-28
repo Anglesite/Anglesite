@@ -67,10 +67,14 @@ public actor CoreMLKevBackbone: KevBackbone {
         }
         let mask = try MLMultiArray(shape: [1, 1, NSNumber(value: length), NSNumber(value: length)], dataType: .float32)
         let allow = encoding.attentionAllowMatrix()
-        let maskPointer = mask.dataPointer.bindMemory(to: Float.self, capacity: length * length)
-        for i in 0..<length {
-            for j in 0..<length {
-                maskPointer[i * length + j] = allow[i][j] ? 0 : Self.maskedValue
+        // Element strides rather than an assumed contiguous layout; the buffer is float32 as
+        // requested above, so binding to Float and indexing by element stride is exact.
+        mask.withUnsafeMutableBytes { raw, strides in
+            let floats = raw.bindMemory(to: Float.self)
+            for i in 0..<length {
+                for j in 0..<length {
+                    floats[i * strides[2] + j * strides[3]] = allow[i][j] ? 0 : Self.maskedValue
+                }
             }
         }
         let features = try MLDictionaryFeatureProvider(dictionary: [
@@ -78,7 +82,10 @@ public actor CoreMLKevBackbone: KevBackbone {
         ])
         let output: MLFeatureProvider
         do {
-            output = try model.prediction(from: features)
+            // The explicitly async overload (macOS 14+): unambiguous on both the macOS 26 and 27
+            // SDKs, where the sync `prediction(from:)` resolves differently from an async
+            // actor method (the Xcode 27 preview lane rejected it).
+            output = try await model.prediction(from: features, options: MLPredictionOptions())
         } catch {
             throw DecisionError.unavailable("Kev backbone prediction failed: \(error)")
         }
