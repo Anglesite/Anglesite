@@ -151,7 +151,16 @@ struct SharePreviewSection: View {
     var fetchMetadata: @Sendable (URL) async throws -> LinkMetadata = { try await LinkMetadataFetcher().fetch(url: $0) }
 
     @State private var card: SharePreviewCard?
-    @State private var isFetching = false
+    // Seeded from `pageURL` at init, not `false`, so a page with a known URL renders the loading
+    // state on its very first frame instead of a one-frame flash of "unavailable" before `.task`
+    // below gets to flip it (code review finding).
+    @State private var isFetching: Bool
+
+    init(pageURL: URL?, fetchMetadata: @escaping @Sendable (URL) async throws -> LinkMetadata = { try await LinkMetadataFetcher().fetch(url: $0) }) {
+        self.pageURL = pageURL
+        self.fetchMetadata = fetchMetadata
+        _isFetching = State(initialValue: pageURL != nil)
+    }
 
     var body: some View {
         Section("Shared as") {
