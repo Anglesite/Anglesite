@@ -21,6 +21,7 @@ private actor FakeServer {
     private(set) var requests: [URLRequest] = []
     private(set) var inFlight = 0
     private(set) var peakInFlight = 0
+    private var requestWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(_ scripts: [URL: Script] = [:], fallback: Script = Script(statuses: [200])) {
         self.scripts = scripts
@@ -33,12 +34,18 @@ private actor FakeServer {
 
     private func handle(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
+        let arrived = requests.count
+        requestWaiters.removeAll { waiter in
+            guard arrived >= waiter.count else { return false }
+            waiter.continuation.resume()
+            return true
+        }
         inFlight += 1
         peakInFlight = max(peakInFlight, inFlight)
         defer { inFlight -= 1 }
         let url = try #require(request.url)
         var script = scripts[url] ?? fallback
-        if script.delay > .zero { try await Task.sleep(for: script.delay) }
+        if script.delay > .zero { try await Task.sleep(for: script.delay) }  // sleep-is-subject: fake's simulated server latency, not a wait-then-assert
         if let error = script.error { throw error }
         let status = script.statuses.isEmpty ? 200 : script.statuses.removeFirst()
         if scripts[url] != nil { scripts[url] = script }
@@ -46,6 +53,12 @@ private actor FakeServer {
     }
 
     func requests(for url: URL) -> [URLRequest] { requests.filter { $0.url == url } }
+
+    /// Suspends until at least `count` requests have arrived — the event itself, no polling.
+    func waitForRequests(_ count: Int) async {
+        guard requests.count < count else { return }
+        await withCheckedContinuation { requestWaiters.append((count, $0)) }
+    }
 }
 
 private func url(_ path: String) -> URL { URL(string: "https://other.example/\(path)")! }
@@ -181,9 +194,9 @@ struct ExternalLinkProbeTests {
         let server = FakeServer(scripts)
         let prober = probe(server)
         let task = Task { await prober.probe([fast] + slow) }
-        // Let the first window start (and `fast` finish) before cancelling.
-        while await server.requests.count < 6 { await Task.yield() }
-        try? await Task.sleep(for: .milliseconds(50))
+        // The 7th request is the window's refill, which it starts only after recording `fast`'s
+        // result — so once it arrives, `fast` is resolved and the other 6 are in flight.
+        await server.waitForRequests(7)
         let clock = ContinuousClock()
         let start = clock.now
         task.cancel()
@@ -192,6 +205,6 @@ struct ExternalLinkProbeTests {
         #expect(result.count == 11)
         #expect(result[fast] == .unreachable)
         #expect(slow.allSatisfy { result[$0] == .indeterminate })
-        #expect(await server.requests.count <= 7)
+        #expect(await server.requests.count == 7)
     }
 }
