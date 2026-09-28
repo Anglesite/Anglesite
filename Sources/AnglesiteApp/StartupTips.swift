@@ -26,6 +26,11 @@ enum StartupTips {
 /// `StartupTipDeck.dwellSeconds`, pauses while the pointer rests on it (so a slow reader isn't
 /// cut off — WCAG 2.2.2), and offers a Next Tip button for the impatient. Each shown tip moves
 /// the persisted cursor on, so the next startup opens on a fresh one.
+///
+/// Known limitation: `AppSettings.startupTipCursor` is one app-wide value, read once per card.
+/// Two site windows that start their previews at nearly the same moment can both open on the
+/// same tip, and the cursor then advances once rather than twice. Accepted — it's cosmetic and
+/// rare, and per-window cursors would cost more than the repeat does.
 struct StartupTipCard: View {
     private let tips: [String]
     private let settings: AppSettings

@@ -19,7 +19,7 @@ era.
 |---|---|
 | Placement | A card beneath the progress bar and status message, above **Show Logs**. Only on the preview startup screen; deploy/backup are out of scope. |
 | Rotation | One tip at a time, auto-advancing every 9 s (`StartupTipDeck.dwellSeconds`). |
-| Across launches | A persisted cursor (`AppSettings.startupTipCursor`) advances each time a tip is shown, so successive startups walk the whole list instead of repeating tip #1. Not user-facing. |
+| Across launches | A persisted cursor (`AppSettings.startupTipCursor`) advances each time a tip is shown, so successive startups walk the whole list instead of repeating tip #1. Not user-facing. It is app-wide, so two windows starting in the same instant can open on the same tip — an accepted, cosmetic limitation. |
 | Owner control | **Next Tip** link button skips ahead (and restarts the dwell timer). Hovering the card pauses auto-advance so a slow reader isn't cut off (WCAG 2.2.2). |
 | Motion | Cross-fade between tips; none under Reduce Motion. |
 | VoiceOver | The tip reads as "Tip: …"; tip changes are **not** announced — startup status already speaks, and chatter would bury it. |
