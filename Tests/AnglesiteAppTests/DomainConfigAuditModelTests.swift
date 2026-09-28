@@ -30,6 +30,15 @@ private actor ControllableReader: CloudflareReading {
     func callCount() -> Int { continuations.count }
 }
 
+/// Deterministic `DomainResolutionProbing` stub, keyed by host — the model's `SystemDomainResolutionProbe`
+/// default never appears in tests (#2006).
+private struct StubDomainResolutionProbe: DomainResolutionProbing {
+    var resultsByHost: [String: DomainResolutionResult] = [:]
+    func resolve(host: String) async -> DomainResolutionResult {
+        resultsByHost[host] ?? .indeterminate
+    }
+}
+
 /// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
 /// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
 /// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
@@ -185,6 +194,58 @@ struct DomainConfigAuditModelTests {
         #expect(zoneID == "z1")
         #expect(findings.count == 1)
         #expect(plan.items == [.createManagedRecord(record)])
+    }
+
+    @MainActor
+    @Test("runAudit() folds in a live DNS resolution finding from the probe")
+    func runAuditIncludesResolutionFinding() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let declared = DomainConfig(domain: .init(hostname: "example.com"))
+        let (site, cleanup) = try tempSite(declaring: declared)
+        defer { cleanup() }
+        let probe = StubDomainResolutionProbe(resultsByHost: [
+            "example.com": .resolved, "www.example.com": .notResolved,
+        ])
+        let model = DomainConfigAuditModel(
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(),
+            keychain: keychain, resolutionProbe: probe)
+        model.configure(site: site)
+
+        model.runAudit()
+        try await waitUntil("the audit to finish") { !model.isRunning }
+
+        guard case .results(let findings, _, _, _) = model.phase else {
+            Issue.record("expected .results, got \(model.phase)")
+            return
+        }
+        #expect(findings.contains { $0.category == .dns && $0.title == "www doesn't resolve" })
+    }
+
+    /// Acceptance criterion from #2006: the live probe must not be able to break the existing
+    /// zone-state audit, whatever it does — here, a slow/indeterminate result.
+    @MainActor
+    @Test("runAudit() still reaches .results when the resolution probe is indeterminate")
+    func runAuditReachesResultsWhenResolutionIsIndeterminate() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let declared = DomainConfig(domain: .init(hostname: "example.com"))
+        let (site, cleanup) = try tempSite(declaring: declared)
+        defer { cleanup() }
+        // No entries: every host resolves to .indeterminate.
+        let model = DomainConfigAuditModel(
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(),
+            keychain: keychain, resolutionProbe: StubDomainResolutionProbe())
+        model.configure(site: site)
+
+        model.runAudit()
+        try await waitUntil("the audit to finish") { !model.isRunning }
+
+        guard case .results(let findings, _, _, _) = model.phase else {
+            Issue.record("expected .results, got \(model.phase)")
+            return
+        }
+        #expect(!findings.contains { $0.category == .dns && $0.title.contains("resolve") })
     }
 
     @MainActor
