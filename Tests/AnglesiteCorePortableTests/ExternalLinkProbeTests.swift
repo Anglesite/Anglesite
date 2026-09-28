@@ -14,6 +14,9 @@ private actor FakeServer {
         var statuses: [Int]
         var delay: Duration = .zero
         var error: URLError? = nil
+        /// Hold the request at the gate until ``releaseGate()`` — lets a test observe the window
+        /// at its fullest without relying on timing.
+        var gated = false
     }
 
     private var scripts: [URL: Script]
@@ -22,6 +25,8 @@ private actor FakeServer {
     private(set) var inFlight = 0
     private(set) var peakInFlight = 0
     private var requestWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var gateOpen = false
+    private var gateWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(_ scripts: [URL: Script] = [:], fallback: Script = Script(statuses: [200])) {
         self.scripts = scripts
@@ -45,6 +50,7 @@ private actor FakeServer {
         defer { inFlight -= 1 }
         let url = try #require(request.url)
         var script = scripts[url] ?? fallback
+        if script.gated && !gateOpen { await withCheckedContinuation { gateWaiters.append($0) } }
         if script.delay > .zero { try await Task.sleep(for: script.delay) }  // sleep-is-subject: fake's simulated server latency, not a wait-then-assert
         if let error = script.error { throw error }
         let status = script.statuses.isEmpty ? 200 : script.statuses.removeFirst()
@@ -53,6 +59,13 @@ private actor FakeServer {
     }
 
     func requests(for url: URL) -> [URLRequest] { requests.filter { $0.url == url } }
+
+    /// Lets every held and future gated request through.
+    func releaseGate() {
+        gateOpen = true
+        gateWaiters.forEach { $0.resume() }
+        gateWaiters.removeAll()
+    }
 
     /// Suspends until at least `count` requests have arrived — the event itself, no polling.
     func waitForRequests(_ count: Int) async {
@@ -69,7 +82,10 @@ private func probe(_ server: FakeServer, budget: Duration = .seconds(60)) -> HTT
         requestTimeout: HTTPExternalLinkProbe.defaultRequestTimeout, totalBudget: budget)
 }
 
-@Suite("ExternalLinkProbe (#2027)")
+// The time limit is what catches a probe whose budget or cancellation regressed: the hung fakes
+// below would otherwise hold a test for an hour. Tests assert on outcomes, never on wall-clock
+// elapsed time — that is scheduler-dependent on a loaded CI runner.
+@Suite("ExternalLinkProbe (#2027)", .timeLimit(.minutes(1)))
 struct ExternalLinkProbeTests {
     @Test("the production defaults are 6 in flight, 10 s per request and a 60 s budget")
     func defaults() {
@@ -139,11 +155,19 @@ struct ExternalLinkProbeTests {
         #expect(await probe(server).probe([target]) == [target: .indeterminate])
     }
 
-    @Test("never more than 6 requests in flight, and the window is actually used")
+    @Test("the window fills to exactly 6 in flight and never goes past it")
     func boundedConcurrency() async {
         let targets = (0..<25).map { url("p\($0)") }
-        let server = FakeServer(fallback: .init(statuses: [200], delay: .milliseconds(20)))
-        let result = await probe(server).probe(targets)
+        let server = FakeServer(fallback: .init(statuses: [200], gated: true))
+        let prober = probe(server)
+        let task = Task { await prober.probe(targets) }
+        // Every request is held at the gate, so none completes and the window can't refill:
+        // exactly 6 arrive and all 6 are in flight at once.
+        await server.waitForRequests(6)
+        #expect(await server.inFlight == 6)
+        #expect(await server.requests.count == 6)
+        await server.releaseGate()
+        let result = await task.value
         #expect(result.count == 25)
         #expect(result.values.allSatisfy { $0 == .reachable })
         #expect(await server.peakInFlight == 6)
@@ -173,11 +197,9 @@ struct ExternalLinkProbeTests {
         var scripts = [fast: FakeServer.Script(statuses: [200])]
         for target in hung { scripts[target] = .init(statuses: [200], delay: .seconds(3600)) }
         let server = FakeServer(scripts)
-        let clock = ContinuousClock()
-        let start = clock.now
+        // A hung fake answers `.reachable` only after an hour, so `.indeterminate` for every hung
+        // URL is itself the proof the budget cut them off (the suite's time limit backs it up).
         let result = await probe(server, budget: .milliseconds(200)).probe([fast] + hung)
-        let elapsed = clock.now - start
-        #expect(elapsed < .seconds(5))
         #expect(result.count == 11)
         #expect(result[fast] == .reachable)
         #expect(hung.allSatisfy { result[$0] == .indeterminate })
@@ -197,11 +219,8 @@ struct ExternalLinkProbeTests {
         // The 7th request is the window's refill, which it starts only after recording `fast`'s
         // result — so once it arrives, `fast` is resolved and the other 6 are in flight.
         await server.waitForRequests(7)
-        let clock = ContinuousClock()
-        let start = clock.now
         task.cancel()
         let result = await task.value
-        #expect(clock.now - start < .seconds(5))
         #expect(result.count == 11)
         #expect(result[fast] == .unreachable)
         #expect(slow.allSatisfy { result[$0] == .indeterminate })
