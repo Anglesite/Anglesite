@@ -173,6 +173,10 @@ var packageTargets: [Target] = [
         name: "AnglesiteCorePortableTests",
         dependencies: ["AnglesiteCore"],
         path: "Tests/AnglesiteCorePortableTests",
+        // Tests/AnglesiteCorePortableTests/Fixtures/Kev/ holds the Kev tokenizer/packer golden
+        // fixtures (#2059), generated from the released checkpoint by scripts/kev/. `.copy` keeps
+        // them byte-for-byte, as the other targets' `Fixtures/` do.
+        resources: [.copy("Fixtures")],
         swiftSettings: strictConcurrency
     ),
     .testTarget(
