@@ -10,9 +10,14 @@ import UniformTypeIdentifiers
 /// table as `LinkImageAsset.format(sniffing:)`, which this type deliberately doesn't reuse (that
 /// type's `install` is keyed to a link-post `slug` identity that doesn't fit an arbitrary canvas
 /// drop).
+///
+/// On Darwin, the bytes go through ``ImageOptimizer`` before they're written (#2019) — HEIC/TIFF/
+/// BMP become JPEG or PNG, anything past the size cap is downscaled, location data is removed —
+/// unless the site opted out with `SiteSettings.imageOptimisationDisabled`. A failed optimisation
+/// writes the original bytes; a drop is never lost to it.
 public enum WYSIWYGImageAssetIngestor {
     enum Format: String {
-        case jpeg, png, gif, webp
+        case jpeg, png, gif, webp, avif, heic, tiff, bmp
 
         var fileExtension: String {
             switch self {
@@ -20,18 +25,25 @@ public enum WYSIWYGImageAssetIngestor {
             case .png: "png"
             case .gif: "gif"
             case .webp: "webp"
+            case .avif: "avif"
+            case .heic: "heic"
+            case .tiff: "tif"
+            case .bmp: "bmp"
             }
         }
 
         #if canImport(UniformTypeIdentifiers)
-        /// `nil` only if the system UTI database can't resolve `"webp"`, which doesn't happen on
-        /// any supported macOS version — jpeg/png/gif always resolve via their standard `UTType`.
+        /// `nil` only if the system UTI database can't resolve `"webp"`/`"avif"`, which doesn't
+        /// happen on any supported macOS version — the rest resolve via their standard `UTType`.
         var utType: UTType? {
             switch self {
             case .jpeg: .jpeg
             case .png: .png
             case .gif: .gif
-            case .webp: UTType(filenameExtension: fileExtension)
+            case .webp, .avif: UTType(filenameExtension: fileExtension)
+            case .heic: .heic
+            case .tiff: .tiff
+            case .bmp: .bmp
             }
         }
         #endif
@@ -72,16 +84,60 @@ public enum WYSIWYGImageAssetIngestor {
             Task {
                 await logCenter.append(
                     source: logSource, stream: .stderr,
-                    text: "dropped \(bytes.count) bytes matched no known image signature (jpeg/png/gif/webp) — ignoring drop")
+                    text: "dropped \(bytes.count) bytes matched no known image signature (jpeg/png/gif/webp/avif/heic/tiff/bmp) — ignoring drop")
             }
             return nil
         }
+        var output = bytes
+        var fileExtension = format.fileExtension
+        #if canImport(Darwin)
+        if let optimised = optimise(bytes, siteDirectory: siteDirectory, fileManager: fileManager, logCenter: logCenter) {
+            output = optimised.data
+            fileExtension = optimised.fileExtension
+        }
+        #endif
         let directory = siteDirectory.appendingPathComponent("public/images", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let name = "wysiwyg-\(UUID().uuidString.prefix(8)).\(format.fileExtension)"
+        let name = "wysiwyg-\(UUID().uuidString.prefix(8)).\(fileExtension)"
         let destination = directory.appendingPathComponent(name)
-        try bytes.write(to: destination, options: .atomic)
+        try output.write(to: destination, options: .atomic)
         return "/images/\(name)"
+    }
+
+    #if canImport(Darwin)
+    /// Runs ``ImageOptimizer`` unless the site opted out, logging one line either way it acts.
+    /// Returns `nil` when the original bytes should be written unchanged.
+    ///
+    /// Reads the opt-out from the package's `Config/` — the sibling of the `Source/` directory
+    /// passed as `siteDirectory` — synchronously, like the write `ingest` itself does. A directory
+    /// that isn't inside a package, or has no settings file, reads as "on".
+    private static func optimise(
+        _ bytes: Data, siteDirectory: URL, fileManager: FileManager, logCenter: LogCenter
+    ) -> ImageOptimizer.Optimised? {
+        let configDirectory = AnglesitePackage(url: siteDirectory.deletingLastPathComponent()).configURL
+        let settings = (try? SiteConfigStore.read(from: configDirectory, fileManager: fileManager)) ?? SiteSettings()
+        if settings.imageOptimisationDisabled == true {
+            log("image optimisation is off for this site — keeping the dropped image as it is", stream: .stdout, to: logCenter)
+            return nil
+        }
+        switch ImageOptimizer.optimise(bytes) {
+        case .optimised(let optimised):
+            let before = ByteCountFormatter.string(fromByteCount: Int64(bytes.count), countStyle: .file)
+            let after = ByteCountFormatter.string(fromByteCount: Int64(optimised.data.count), countStyle: .file)
+            log("optimised dropped image: \(before) → \(after) (\(optimised.summary))", stream: .stdout, to: logCenter)
+            return optimised
+        case .unchanged:
+            return nil
+        case .failed(let reason):
+            log("couldn't optimise dropped image (\(reason)) — keeping the original", stream: .stderr, to: logCenter)
+            return nil
+        }
+    }
+    #endif
+
+    /// Fire-and-forget log line — `ingest` stays synchronous (see its doc comment).
+    private static func log(_ text: String, stream: LogCenter.Stream, to logCenter: LogCenter) {
+        Task { await logCenter.append(source: logSource, stream: stream, text: text) }
     }
 
     /// Resolves an `ingest(bytes:siteDirectory:)`-returned root-relative asset path (e.g.
@@ -106,6 +162,14 @@ public enum WYSIWYGImageAssetIngestor {
         if matches([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], at: 0) { return .png }
         if matches(Array("GIF8".utf8), at: 0) { return .gif }
         if matches(Array("RIFF".utf8), at: 0), matches(Array("WEBP".utf8), at: 8) { return .webp }
+        // ISO-BMFF (HEIF family): an `ftyp` box whose major brand names the format.
+        if matches(Array("ftyp".utf8), at: 4) {
+            for brand in ["avif", "avis"] where matches(Array(brand.utf8), at: 8) { return .avif }
+            for brand in ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"]
+            where matches(Array(brand.utf8), at: 8) { return .heic }
+        }
+        if matches([0x49, 0x49, 0x2A, 0x00], at: 0) || matches([0x4D, 0x4D, 0x00, 0x2A], at: 0) { return .tiff }
+        if matches(Array("BM".utf8), at: 0) { return .bmp }
         return nil
     }
 }
