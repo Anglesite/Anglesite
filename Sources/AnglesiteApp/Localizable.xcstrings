@@ -1922,6 +1922,9 @@
     "Drafts platform-sized posts for this article. Anglesite never posts for you — copy each one out, then record the published URLs below." : {
 
     },
+    "Drag a link from your browser onto the Sites window to start a link post." : {
+
+    },
     "Duplicate" : {
 
     },
@@ -2753,6 +2756,9 @@
     "Move to Drafts" : {
 
     },
+    "Moving from WordPress? Choose File ▸ Import WordPress Export (WXR)… to bring your posts along." : {
+
+    },
     "My New Webpage" : {
 
     },
@@ -3269,6 +3275,9 @@
     "Pasted callback URL" : {
 
     },
+    "Pasting from another app? ⌥⇧⌘V pastes the text without its formatting." : {
+
+    },
     "Pause" : {
 
     },
@@ -3348,6 +3357,12 @@
 
     },
     "Press ⌃⌘K to show Chat and ask for help with your site." : {
+
+    },
+    "Press ⌘1 to jump back to the preview." : {
+
+    },
+    "Press ⌘F to find text on the page you’re editing." : {
 
     },
     "Press ⌘N to add a new page to your site." : {
@@ -4710,6 +4725,9 @@
     "Turn on the Fediverse in Settings ▸ Workers, then publish again." : {
 
     },
+    "Turn on “Auto-generate alt text for dropped images” in Settings, and Anglesite describes new images for people using screen readers." : {
+
+    },
     "Type" : {
 
     },
@@ -4795,6 +4813,9 @@
 
     },
     "Use MX Records from DNS" : {
+
+    },
+    "Use ⌃⌘← and ⌃⌘→ to go back and forward between pages in the preview." : {
 
     },
     "Use ⌘+ and ⌘− to zoom the preview. ⌘0 returns to actual size." : {

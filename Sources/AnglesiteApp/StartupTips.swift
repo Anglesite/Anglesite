@@ -19,6 +19,13 @@ enum StartupTips {
         String(localized: "Press ⇧⌘, to open Website Settings."),
         String(localized: "Your website belongs to you. It’s stored on your Mac, and you can take it anywhere."),
         String(localized: "Miss the sound of a 56K modem? Turn on “Play dial-up sound while loading” in Settings."),
+        String(localized: "Press ⌘1 to jump back to the preview."),
+        String(localized: "Use ⌃⌘← and ⌃⌘→ to go back and forward between pages in the preview."),
+        String(localized: "Press ⌘F to find text on the page you’re editing."),
+        String(localized: "Pasting from another app? ⌥⇧⌘V pastes the text without its formatting."),
+        String(localized: "Drag a link from your browser onto the Sites window to start a link post."),
+        String(localized: "Moving from WordPress? Choose File ▸ Import WordPress Export (WXR)… to bring your posts along."),
+        String(localized: "Turn on “Auto-generate alt text for dropped images” in Settings, and Anglesite describes new images for people using screen readers."),
     ]
 }
 

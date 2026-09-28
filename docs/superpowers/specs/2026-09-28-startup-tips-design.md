@@ -51,6 +51,13 @@ era.
 9. ⇧⌘, — Website Settings.
 10. Ownership: the site lives on your Mac and goes wherever you take it.
 11. The dial-up sound toggle in Settings.
+12. ⌘1 — back to the preview.
+13. ⌃⌘← / ⌃⌘→ — preview back/forward.
+14. ⌘F — find on the page being edited.
+15. ⌥⇧⌘V — Paste and Match Style.
+16. Drag a browser link onto the Sites window — link post.
+17. File ▸ Import WordPress Export (WXR)….
+18. The auto-generated alt text toggle in Settings.
 
 ## Adding a tip
 
