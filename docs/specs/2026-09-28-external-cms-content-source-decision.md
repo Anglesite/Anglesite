@@ -104,7 +104,7 @@ imports) so Node and Workers run the *same* code. The module is part of the app-
 | Layer | When | What it scans | Checks | On failure |
 |---|---|---|---|---|
 | **1. Deploy** (`build:ci`, unchanged entry point) | Before every deploy of code/theme | `Source/` (the existing `--source` sweep), prerendered `dist/` files, and the **server bundle** | Everything today, except that per-article checks apply only to what exists (templates, prerendered pages, bundle). Additionally: the bundle's check module matches the pin, and the publish-gate plugin is registered | Deploy refused (as today) |
-| **2. Publish** (`anglesite-gate` EmDash plugin) | `content:beforePublish` and `content:beforeSchedule`, re-run when a scheduled post comes due | The entry's fields, with Portable Text rendered to HTML | Content checks: secrets, PII, embed-media hotlinks, mixed content, restricted-visibility content. Same severity policy as `build:ci --strict` | Publish cancelled via `{ cancel: true, reason }`, with the reason in writer terms in EmDash's editor |
+| **2. Publish** (`anglesite-gate` EmDash plugin) | `content:beforePublish` and `content:beforeSchedule`, re-run when a scheduled post comes due | The draft's fields: text (Portable Text spans, link targets) and the URLs a page would load | Content checks: secrets, PII, embed-media hotlinks, mixed content, restricted-visibility content. Same severity policy as `build:ci --strict` | Publish cancelled via `{ cancel: true, reason }`, with the reason in writer terms in EmDash's editor |
 | **3. Render backstop** (SSR Worker) | Before a rendered page enters the cache | The rendered HTML response | Error-severity checks only: secrets, restricted content, blocked admin routes | Page withheld (not cached, served as unavailable) and the owner is alerted. It fails closed |
 
 Why three layers:
@@ -118,9 +118,12 @@ Why three layers:
 **The plugin is not optional.** `anglesite-gate` is registered in the site's configuration (code),
 not installed through EmDash's admin, so an EmDash administrator can't remove it. Removing it is a
 code change, and layer 1 refuses to deploy one. Its manifest requests only
-`hooks.content-policy:register`, `content:read` and `schema:read`, with no network access
-([EmDash plugin capabilities](https://github.com/emdash-cms/emdash/blob/main/skills/creating-plugins/SKILL.md)).
-It is a sandboxed EmDash plugin like any other.
+`hooks.content-policy:register`, with no content, schema or network access: the policy hooks hand
+it the draft being published
+([EmDash plugin capabilities](https://github.com/emdash-cms/emdash/blob/main/skills/creating-plugins/SKILL.md),
+[hooks](https://github.com/emdash-cms/emdash/blob/main/skills/creating-plugins/references/hooks.md)).
+It is a sandboxed EmDash plugin like any other. It never registers `content:beforeUnpublish`: a
+correction, retraction or takedown must never be blocked by the gate.
 
 ## Rationale for server rendering
 
