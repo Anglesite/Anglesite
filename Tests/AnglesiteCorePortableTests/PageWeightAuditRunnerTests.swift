@@ -129,7 +129,16 @@ struct PageWeightAuditRunnerTests {
             pagesScanned: 1, heaviestPageBytes: 0, externalReferencesSkipped: 0,
             problems: [.init(kind: .imgMissingDimensions, page: "/", count: 1, examples: ["/x.png"])])
         let finding = try #require(PageWeightAuditRunner.findings(from: report).first)
-        #expect(finding.detail == "1 image on / has no width or height, so the text shifts as it arrives, e.g. “/x.png”.")
+        #expect(finding.detail == "1 image on / doesn’t say how big it is, so the text shifts as it arrives, e.g. “/x.png”.")
+    }
+
+    @Test("page-weight details say \"at least\", since the total is a lower bound")
+    func heavyPageWording() throws {
+        let report = PageWeightAuditRunner.Report(
+            pagesScanned: 1, heaviestPageBytes: 0, externalReferencesSkipped: 0,
+            problems: [.init(kind: .heavyPage, page: "/", bytes: 2_097_152)])
+        let finding = try #require(PageWeightAuditRunner.findings(from: report).first)
+        #expect(finding.detail.hasPrefix("A first visit to / downloads at least 2.0 MB"))
     }
 
     @Test("formatBytes matches the script: binary KB below a megabyte, one decimal of MB above",

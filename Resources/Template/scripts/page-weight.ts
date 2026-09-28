@@ -11,8 +11,14 @@
  * visit to any one of them. Responsive-image candidates are alternatives, not additions: the
  * candidates of one `srcset`, and every source inside one `<picture>`, count once, as the largest
  * of them (the worst single download), so a responsive image isn't charged for every width and
- * format it's offered in. Off-site references count as 0 and are reported as skipped — this
- * script does no network I/O.
+ * format it's offered in. When an `<img>` has a `srcset`, its `src` is the fallback for browsers
+ * that ignore `srcset` and isn't a candidate. Images marked `loading="lazy"` aren't part of the
+ * first download and don't count toward page weight (they're still checked for size and format).
+ * Off-site references count as 0 and are reported as skipped — this script does no network I/O.
+ *
+ * The total is a lower bound, not an exact figure: assets referenced from CSS (`url()` fonts and
+ * background images), `<video>`/`<audio>`, `<link rel="preload">` and inline `data:` payloads
+ * aren't counted.
  *
  * Reference resolution (same-site vs off-site, relative paths, directory-style URLs) is
  * `broken-links.ts`'s, so the two audits agree on what a reference points at. A reference whose
@@ -22,8 +28,9 @@
  *   tsx scripts/page-weight.ts          # human-readable report
  *   tsx scripts/page-weight.ts --json   # machine-readable report (what the app's audit consumes)
  *
- * Exit codes mirror `broken-links.ts`: 0 — no problems; 1 — at least one problem; 2 — the scan
- * couldn't run (no `dist/` or no built pages in it).
+ * Exit codes mirror `broken-links.ts`: 0 — no problems, or only advisory ones (`INFO_KINDS`);
+ * 1 — at least one warning or critical problem; 2 — the scan couldn't run (no `dist/` or no
+ * built pages in it).
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -68,6 +75,9 @@ export type ProblemKind =
   | "non-web-image-format"
   | "img-missing-dimensions";
 
+/** Advisory kinds — reported, but they don't make the CLI exit 1 on their own. */
+export const INFO_KINDS: ReadonlySet<ProblemKind> = new Set(["img-missing-dimensions"]);
+
 /**
  * One problem. Page-level kinds (`heavy-page`, `very-heavy-page`, `img-missing-dimensions`) set
  * `page`; asset-level kinds (`oversized-image`, `non-web-image-format`) set `asset` and list the
@@ -85,7 +95,7 @@ export interface PageWeightProblem {
   pages?: string[];
   /** How many `<img>` on the page lack dimensions, for `img-missing-dimensions`. */
   count?: number;
-  /** Up to three `src` values of those images, for `img-missing-dimensions`. */
+  /** Up to three non-empty `src` values of those images, for `img-missing-dimensions`. */
   examples?: string[];
 }
 
@@ -126,10 +136,19 @@ const TAG_PATTERN = /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g;
 export interface PageReferences {
   /** Stylesheets and scripts: each is downloaded. */
   single: string[];
-  /** Alternative sets — a `<picture>`, or an `<img>` with `srcset` — each downloaded once, as one of its members. */
-  groups: string[][];
-  /** Every `<img>`: its `src` and whether it declares `width` and/or `height`. */
-  images: Array<{ src: string; hasDimension: boolean }>;
+  /** One per `<img>` or `<picture>`: downloaded once, as one of its candidates. */
+  groups: ImageGroup[];
+  /** Every `<img>`: its `src` and whether it reserves its space (both `width` and `height`, or a CSS `aspect-ratio`). */
+  images: Array<{ src: string; hasDimensions: boolean }>;
+}
+
+export interface ImageGroup {
+  /** The alternatives the browser picks one of: `srcset` candidates (or `src` when there's no `srcset`) and `<source>`s. */
+  candidates: string[];
+  /** Referenced but normally not downloaded — an `<img src>` fallback beside a `srcset`. Checked for size and format only. */
+  fallbacks: string[];
+  /** `loading="lazy"`: not part of the first download. */
+  lazy: boolean;
 }
 
 function attributes(source: string): Map<string, string | null> {
@@ -144,22 +163,36 @@ function srcsetCandidates(srcset: string | null | undefined): string[] {
     .filter((url): url is string => Boolean(url));
 }
 
-/** Collects the `<img>` in `html` into `refs`: an image with `srcset` is one group of alternatives. */
-function collectImages(html: string, refs: PageReferences, into?: string[]): void {
+/**
+ * Collects the `<img>` in `html` into `refs`, one group per image — or, with `into`, every `<img>`
+ * and `<source>` into that one group (a `<picture>`).
+ */
+function collectImages(html: string, refs: PageReferences, into?: ImageGroup): void {
   for (const tag of html.matchAll(TAG_PATTERN)) {
     const name = tag[1].toLowerCase();
     const attrs = attributes(tag[2]);
     if (name === "source" && into) {
-      into.push(...srcsetCandidates(attrs.get("srcset")));
+      into.candidates.push(...srcsetCandidates(attrs.get("srcset")));
       const src = attrs.get("src");
-      if (src) into.push(src);
+      if (src) into.candidates.push(src);
     }
     if (name !== "img") continue;
     const src = attrs.get("src") ?? "";
-    refs.images.push({ src, hasDimension: attrs.has("width") || attrs.has("height") });
-    const candidates = [...(src ? [src] : []), ...srcsetCandidates(attrs.get("srcset"))];
-    if (into) into.push(...candidates);
-    else if (candidates.length > 0) refs.groups.push(candidates);
+    const style = (attrs.get("style") ?? "").toLowerCase();
+    refs.images.push({
+      src,
+      hasDimensions: (attrs.has("width") && attrs.has("height")) || style.includes("aspect-ratio"),
+    });
+    const srcset = srcsetCandidates(attrs.get("srcset"));
+    const group = into ?? { candidates: [], fallbacks: [], lazy: false };
+    if (srcset.length > 0) {
+      group.candidates.push(...srcset);
+      if (src) group.fallbacks.push(src);
+    } else if (src) {
+      group.candidates.push(src);
+    }
+    group.lazy ||= (attrs.get("loading") ?? "").toLowerCase() === "lazy";
+    if (!into && (group.candidates.length > 0 || group.fallbacks.length > 0)) refs.groups.push(group);
   }
 }
 
@@ -174,9 +207,9 @@ export function extractPageReferences(html: string): PageReferences {
   rest = rest.replace(SCRIPT_BLOCK_PATTERN, " ");
   // A <picture> is one image, whichever of its sources the browser picks.
   for (const block of rest.matchAll(PICTURE_BLOCK_PATTERN)) {
-    const members: string[] = [];
-    collectImages(block[1], refs, members);
-    if (members.length > 0) refs.groups.push(members);
+    const group: ImageGroup = { candidates: [], fallbacks: [], lazy: false };
+    collectImages(block[1], refs, group);
+    if (group.candidates.length > 0 || group.fallbacks.length > 0) refs.groups.push(group);
   }
   rest = rest.replace(PICTURE_BLOCK_PATTERN, " ");
   collectImages(rest, refs);
@@ -257,8 +290,13 @@ export function scan(distDir: string, options: ScanOptions = {}): PageWeightRepo
       }
     }
     for (const group of refs.groups) {
-      const members = group.map(resolve).filter((file): file is string => file !== null);
+      const members = group.candidates.map(resolve).filter((file): file is string => file !== null);
       members.forEach(noteImage);
+      for (const fallback of group.fallbacks) {
+        const file = resolve(fallback);
+        if (file) noteImage(file);
+      }
+      if (group.lazy) continue;
       const largest = members.reduce<string | null>((best, file) => (best === null || sizeOf(file) > sizeOf(best) ? file : best), null);
       if (largest && !counted.has(largest)) {
         counted.add(largest);
@@ -269,13 +307,16 @@ export function scan(distDir: string, options: ScanOptions = {}): PageWeightRepo
     if (bytes > VERY_HEAVY_PAGE_BYTES) problems.push({ kind: "very-heavy-page", page, bytes });
     else if (bytes > HEAVY_PAGE_BYTES) problems.push({ kind: "heavy-page", page, bytes });
 
-    const undimensioned = refs.images.filter((image) => !image.hasDimension);
+    const undimensioned = refs.images.filter((image) => !image.hasDimensions);
     if (undimensioned.length > 0) {
       problems.push({
         kind: "img-missing-dimensions",
         page,
         count: undimensioned.length,
-        examples: undimensioned.slice(0, 3).map((image) => image.src),
+        examples: undimensioned
+          .map((image) => image.src)
+          .filter((src) => src !== "")
+          .slice(0, 3),
       });
     }
   }
@@ -343,7 +384,7 @@ export function formatReport(report: PageWeightReport): string {
 }
 
 export function exitCodeFor(report: PageWeightReport): number {
-  return report.problems.length === 0 ? 0 : 1;
+  return report.problems.some((p) => !INFO_KINDS.has(p.kind)) ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------

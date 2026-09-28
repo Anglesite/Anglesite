@@ -89,6 +89,34 @@ test("a shared asset counts toward every page that uses it", () => {
   assert.deepEqual(report.problems.map((p) => p.page), ["/", "/about/"]);
 });
 
+test("a shared stylesheet counts once per page, however often the page links it", () => {
+  const html = `<link rel="stylesheet" href="/s.css"><link rel="stylesheet" href="/s.css">`;
+  const about = `<link rel="stylesheet" href="../s.css">`;
+  const root = makeDist({ "index.html": html, "about/index.html": about, "s.css": 1000 });
+  try {
+    const report = scan(root);
+    assert.equal(report.heaviestPageBytes, Buffer.byteLength(html) + 1000);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  const aboutOnly = scanFiles({ "index.html": "", "about/index.html": about, "s.css": 1000 });
+  assert.equal(aboutOnly.heaviestPageBytes, Buffer.byteLength(about) + 1000);
+});
+
+test("with a srcset, the <img src> fallback isn't a candidate — but is still checked for size", () => {
+  const html = `<img src="/fallback.jpg" srcset="/s.jpg 400w, /m.jpg 800w" width="1" height="1" alt="">`;
+  const report = scanFiles({ "index.html": html, "fallback.jpg": OVERSIZED_IMAGE_BYTES + 1, "s.jpg": 100, "m.jpg": 200 });
+  assert.equal(report.heaviestPageBytes, Buffer.byteLength(html) + 200);
+  assert.deepEqual(report.problems.map((p) => [p.kind, p.asset]), [["oversized-image", "/fallback.jpg"]]);
+});
+
+test("lazy-loaded images don't count toward first-visit weight but are still checked", () => {
+  const html = `<img src="/big.jpg" loading="lazy" width="1" height="1" alt=""><picture><source srcset="/p.webp"><img src="/p.jpg" loading="LAZY" width="1" height="1" alt=""></picture>`;
+  const report = scanFiles({ "index.html": html, "big.jpg": OVERSIZED_IMAGE_BYTES + 1, "p.webp": 100, "p.jpg": 100 });
+  assert.equal(report.heaviestPageBytes, Buffer.byteLength(html));
+  assert.deepEqual(report.problems.map((p) => p.kind), ["oversized-image"]);
+});
+
 test("srcset candidates count once, as the largest", () => {
   const html = `<img src="/s.jpg" srcset="/s.jpg 400w, /m.jpg 800w, /l.jpg 1600w" width="1" height="1" alt="">`;
   const report = scanFiles({ "index.html": html, "s.jpg": 100, "m.jpg": 200, "l.jpg": 300 });
@@ -162,11 +190,31 @@ test("an oversized non-web image is reported only as a non-web format", () => {
 test("images without width or height are one problem per page, with up to three examples", () => {
   const report = scanFiles({
     "index.html": ["/1.png", "/2.png", "/3.png", "/4.png"].map((src) => `<img src="${src}" alt="">`).join("") + img("/ok.png"),
-    "about/index.html": `<img src="/5.png" width="10" alt="">`,
+    "about/index.html": `<img src="/5.png" style="aspect-ratio: 4 / 3" alt="">`,
   });
   assert.deepEqual(report.problems, [
     { kind: "img-missing-dimensions", page: "/", count: 4, examples: ["/1.png", "/2.png", "/3.png"] },
   ]);
+});
+
+test("width or height alone doesn't reserve the image's space", () => {
+  const report = scanFiles({ "index.html": `<img src="/a.png" width="10" alt=""><img src="/b.png" height="10" alt="">` });
+  assert.deepEqual(report.problems, [
+    { kind: "img-missing-dimensions", page: "/", count: 2, examples: ["/a.png", "/b.png"] },
+  ]);
+});
+
+test("an <img> without src still counts but leaves no empty example", () => {
+  const report = scanFiles({ "index.html": `<img alt=""><img src="/a.png" alt="">` });
+  assert.deepEqual(report.problems, [{ kind: "img-missing-dimensions", page: "/", count: 2, examples: ["/a.png"] }]);
+});
+
+test("advisory-only problems exit 0; anything else exits 1", () => {
+  const advisory = scanFiles({ "index.html": `<img src="/a.png" alt="">` });
+  assert.equal(advisory.problems.length, 1);
+  assert.equal(exitCodeFor(advisory), 0);
+  const warning = scanFiles({ "index.html": img("/a.png"), "a.png": OVERSIZED_IMAGE_BYTES + 1 });
+  assert.equal(exitCodeFor(warning), 1);
 });
 
 test("page problems come first, sorted by page, then asset problems by asset", () => {

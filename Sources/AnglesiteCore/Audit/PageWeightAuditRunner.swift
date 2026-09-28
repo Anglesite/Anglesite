@@ -8,8 +8,9 @@ import Foundation
 /// `broken-links.ts`.
 ///
 /// No Lighthouse, no headless browser, no network: the script measures on-disk bytes in `dist/`,
-/// so the result is deterministic across runs and machines. Image findings arrive already grouped
-/// by asset — one hero image used site-wide is one fix, not one row per page.
+/// so the result is deterministic across runs and machines. The total is a lower bound — CSS
+/// `url()` assets, media and preloads aren't counted — so findings say "at least". Image findings
+/// arrive already grouped by asset — one hero image used site-wide is one fix, not one row per page.
 public struct PageWeightAuditRunner: AuditRunner {
     /// ``AuditRunner`` conformance.
     public let category: AuditReport.Finding.Category = .performance
@@ -128,9 +129,10 @@ public struct PageWeightAuditRunner: AuditRunner {
         public let bytes: Int?
         /// Pages referencing the asset (possibly empty for an unreferenced file).
         public let pages: [String]
-        /// How many images lack dimensions, for ``Kind/imgMissingDimensions``.
+        /// How many images don't reserve their space (both `width` and `height`, or a CSS
+        /// `aspect-ratio`), for ``Kind/imgMissingDimensions``.
         public let count: Int?
-        /// Up to three of their `src` values.
+        /// Up to three of their non-empty `src` values.
         public let examples: [String]
 
         /// Memberwise; public so tests can build problems directly.
@@ -202,7 +204,7 @@ public struct PageWeightAuditRunner: AuditRunner {
                     category: .performance,
                     severity: .critical,
                     title: "Page is very slow to load",
-                    detail: "A first visit to \(page) downloads \(size) — more than 4 MB. On a phone connection that can take many seconds, and many visitors leave before it finishes.",
+                    detail: "A first visit to \(page) downloads at least \(size) — more than 4 MB. On a phone connection that can take many seconds, and many visitors leave before it finishes.",
                     remediation: "Shrink or remove the largest images, videos and scripts on this page.",
                     location: page)
             case .heavyPage:
@@ -210,7 +212,7 @@ public struct PageWeightAuditRunner: AuditRunner {
                     category: .performance,
                     severity: .warning,
                     title: "Page is slow to load",
-                    detail: "A first visit to \(page) downloads \(size) — more than 1.5 MB, which is slow on a phone connection.",
+                    detail: "A first visit to \(page) downloads at least \(size) — more than 1.5 MB, which is slow on a phone connection.",
                     remediation: "Shrink the largest images on this page, or move some of them to their own pages.",
                     location: page)
             case .oversizedImage:
@@ -237,7 +239,7 @@ public struct PageWeightAuditRunner: AuditRunner {
                     category: .performance,
                     severity: .info,
                     title: "Images without a size make the page jump while it loads",
-                    detail: "\(count) image\(count == 1 ? "" : "s") on \(page) \(count == 1 ? "has" : "have") no width or height, so the text shifts as \(count == 1 ? "it arrives" : "they arrive")"
+                    detail: "\(count) image\(count == 1 ? "" : "s") on \(page) \(count == 1 ? "doesn’t say how big it is" : "don’t say how big they are"), so the text shifts as \(count == 1 ? "it arrives" : "they arrive")"
                         + (examples.isEmpty ? "." : ", e.g. \(examples)."),
                     remediation: "Give each image its width and height so the browser can save its space before it arrives.",
                     location: page)
