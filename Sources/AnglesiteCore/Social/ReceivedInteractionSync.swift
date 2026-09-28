@@ -83,7 +83,7 @@ public enum ReceivedInteractionSync {
     }
 
     /// Queries `client` for the full current verified inbox, mapped to `ReceivedInteraction`
-    /// (malformed rows skipped per ``makeInteraction(from:)``). `nil` when the D1 query failed —
+    /// (malformed rows skipped per `makeInteraction(from:)`). `nil` when the D1 query failed —
     /// distinct from an empty inbox, so callers can tell "nothing there" from "couldn't ask".
     public static func fetchInteractions(client: WebmentionInboxD1Client) async -> [ReceivedInteraction]? {
         guard let mentions = try? await client.listVerifiedMentions() else { return nil }
