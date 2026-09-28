@@ -1119,7 +1119,22 @@
     "Choose Logo" : {
 
     },
+    "Choose Website ▸ Apply a Theme… to try a new look for your whole site." : {
+
+    },
+    "Choose Website ▸ Assistant ▸ Review Copy… for a second look at the writing on your pages." : {
+
+    },
+    "Choose Website ▸ Connect a Domain… to give your site its own web address." : {
+
+    },
+    "Choose Website ▸ Graph… to see how your pages connect to each other." : {
+
+    },
     "Choose Website ▸ Preview in ▸ Default Browser to see your site in your own browser." : {
+
+    },
+    "Choose Website ▸ Reader… to follow other people’s websites without leaving Anglesite." : {
 
     },
     "Choose a License" : {
@@ -5023,6 +5038,9 @@
 
     },
     "Workers are unavailable for this site — its package configuration folder couldn't be found." : {
+
+    },
+    "Working in another app? Anglesite can notify you when a publish, backup, or audit finishes — see Settings." : {
 
     },
     "Working…" : {

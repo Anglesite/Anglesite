@@ -26,6 +26,12 @@ enum StartupTips {
         String(localized: "Drag a link from your browser onto the Sites window to start a link post."),
         String(localized: "Moving from WordPress? Choose File ▸ Import WordPress Export (WXR)… to bring your posts along."),
         String(localized: "Turn on “Auto-generate alt text for dropped images” in Settings, and Anglesite describes new images for people using screen readers."),
+        String(localized: "Choose Website ▸ Connect a Domain… to give your site its own web address."),
+        String(localized: "Choose Website ▸ Apply a Theme… to try a new look for your whole site."),
+        String(localized: "Choose Website ▸ Assistant ▸ Review Copy… for a second look at the writing on your pages."),
+        String(localized: "Choose Website ▸ Graph… to see how your pages connect to each other."),
+        String(localized: "Choose Website ▸ Reader… to follow other people’s websites without leaving Anglesite."),
+        String(localized: "Working in another app? Anglesite can notify you when a publish, backup, or audit finishes — see Settings."),
     ]
 }
 

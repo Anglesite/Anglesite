@@ -58,6 +58,12 @@ era.
 16. Drag a browser link onto the Sites window — link post.
 17. File ▸ Import WordPress Export (WXR)….
 18. The auto-generated alt text toggle in Settings.
+19. Website ▸ Connect a Domain….
+20. Website ▸ Apply a Theme….
+21. Website ▸ Assistant ▸ Review Copy….
+22. Website ▸ Graph….
+23. Website ▸ Reader….
+24. Completion notifications (Settings).
 
 ## Adding a tip
 
