@@ -146,6 +146,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// infrastructure, hence `Config/` (#1960).
     public var sourceBundleBucket: String?
 
+    /// The EmDash admin for an EmDash site (#2050) — where writers and editors work, and what
+    /// "Open EmDash" opens (via ``SiteEditingSurfaces/emdashAdminURL(settings:)``, which accepts
+    /// only `https`). Written when Anglesite provisions EmDash or connects an existing install
+    /// (decision 7 in `docs/specs/2026-09-28-external-cms-content-source-decision.md`); `nil`
+    /// until then, and always on an Anglesite site. Provisioned infrastructure, hence `Config/`.
+    public var emdashAdminURL: URL?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -171,7 +178,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         contentImportCompleted: Bool? = nil,
         workerDeployed: Bool? = nil,
         workerProvisioned: Bool? = nil,
-        sourceBundleBucket: String? = nil
+        sourceBundleBucket: String? = nil,
+        emdashAdminURL: URL? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -195,6 +203,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.workerDeployed = workerDeployed
         self.workerProvisioned = workerProvisioned
         self.sourceBundleBucket = sourceBundleBucket
+        self.emdashAdminURL = emdashAdminURL
     }
 }
 

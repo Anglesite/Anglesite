@@ -77,6 +77,13 @@ form of option B.
 6. **App editing surfaces.** An EmDash site hides the app's typed-content editors entirely and
    offers "Open EmDash" instead. Writers and editors work in EmDash's admin. The block editor
    (decision D4) stays the owner's surface for what git still holds: pages, layout and theme.
+
+   `SiteEditingSurfaces` (AnglesiteCore) maps the site kind to these surfaces. The app reads it
+   to disable or hide New Post, New Link Post, collection entries, the typed inspector form,
+   Publish Post, Move to Drafts and link capture. `ContentCreationWorkflow` re-checks the
+   package marker on every typed-content write, so Shortcuts and AppleScript are refused too.
+   Pages, components and the site's h-card are not gated. Website ▸ Open EmDash opens
+   `SiteSettings.emdashAdminURL` (https only), which provisioning or connecting EmDash writes.
 7. **Two ways to get an EmDash site, one runtime.** Both end in the same shape: an EmDash Worker
    in the owner's Cloudflare account, serving Anglesite's template server-side, with
    `anglesite-gate` registered.

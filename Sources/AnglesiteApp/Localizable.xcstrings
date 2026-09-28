@@ -1970,6 +1970,9 @@
     "Effects…" : {
 
     },
+    "EmDash isn't set up for this site yet." : {
+
+    },
     "Email Setup…" : {
 
     },
@@ -3099,6 +3102,9 @@
 
     },
     "Open Dashboard" : {
+
+    },
+    "Open EmDash" : {
 
     },
     "Open File" : {
@@ -4966,6 +4972,9 @@
 
     },
     "Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it." : {
+
+    },
+    "Write, edit and publish this site's posts in EmDash." : {
 
     },
     "Writing" : {

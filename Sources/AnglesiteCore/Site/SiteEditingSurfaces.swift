@@ -1,0 +1,103 @@
+import AnglesiteSiteModel
+import Foundation
+
+/// Which of the app's editing surfaces a site offers, decided by its site kind (#2050,
+/// decision 6 in `docs/specs/2026-09-28-external-cms-content-source-decision.md`).
+///
+/// On an EmDash site, EmDash is canonical for articles and media, so the app hides its
+/// typed-content editors (New Post, New Link Post, collection entries, the typed inspector form,
+/// Publish/Move to Drafts) and offers "Open EmDash" instead. The block editor stays the owner's
+/// surface for what git still holds: pages, layout and theme. A kind this build doesn't recognise
+/// opens read-only (``AnglesitePackage/compatibility(for:)``), so it offers nothing.
+///
+/// Pure and I/O-free, like ``CMSModeStatus``: the app reads it synchronously from
+/// `SiteStore.Site.kind` for `.disabled(...)` gates, and the create paths call
+/// ``requireTypedContent()`` as a backstop so Shortcuts, AppleScript, drag-and-drop and paste
+/// can't write typed content into an EmDash site's `Source/` either. Copy-free: the app owns the
+/// owner-facing sentences.
+public struct SiteEditingSurfaces: Sendable, Equatable {
+    /// Where authored content is edited when it isn't edited in the app.
+    public enum ExternalContentEditor: Sendable, Equatable {
+        case emdash
+    }
+
+    /// Thrown by ``requireTypedContent()`` when a typed-content write targets a site whose
+    /// content lives elsewhere.
+    public struct TypedContentUnavailable: Error, Sendable, Equatable {
+        public let kind: AnglesitePackage.SiteKind
+        /// Where the owner should go instead, if anywhere.
+        public let externalContentEditor: ExternalContentEditor?
+    }
+
+    public let kind: AnglesitePackage.SiteKind
+    /// New Post / New Link Post / collection entries, the typed inspector form, Publish Post and
+    /// Move to Drafts.
+    public let typedContent: Bool
+    /// Pages, layout, components and theme (the block editor, decision D4).
+    public let pagesAndLayout: Bool
+    /// The editor that owns this site's content, when it isn't the app.
+    public let externalContentEditor: ExternalContentEditor?
+
+    public init(kind: AnglesitePackage.SiteKind) {
+        self.kind = kind
+        switch kind {
+        case .anglesite:
+            typedContent = true
+            pagesAndLayout = true
+            externalContentEditor = nil
+        case .emdash:
+            typedContent = false
+            pagesAndLayout = true
+            externalContentEditor = .emdash
+        case .unrecognized:
+            typedContent = false
+            pagesAndLayout = false
+            externalContentEditor = nil
+        }
+    }
+
+    /// Throws ``TypedContentUnavailable`` unless this site edits typed content in the app.
+    public func requireTypedContent() throws {
+        guard typedContent else {
+            throw TypedContentUnavailable(kind: kind, externalContentEditor: externalContentEditor)
+        }
+    }
+
+    /// The surfaces for the site whose `Source/` is `sourceDirectory`, read from the enclosing
+    /// package's marker. A directory that isn't a package's `Source/` (or whose marker can't be
+    /// read) gets `fallback`, `.anglesite` by default: such a directory can't have been opened
+    /// through `SiteStore.Site.make`, which refuses unreadable and too-new markers, so this only
+    /// keeps bare-directory callers (tests, the import path) working as they always have. A site
+    /// window passes its recents entry's kind instead.
+    public static func forSourceDirectory(
+        _ sourceDirectory: URL,
+        fallback: AnglesitePackage.SiteKind = .anglesite,
+        fileManager: FileManager = .default
+    ) -> SiteEditingSurfaces {
+        let packageURL = sourceDirectory.standardizedFileURL.deletingLastPathComponent()
+        let package = AnglesitePackage(url: packageURL)
+        guard package.sourceURL.standardizedFileURL == sourceDirectory.standardizedFileURL,
+              let marker = try? package.readMarker(fileManager: fileManager)
+        else { return SiteEditingSurfaces(kind: fallback) }
+        return SiteEditingSurfaces(kind: marker.kind)
+    }
+
+    /// The `.failed(reason:)` text ``ContentCreationWorkflow`` returns when a typed-content write
+    /// targets an EmDash site, surfaced verbatim by Shortcuts and AppleScript dialogs. Phrased
+    /// about the site, never about files or git (decision D1).
+    public static let typedContentUnavailableReason =
+        "This site's posts are written and published in EmDash, not in Anglesite. Open EmDash to add or publish a post."
+
+    /// The EmDash admin to open for this site: `settings.emdashAdminURL` when this is an EmDash
+    /// site and the URL is `https` with a host. Anything else (not yet provisioned or connected, a
+    /// non-EmDash site, or a non-web URL a hand-edited `settings.plist` could carry) is `nil`, so
+    /// "Open EmDash" never hands `NSWorkspace` a `file:` or custom-scheme URL.
+    public func emdashAdminURL(settings: SiteSettings) -> URL? {
+        guard externalContentEditor == .emdash,
+              let url = settings.emdashAdminURL,
+              url.scheme?.lowercased() == "https",
+              let host = url.host, !host.isEmpty
+        else { return nil }
+        return url
+    }
+}

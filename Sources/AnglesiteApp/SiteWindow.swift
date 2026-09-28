@@ -251,15 +251,18 @@ struct SiteWindow: View {
 
     private func refreshNewContentActions() {
         guard model.site != nil, newContentActions == nil else { return }
+        // Built once per window, which is safe for the typed-content gate: `loadAndStart()` sets
+        // `editingSurfaces` before `site`, and a window's site kind never changes (#2050).
+        let typedContent = model.editingSurfaces.typedContent
         newContentActions = NewContentActions(
             newPage: { model.newPagePresented = true },
-            newCollection: { model.newCollectionPresented = true },
-            newPost: { model.newPostPresented = true },
+            newCollection: typedContent ? { model.newCollectionPresented = true } : nil,
+            newPost: typedContent ? { model.newPostPresented = true } : nil,
             newComponent: { model.newComponentPresented = true },
-            newLinkPost: {
+            newLinkPost: typedContent ? {
                 model.quickCaptureURL = QuickCapture.clipboardURLString()
                 model.quickCapturePresented = true
-            }
+            } : nil
         )
     }
 
@@ -473,7 +476,7 @@ struct SiteWindow: View {
     /// type-checking budget.
     @MainActor
     private static func shellInsertMenuItems(
-        actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry]
+        actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry], typedContent: Bool
     ) -> [NSMenuItem] {
         // `String(localized:)` throughout: an `NSMenuItem` title is an AppKit property, invisible
         // to Xcode's SwiftUI string extraction, so a bare literal here would ship untranslated
@@ -484,15 +487,19 @@ struct SiteWindow: View {
                 title: String(localized: "New Page…"),
                 action: #selector(ShellInsertMenuActions.newPage),
                 keyEquivalent: ""),
-            NSMenuItem(
+        ]
+        // An EmDash site's posts are written in EmDash (#2050), so its Insert menu offers pages
+        // and blocks only — the same items the SwiftUI toolbar menu hides.
+        if typedContent {
+            items.append(NSMenuItem(
                 title: String(localized: "New Post…"),
                 action: #selector(ShellInsertMenuActions.newPost),
-                keyEquivalent: ""),
-            NSMenuItem(
+                keyEquivalent: ""))
+            items.append(NSMenuItem(
                 title: String(localized: "New Collection Entry…"),
                 action: #selector(ShellInsertMenuActions.newCollection),
-                keyEquivalent: ""),
-        ]
+                keyEquivalent: ""))
+        }
         for item in items { item.target = actions }
         guard !blockPalette.isEmpty else { return items }
         items.append(NSMenuItem.sectionHeader(title: String(localized: "Blocks")))
@@ -521,8 +528,12 @@ struct SiteWindow: View {
         case .insert:
             Menu {
                 Button("New Page…") { newContentActions?.newPage() }
-                Button("New Post…") { newContentActions?.newPost() }
-                Button("New Collection Entry…") { newContentActions?.newCollection() }
+                if let newPost = newContentActions?.newPost {
+                    Button("New Post…") { newPost() }
+                }
+                if let newCollection = newContentActions?.newCollection {
+                    Button("New Collection Entry…") { newCollection() }
+                }
                 if let canvas = model.preview.wysiwygCanvas {
                     Section("Blocks") {
                         ForEach(canvas.blockPalette) { entry in
@@ -919,8 +930,8 @@ struct SiteWindow: View {
         // see `ShellInsertMenuActions`' doc comment.
         let actions = shellInsertActions
         actions.onNewPage = { newContentActions?.newPage() }
-        actions.onNewPost = { newContentActions?.newPost() }
-        actions.onNewCollection = { newContentActions?.newCollection() }
+        actions.onNewPost = { newContentActions?.newPost?() }
+        actions.onNewCollection = { newContentActions?.newCollection?() }
         actions.onInsertBlock = { entry in
             guard let canvas = model.preview.wysiwygCanvas else { return }
             Task { await canvas.insertBlock(entry) }
@@ -946,7 +957,8 @@ struct SiteWindow: View {
             insertMenuItems: {
                 Self.shellInsertMenuItems(
                     actions: actions,
-                    blockPalette: self.model.preview.wysiwygCanvas?.blockPalette ?? [])
+                    blockPalette: self.model.preview.wysiwygCanvas?.blockPalette ?? [],
+                    typedContent: self.model.editingSurfaces.typedContent)
             },
             searchItem: shellSearchItem
         ) {
@@ -1709,8 +1721,10 @@ struct SiteWindow: View {
         // Drag a link anywhere onto the site window → quick capture for this site (#531).
         // File URLs (image drops onto the preview, .anglesite packages) don't match and
         // fall through to their existing handlers.
+        // Neither applies on an EmDash site, whose posts are written in EmDash (#2050).
         .dropDestination(for: URL.self) { urls, _ in
-            guard let web = QuickCapture.webURL(from: urls) else { return false }
+            guard model.editingSurfaces.typedContent,
+                  let web = QuickCapture.webURL(from: urls) else { return false }
             model.quickCaptureURL = web.absoluteString
             model.quickCapturePresented = true
             return true
@@ -1720,7 +1734,8 @@ struct SiteWindow: View {
         // pasting prose never hijacks (#531). Reads the pasteboard directly: the provider
         // payload and the pasteboard agree here, and clipboardURLString is the one gate.
         .onPasteCommand(of: [.url]) { _ in
-            guard let urlString = QuickCapture.clipboardURLString() else { return }
+            guard model.editingSurfaces.typedContent,
+                  let urlString = QuickCapture.clipboardURLString() else { return }
             model.quickCaptureURL = urlString
             model.quickCapturePresented = true
         }

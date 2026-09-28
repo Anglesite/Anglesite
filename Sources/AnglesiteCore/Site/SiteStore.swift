@@ -50,6 +50,11 @@ public actor SiteStore {
         /// Lets the UI offer a re-grant affordance ("Locate…") instead of misreporting the
         /// package as missing files, and instead of silently going dead with no explanation.
         public var needsReauthorization: Bool
+        /// The site kind recorded in the package marker (#2050). Identity-level and never edited
+        /// in-app, so it's read from the marker by ``make(package:fileManager:)`` rather than
+        /// trusted from `recents.json`. Drives which editing surfaces the app offers
+        /// (``SiteEditingSurfaces``).
+        public var kind: AnglesitePackage.SiteKind
 
         /// The Astro project tree — every subprocess (scaffold, dev server, build, deploy,
         /// pre-deploy check) runs with this as its working directory.
@@ -68,7 +73,8 @@ public actor SiteStore {
             missingSentinels: [String],
             lastSeen: Date = Date(),
             bookmarkData: Data? = nil,
-            needsReauthorization: Bool = false
+            needsReauthorization: Bool = false,
+            kind: AnglesitePackage.SiteKind = .anglesite
         ) {
             self.id = id
             self.name = name
@@ -78,15 +84,17 @@ public actor SiteStore {
             self.lastSeen = lastSeen
             self.bookmarkData = bookmarkData
             self.needsReauthorization = needsReauthorization
+            self.kind = kind
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, name, packageURL, isValid, missingSentinels, lastSeen, bookmarkData, needsReauthorization
+            case id, name, packageURL, isValid, missingSentinels, lastSeen, bookmarkData, needsReauthorization, kind
         }
 
         /// Custom decoding so `recents.json` written before #776 (no `needsReauthorization` key)
         /// still loads — a missing key defaults to `false` rather than failing `load()` entirely
-        /// (which would blank the launcher for every existing user on upgrade).
+        /// (which would blank the launcher for every existing user on upgrade). The same holds for
+        /// `kind` (#2050): entries written before site kinds are Anglesite sites.
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
@@ -97,6 +105,7 @@ public actor SiteStore {
             lastSeen = try container.decode(Date.self, forKey: .lastSeen)
             bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
             needsReauthorization = try container.decodeIfPresent(Bool.self, forKey: .needsReauthorization) ?? false
+            kind = try container.decodeIfPresent(AnglesitePackage.SiteKind.self, forKey: .kind) ?? .anglesite
         }
 
         /// Build a `Site` from a package on disk: id = marker UUID, name = resolved display name
@@ -116,7 +125,8 @@ public actor SiteStore {
                 name: resolvedName(marker: marker, configURL: package.configURL, fileManager: fileManager),
                 packageURL: canonicalizePackageURL(package.url),
                 isValid: validation.isValid,
-                missingSentinels: validation.missing
+                missingSentinels: validation.missing,
+                kind: marker.kind
             )
         }
 
