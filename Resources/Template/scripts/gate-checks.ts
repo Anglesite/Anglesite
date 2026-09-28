@@ -29,10 +29,30 @@ export interface Issue {
 // export ever serialized raw properties).
 const RESTRICTED_VISIBILITY_PATTERN = /"?visibility"?\s*:\s*(\[\s*)?"?contacts"?/i;
 
-const PII_PATTERNS = [
-  { name: "email", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
-  { name: "phone", pattern: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g },
-  { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
+const EMAIL_LOCAL_CHAR = /[a-zA-Z0-9._%+-]/;
+const EMAIL_DOMAIN_AT = /[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/y;
+
+/**
+ * Whether `content` contains a match for `/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/`,
+ * decided in linear time. The regex itself is quadratic on a long run of address characters with
+ * no valid address in it (a pasted base64 blob, a long slug): every start position rescans the run
+ * looking for an `@`. A match exists exactly when some `@` has at least one local-part character
+ * right before it and the domain part matching right after it, so this checks each `@` once.
+ * Domain runs end at the next `@`, so the per-`@` checks never overlap.
+ */
+function containsEmail(content: string): boolean {
+  for (let at = content.indexOf("@"); at !== -1; at = content.indexOf("@", at + 1)) {
+    if (at === 0 || !EMAIL_LOCAL_CHAR.test(content[at - 1])) continue;
+    EMAIL_DOMAIN_AT.lastIndex = at + 1;
+    if (EMAIL_DOMAIN_AT.test(content)) return true;
+  }
+  return false;
+}
+
+const PII_PATTERNS: Array<{ name: string; matches: (content: string) => boolean }> = [
+  { name: "email", matches: containsEmail },
+  { name: "phone", matches: (content) => /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(content) },
+  { name: "SSN", matches: (content) => /\b\d{3}-\d{2}-\d{4}\b/.test(content) },
 ];
 
 // Directories whose every byte is emitted by a dependency, never authored by the site owner.
@@ -55,12 +75,56 @@ const SECRET_PATTERNS = [
 // Trackers with no first-party integration in this catalog. Google Analytics/Tag
 // Manager are deliberately absent — the `tracking` integration (ga4 provider) makes
 // them a supported, owner-opted-in choice, the same way Plausible/Fathom always were.
-const BLOCKED_SCRIPTS = [
-  /facebook\.net.*fbevents/i,
-  /hotjar\.com/i,
+const BLOCKED_SCRIPTS: Array<{ pattern: RegExp; matches: (content: string) => boolean }> = [
+  { pattern: /facebook\.net.*fbevents/i, matches: containsFacebookPixel },
+  { pattern: /hotjar\.com/i, matches: (content) => /hotjar\.com/i.test(content) },
 ];
 
 const BLOCKED_ROUTES = [/\/keystatic(?:\/|$)/i, /\/api\/keystatic/i];
+
+/**
+ * Whether `content` matches `/facebook\.net.*fbevents/i`, decided in linear time. The regex is
+ * quadratic when `facebook.net` recurs with no `fbevents` after it on the same line: each
+ * occurrence scans to the end of the line. `.` stops at line terminators, so a match is a line
+ * holding `facebook.net` with `fbevents` somewhere after it; the first `facebook.net` on a line is
+ * the best candidate, and the next `fbevents` is looked up at most once per position.
+ */
+function containsFacebookPixel(content: string): boolean {
+  const host = /facebook\.net/gi;
+  const pixel = /fbevents/gi;
+  const lineBreak = /[\n\r\u2028\u2029]/g;
+  let nextPixel: RegExpExecArray | null | undefined;
+  for (let h = host.exec(content); h !== null; h = host.exec(content)) {
+    const afterHost = h.index + h[0].length;
+    if (nextPixel === undefined || (nextPixel !== null && nextPixel.index < afterHost)) {
+      pixel.lastIndex = afterHost;
+      nextPixel = pixel.exec(content);
+    }
+    if (nextPixel === null) return false;
+    lineBreak.lastIndex = h.index;
+    const lineEnd = lineBreak.exec(content)?.index ?? content.length;
+    if (nextPixel.index < lineEnd) return true;
+    host.lastIndex = lineEnd;
+  }
+  return false;
+}
+
+/**
+ * The tags `/<name\b[^>]*>/gi` would match — each opener through the first `>` after it — found
+ * in linear time. `opener` is a global regex for just the opening (`/<(script|link)\b/gi`); its
+ * first capture group, if any, is yielded as `name`. The `[^>]*>` form is quadratic on openers
+ * with no `>` after them (every later opener rescans to the end); once no `>` follows one opener,
+ * none follows any later one, so the scan stops there.
+ */
+function* tagsOpenedBy(content: string, opener: RegExp): Generator<{ tag: string; name: string }> {
+  opener.lastIndex = 0;
+  for (let m = opener.exec(content); m !== null; m = opener.exec(content)) {
+    const end = content.indexOf(">", m.index);
+    if (end === -1) return;
+    yield { tag: content.slice(m.index, end + 1), name: m[1] ?? "" };
+    opener.lastIndex = end + 1;
+  }
+}
 
 /**
  * Media hosts belonging to the platforms the embed snapshotter supports (#682). A reference to
@@ -107,8 +171,8 @@ export function checkSecrets(content: string, file: string): Issue[] {
 /** One `third-party-script` warning per `BLOCKED_SCRIPTS` pattern that matches built HTML. */
 export function checkBlockedScripts(content: string, file: string): Issue[] {
   const issues: Issue[] = [];
-  for (const pattern of BLOCKED_SCRIPTS) {
-    if (pattern.test(content)) {
+  for (const { pattern, matches } of BLOCKED_SCRIPTS) {
+    if (matches(content)) {
       issues.push({
         severity: "warning",
         category: "third-party-script",
@@ -153,11 +217,10 @@ export function checkPII(content: string, file: string): Issue[] {
   );
   const normalized = file.replace(/\\/g, "/");
   const emailExempt = VENDORED_EMAIL_EXEMPT.some((dir) => dir.test(normalized));
-  for (const { name, pattern } of PII_PATTERNS) {
+  for (const { name, matches } of PII_PATTERNS) {
     if (name === "email" && emailExempt) continue;
-    pattern.lastIndex = 0;
     const haystack = name === "email" ? withoutMailtoLinks : content;
-    if (pattern.test(haystack)) {
+    if (matches(haystack)) {
       issues.push({
         severity: "error",
         category: `pii-${name.toLowerCase()}`,
@@ -185,8 +248,13 @@ export function checkPII(content: string, file: string): Issue[] {
  */
 export function checkEmbedMedia(content: string, file: string): Issue[] {
   const issues: Issue[] = [];
+  // The unquoted `url(...)` value excludes `(` as well as `)`: CSS doesn't allow an unescaped
+  // paren there, and without the exclusion a failed match could run on into the next `url(`,
+  // so every later start rescanned to the end of the input — quadratic time on writer-supplied
+  // drafts (`url(` + `url(!` × n; CodeQL js/polynomial-redos). Bounded, each attempt stops at
+  // the next paren and the scan stays linear.
   const urlContextPattern =
-    /\b(?:src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))|url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]+))\s*\)/gi;
+    /\b(?:src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))|url\(\s*(?:"([^"]*)"|'([^']*)'|([^()\s]+))\s*\)/gi;
   let m: RegExpExecArray | null;
   while ((m = urlContextPattern.exec(content)) !== null) {
     const value = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? m[6] ?? "";
@@ -236,11 +304,8 @@ export function checkMixedContent(content: string, file: string): Issue[] {
  */
 export function checkSRI(content: string, file: string): Issue[] {
   const issues: Issue[] = [];
-  const tagPattern = /<(script|link)\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = tagPattern.exec(content)) !== null) {
-    const tag = m[0];
-    const isScript = m[1].toLowerCase() === "script";
+  for (const { tag, name } of tagsOpenedBy(content, /<(script|link)\b/gi)) {
+    const isScript = name.toLowerCase() === "script";
     const urlAttr = isScript
       ? /\bsrc\s*=\s*["'](?:https?:)?\/\//i
       : /\bhref\s*=\s*["'](?:https?:)?\/\//i;
@@ -270,10 +335,7 @@ export function checkSRI(content: string, file: string): Issue[] {
  */
 export function checkExternalLinkRel(content: string, file: string): Issue[] {
   const issues: Issue[] = [];
-  const anchorPattern = /<a\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = anchorPattern.exec(content)) !== null) {
-    const tag = m[0];
+  for (const { tag } of tagsOpenedBy(content, /<a\b/gi)) {
     if (!/\btarget\s*=\s*["']_blank["']/i.test(tag)) continue;
     const relMatch = tag.match(/\brel\s*=\s*["']([^"']*)["']/i);
     const rel = relMatch ? relMatch[1].toLowerCase() : "";
