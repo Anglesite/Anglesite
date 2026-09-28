@@ -351,6 +351,9 @@
     "AI systems" : {
 
     },
+    "Also check links to other sites during audits" : {
+
+    },
     "API token" : {
 
     },
@@ -788,6 +791,9 @@
 
     },
     "Auditing…" : {
+
+    },
+    "Audits" : {
 
     },
     "Auto-Align Table Cell" : {
@@ -4909,6 +4915,9 @@
 
     },
     "Visitors" : {
+
+    },
+    "Visits each page your site links to on other sites and reports the ones that are gone. Audits take up to a minute longer, and sites that block automated visitors are reported as not checked rather than broken." : {
 
     },
     "Vulnerability Reports" : {
