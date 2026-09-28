@@ -34,6 +34,18 @@ test("a clean article publishes", () => {
   assert.equal(decidePublish(event), undefined);
 });
 
+test("only the draft's fields are scanned, not the entry record around them", () => {
+  // EmDash hands the hook the whole entry record; its ids, timestamps and bylines never render.
+  const event = article([paragraph("fine")]);
+  event.content = {
+    id: "01M3MDDXDW169D6RG7VJ84XTNB",
+    createdAt: "2026-09-28T16:26:36.860Z",
+    byline: { email: "editor@example-news.org" },
+    ...event.content,
+  };
+  assert.equal(decidePublish(event), undefined);
+});
+
 test("an email address in body text blocks publishing", () => {
   const decision = decidePublish(article([paragraph("Tips to reporter@example-news.org")]));
   assert.ok(decision);

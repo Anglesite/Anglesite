@@ -1,8 +1,9 @@
 /**
  * `anglesite-gate`: the EmDash plugin that runs the pre-deploy gate's content checks before an
- * entry goes live (#2055 slice 3). Shaped as EmDash's `SandboxedPlugin` default export; typing it
- * against `emdash/plugin` and packaging it (manifest, `@emdash-cms/plugin-cli` build) waits on
- * approval for those dependencies.
+ * entry goes live (#2055 slice 3). Shaped as EmDash's `SandboxedPlugin` default export and kept
+ * dependency-free here, under the D5 hash pin; `JS/anglesite-gate/` holds it to EmDash's real
+ * types, carries the manifest, bundles it with `@emdash-cms/plugin-cli`, and tests it through
+ * EmDash's content pipeline (#2061).
  *
  * Only publish and schedule are gated. `content:beforeUnpublish` is deliberately not registered:
  * taking an entry down — a correction, a retraction, a legal takedown — must never be blocked by

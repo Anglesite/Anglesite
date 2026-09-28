@@ -19,9 +19,14 @@ import {
   type Issue,
 } from "../gate-checks";
 
-/** The fields of EmDash's publish/schedule policy event this policy reads. */
+/**
+ * The fields of EmDash's publish/schedule policy event this policy reads. EmDash types `content`
+ * as `Record<string, unknown>`; at runtime it is the whole entry record, with the draft's field
+ * values under `data` and the staged slug under `slug` (confirmed through EmDash's runtime test
+ * host). Only `data` is scanned — the record's ids, timestamps and revision pointers never render.
+ */
 export interface PublishPolicyEvent {
-  content: { data: unknown; slug?: string | null };
+  content: Record<string, unknown>;
   collection: string;
 }
 
@@ -77,7 +82,8 @@ export function scannableContent(data: unknown): { text: string; html: string } 
  * entry's raw fields, where an audience field (`visibility: contacts`) lives.
  */
 export function publishIssues(event: PublishPolicyEvent): Issue[] {
-  const file = `${event.collection}/${event.content.slug || "draft"}`;
+  const slug = event.content.slug;
+  const file = `${event.collection}/${typeof slug === "string" && slug !== "" ? slug : "draft"}`;
   const { text, html } = scannableContent(event.content.data);
   let raw = "";
   try {
