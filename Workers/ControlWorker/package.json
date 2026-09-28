@@ -10,11 +10,11 @@
     "build:guest": "node build-guest.js"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "0.12.9"
+    "@cloudflare/sandbox": "0.12.10"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22",
-    "@cloudflare/workers-types": "^5.20260922.1",
+    "@cloudflare/workers-types": "^5.20260925.2",
     "wrangler": "^4",
     "typescript": "^7.0.2",
     "vitest": "^4",
