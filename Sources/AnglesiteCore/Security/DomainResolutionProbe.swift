@@ -21,7 +21,7 @@ public enum DomainResolutionResult: Sendable, Equatable {
     case indeterminate
 }
 
-/// Probes whether a hostname resolves, so ``DomainConfigAuditModel`` can surface DNS propagation
+/// Probes whether a hostname resolves, so `DomainConfigAuditModel` can surface DNS propagation
 /// problems (apex/`www` not resolving) before the owner discovers them as a dead link. Seam-shaped
 /// like ``SitemapPreflighting``: tests stub it, never hitting a real resolver.
 public protocol DomainResolutionProbing: Sendable {
@@ -88,7 +88,13 @@ public struct SystemDomainResolutionProbe: DomainResolutionProbing {
     private static func systemResolve(host: String) throws -> Bool {
         var hints = addrinfo()
         hints.ai_family = AF_UNSPEC
+        // Glibc types SOCK_STREAM as __socket_type (an enum), not addrinfo.ai_socktype's Int32 —
+        // Darwin's is already Int32. .rawValue only exists on the Glibc enum, hence the #if.
+        #if canImport(Darwin)
         hints.ai_socktype = SOCK_STREAM
+        #elseif canImport(Glibc)
+        hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+        #endif
         var infoPointer: UnsafeMutablePointer<addrinfo>?
         let status = getaddrinfo(host, nil, &hints, &infoPointer)
         defer { if let infoPointer { freeaddrinfo(infoPointer) } }
