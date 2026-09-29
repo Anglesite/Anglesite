@@ -889,6 +889,9 @@
     "Body" : {
 
     },
+    "Body text will be hard to read" : {
+
+    },
     "Bookmarks" : {
 
     },
@@ -941,6 +944,12 @@
 
     },
     "Bumps to %@" : {
+
+    },
+    "Button labels may be hard to read at small sizes" : {
+
+    },
+    "Button labels will be hard to read" : {
 
     },
     "Buy %@" : {
@@ -2225,6 +2234,12 @@
     "First words" : {
 
     },
+    "Fix" : {
+
+    },
+    "Fix All" : {
+
+    },
     "Flip Horizontally" : {
 
     },
@@ -2667,6 +2682,18 @@
 
     },
     "Linked to a followed feed" : {
+
+    },
+    "Links may be hard to read at small sizes" : {
+
+    },
+    "Links on cards may be hard to read at small sizes" : {
+
+    },
+    "Links on cards will be hard to read" : {
+
+    },
+    "Links will be hard to read" : {
 
     },
     "List" : {
@@ -3569,6 +3596,9 @@
     "Quarantined copies" : {
 
     },
+    "Readability" : {
+
+    },
     "RSL" : {
 
     },
@@ -3914,6 +3944,12 @@
 
     },
     "Runtime host" : {
+
+    },
+    "Secondary text on cards will be hard to read" : {
+
+    },
+    "Secondary text will be hard to read" : {
 
     },
     "SEO" : {
@@ -4476,6 +4512,9 @@
 
     },
     "Syndication recorded" : {
+
+    },
+    "Text on cards will be hard to read" : {
 
     },
     "This comment can't be shown until your inbox is reachable." : {
@@ -5098,6 +5137,9 @@
 
     },
     "Yes, mostly Apple" : {
+
+    },
+    "You can still apply this theme as it is." : {
 
     },
     "You closed the sign-in page before finishing. Sign in when you're ready." : {
