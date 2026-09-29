@@ -14,7 +14,9 @@ import UniformTypeIdentifiers
 /// On Darwin, the bytes go through ``ImageOptimizer`` before they're written (#2019) — HEIC/TIFF/
 /// BMP become JPEG or PNG, anything past the size cap is downscaled, location data is removed —
 /// unless the site opted out with `SiteSettings.imageOptimisationDisabled`. A failed optimisation
-/// writes the original bytes; a drop is never lost to it.
+/// writes the original bytes when browsers can show them and they carry no location data;
+/// otherwise the drop is refused and the reason logged, rather than publishing a broken image or
+/// the owner's location.
 public enum WYSIWYGImageAssetIngestor {
     enum Format: String {
         case jpeg, png, gif, webp, avif, heic, tiff, bmp
@@ -27,8 +29,17 @@ public enum WYSIWYGImageAssetIngestor {
             case .webp: "webp"
             case .avif: "avif"
             case .heic: "heic"
-            case .tiff: "tif"
+            case .tiff: "tiff"
             case .bmp: "bmp"
+            }
+        }
+
+        /// Whether browsers display this format. The others (HEIC, TIFF, BMP) are only written
+        /// once converted, or as-is when the owner turned optimisation off.
+        var isWebFormat: Bool {
+            switch self {
+            case .jpeg, .png, .gif, .webp, .avif: true
+            case .heic, .tiff, .bmp: false
             }
         }
 
@@ -71,10 +82,15 @@ public enum WYSIWYGImageAssetIngestor {
     #endif
 
     /// Returns `nil` for unrecognized bytes — callers treat that as "not a droppable image,
-    /// ignore the drop" rather than a thrown error. That `nil` is logged to `logCenter` first (the
-    /// plan's Global Constraints: "no silent failure paths"), via a detached `Task` because this
-    /// stays a synchronous API — the same shape `LocalContainerSiteRuntime` uses to log from its
-    /// non-async stream callbacks.
+    /// ignore the drop" rather than a thrown error — and for an image it refuses to publish (a
+    /// format browsers can't show that couldn't be converted, or location data that couldn't be
+    /// removed). Every `nil` is logged to `logCenter` first (the plan's Global Constraints: "no
+    /// silent failure paths"), via a detached `Task` because this stays a synchronous API — the
+    /// same shape `LocalContainerSiteRuntime` uses to log from its non-async stream callbacks.
+    ///
+    /// - Important: Synchronous and potentially slow — it reads `Config/settings.plist` and can
+    ///   decode and re-encode a multi-megabyte photo. Call it off the main actor (e.g. from
+    ///   `Task.detached`), never from a view's `@MainActor` context.
     /// - Throws: whatever `FileManager`/`Data.write` throws for a recognized image that fails to
     ///   write.
     public static func ingest(
@@ -88,13 +104,19 @@ public enum WYSIWYGImageAssetIngestor {
             }
             return nil
         }
-        var output = bytes
-        var fileExtension = format.fileExtension
         #if canImport(Darwin)
-        if let optimised = optimise(bytes, siteDirectory: siteDirectory, fileManager: fileManager, logCenter: logCenter) {
-            output = optimised.data
-            fileExtension = optimised.fileExtension
+        guard let prepared = prepare(
+            bytes, format: format, siteDirectory: siteDirectory, fileManager: fileManager, logCenter: logCenter)
+        else { return nil }
+        let (output, fileExtension) = prepared
+        #else
+        guard format.isWebFormat else {
+            log(
+                "dropped \(format.rawValue.uppercased()) image can't be shown in browsers and can't be converted on this platform — ignoring drop",
+                stream: .stderr, to: logCenter)
+            return nil
         }
+        let (output, fileExtension) = (bytes, format.fileExtension)
         #endif
         let directory = siteDirectory.appendingPathComponent("public/images", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -105,33 +127,54 @@ public enum WYSIWYGImageAssetIngestor {
     }
 
     #if canImport(Darwin)
-    /// Runs ``ImageOptimizer`` unless the site opted out, logging one line either way it acts.
-    /// Returns `nil` when the original bytes should be written unchanged.
+    /// Decides what to write for a recognised drop: the optimised bytes, the original, or nothing
+    /// (`nil`, logged). Runs ``ImageOptimizer`` unless the site opted out.
     ///
-    /// Reads the opt-out from the package's `Config/` — the sibling of the `Source/` directory
-    /// passed as `siteDirectory` — synchronously, like the write `ingest` itself does. A directory
-    /// that isn't inside a package, or has no settings file, reads as "on".
-    private static func optimise(
-        _ bytes: Data, siteDirectory: URL, fileManager: FileManager, logCenter: LogCenter
-    ) -> ImageOptimizer.Optimised? {
-        let configDirectory = AnglesitePackage(url: siteDirectory.deletingLastPathComponent()).configURL
-        let settings = (try? SiteConfigStore.read(from: configDirectory, fileManager: fileManager)) ?? SiteSettings()
-        if settings.imageOptimisationDisabled == true {
-            log("image optimisation is off for this site — keeping the dropped image as it is", stream: .stdout, to: logCenter)
-            return nil
+    /// Reads the opt-out from the package's `Config/` — only when `siteDirectory` really is a
+    /// package's `Source/` (`Foo.anglesite/Source`); any other directory reads as "on" rather than
+    /// trusting an unrelated parent's `Config/`.
+    private static func prepare(
+        _ bytes: Data, format: Format, siteDirectory: URL, fileManager: FileManager, logCenter: LogCenter
+    ) -> (Data, String)? {
+        let original = (bytes, format.fileExtension)
+        let kind = format.rawValue.uppercased()
+        if optimisationDisabled(siteDirectory: siteDirectory, fileManager: fileManager) {
+            log(
+                "image optimisation is off for this site — keeping the dropped image as it is"
+                    + (format.isWebFormat ? "" : " (\(kind) images don't show in most browsers)"),
+                stream: format.isWebFormat ? .stdout : .stderr, to: logCenter)
+            return original
         }
         switch ImageOptimizer.optimise(bytes) {
         case .optimised(let optimised):
             let before = ByteCountFormatter.string(fromByteCount: Int64(bytes.count), countStyle: .file)
             let after = ByteCountFormatter.string(fromByteCount: Int64(optimised.data.count), countStyle: .file)
             log("optimised dropped image: \(before) → \(after) (\(optimised.summary))", stream: .stdout, to: logCenter)
-            return optimised
+            return (optimised.data, optimised.fileExtension)
         case .unchanged:
-            return nil
+            return original
         case .failed(let reason):
+            guard format.isWebFormat else {
+                log("couldn't convert dropped \(kind) image (\(reason)), and browsers can't show it as it is — ignoring drop",
+                    stream: .stderr, to: logCenter)
+                return nil
+            }
             log("couldn't optimise dropped image (\(reason)) — keeping the original", stream: .stderr, to: logCenter)
+            return original
+        case .locationNotRemoved(let reason):
+            log("dropped image carries location data that couldn't be removed (\(reason)) — ignoring drop so the location isn't published",
+                stream: .stderr, to: logCenter)
             return nil
         }
+    }
+
+    /// `SiteSettings.imageOptimisationDisabled` for the package whose `Source/` is `siteDirectory`.
+    private static func optimisationDisabled(siteDirectory: URL, fileManager: FileManager) -> Bool {
+        let packageURL = siteDirectory.deletingLastPathComponent()
+        guard siteDirectory.lastPathComponent == "Source", packageURL.pathExtension == "anglesite" else { return false }
+        let configDirectory = AnglesitePackage(url: packageURL).configURL
+        let settings = (try? SiteConfigStore.read(from: configDirectory, fileManager: fileManager)) ?? SiteSettings()
+        return settings.imageOptimisationDisabled == true
     }
     #endif
 
@@ -162,11 +205,17 @@ public enum WYSIWYGImageAssetIngestor {
         if matches([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], at: 0) { return .png }
         if matches(Array("GIF8".utf8), at: 0) { return .gif }
         if matches(Array("RIFF".utf8), at: 0), matches(Array("WEBP".utf8), at: 8) { return .webp }
-        // ISO-BMFF (HEIF family): an `ftyp` box whose major brand names the format.
+        // ISO-BMFF (HEIF family): an `ftyp` box whose major or compatible brands name the format.
+        // The box is size(4) "ftyp" major(4) minor-version(4) compatible(4 each) up to its size.
         if matches(Array("ftyp".utf8), at: 4) {
-            for brand in ["avif", "avis"] where matches(Array(brand.utf8), at: 8) { return .avif }
-            for brand in ["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"]
-            where matches(Array(brand.utf8), at: 8) { return .heic }
+            let declared = data.prefix(4).reduce(0) { $0 << 8 | Int($1) }
+            let boxEnd = min(max(declared, 16), data.count, 256)
+            let brandOffsets = [8] + Array(stride(from: 16, to: boxEnd - 3, by: 4))
+            func hasBrand(_ brands: [String]) -> Bool {
+                brandOffsets.contains { offset in brands.contains { matches(Array($0.utf8), at: offset) } }
+            }
+            if hasBrand(["avif", "avis"]) { return .avif }
+            if hasBrand(["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"]) { return .heic }
         }
         if matches([0x49, 0x49, 0x2A, 0x00], at: 0) || matches([0x4D, 0x4D, 0x00, 0x2A], at: 0) { return .tiff }
         if matches(Array("BM".utf8), at: 0) { return .bmp }

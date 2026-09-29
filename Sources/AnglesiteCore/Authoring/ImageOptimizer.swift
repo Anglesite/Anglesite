@@ -8,17 +8,25 @@ import CoreGraphics
 /// metadata — so a 12 MB HEIC dragged from Photos lands in `public/images/` as a web-ready JPEG.
 ///
 /// Pure `Data`-in/`Data`-out, like ``LicenseMetadataEmbedder``: it never opens, reads, or writes
-/// a file itself, so it can never be the thing that destroys an owner's original. It never throws
-/// either — anything it can't handle is ``Outcome/failed(_:)`` and the caller keeps the original
-/// bytes, because a drop must never be lost to the optimiser.
+/// a file itself, so it can never be the thing that destroys an owner's original. It never
+/// throws either — anything it can't handle is an ``Outcome`` the caller acts on.
 ///
-/// Metadata: GPS is removed; orientation is kept as metadata (pixels are never rotated) and the
-/// TIFF/IPTC/XMP fields — copyright, and the license ``LicenseMetadataEmbedder`` may have just
-/// written — are carried across a re-encode.
+/// **Location removal fails closed.** Every output is re-read and checked for GPS — both the
+/// ImageIO GPS dictionary and XMP `exif:GPS…` tags — and an image whose location couldn't be
+/// removed is ``Outcome/locationNotRemoved(_:)``, which tells the caller not to write the
+/// original either. A web-ready image whose only problem is location data is first stripped
+/// without re-encoding its pixels; only if that leaves a location behind (or the format has no
+/// encoder, like WebP) is it re-encoded — as JPEG/PNG when the platform can't write its own
+/// format, because keeping the owner's location private outranks keeping the file's format.
+///
+/// Other metadata: orientation is kept as metadata (pixels are never rotated); TIFF/IPTC
+/// copyright and XMP — including a license ``LicenseMetadataEmbedder`` may have just written —
+/// are carried across a re-encode. Encoder properties are an allow-list, so source-format
+/// fields (a TIFF's compression, a HEIC container dictionary) never leak into the output.
 ///
 /// There's no WebP output: the platform has no WebP encoder (`CGImageDestinationCopyTypeIdentifiers`
-/// lists no `org.webmproject.webp` writer), so a WebP or AVIF past the cap is left as it is rather
-/// than re-encoded into a different format the owner didn't choose.
+/// lists no `org.webmproject.webp` writer), so a location-free WebP or AVIF past the cap is left
+/// as it is rather than re-encoded into a format the owner didn't choose.
 public enum ImageOptimizer {
     /// Longest edge, in pixels, past which an image is downscaled.
     public static let defaultMaxPixelSize = 2000
@@ -31,8 +39,11 @@ public enum ImageOptimizer {
         case optimised(Optimised)
         /// Already web-ready — no conversion, no downscale, no location data. Write the original.
         case unchanged
-        /// Couldn't be decoded or re-encoded (the reason is owner-readable). Write the original.
+        /// Couldn't be decoded or re-encoded, and carries no location data we could see (the
+        /// reason is owner-readable). The original may be written.
         case failed(String)
+        /// The image carries location data that couldn't be removed. Don't write the original.
+        case locationNotRemoved(String)
     }
 
     /// A changed image and what changed.
@@ -68,7 +79,7 @@ public enum ImageOptimizer {
         case removedLocation
     }
 
-    /// Source types converted to JPEG/PNG, with their display names.
+    /// Source types always converted to JPEG/PNG, with their display names.
     static let convertedTypes: [String: String] = [
         "public.heic": "HEIC",
         "public.heif": "HEIF",
@@ -78,11 +89,19 @@ public enum ImageOptimizer {
 
     private static let jpegType = "public.jpeg"
     private static let pngType = "public.png"
+    private static let gifType = "com.compuserve.gif"
     private static let displayNames: [String: String] = [
-        jpegType: "JPEG", pngType: "PNG", "com.compuserve.gif": "GIF",
+        jpegType: "JPEG", pngType: "PNG", gifType: "GIF",
+        "org.webmproject.webp": "WebP", "public.avif": "AVIF",
     ]
-    private static let fileExtensions: [String: String] = [
-        jpegType: "jpg", pngType: "png", "com.compuserve.gif": "gif",
+    private static let fileExtensions: [String: String] = [jpegType: "jpg", pngType: "png", gifType: "gif"]
+
+    /// TIFF-dictionary fields carried into a re-encode — descriptive fields only, never the
+    /// source's own encoding (compression, photometric interpretation, strip layout, …).
+    private static let keptTIFFKeys: Set<CFString> = [
+        kCGImagePropertyTIFFCopyright, kCGImagePropertyTIFFArtist, kCGImagePropertyTIFFImageDescription,
+        kCGImagePropertyTIFFMake, kCGImagePropertyTIFFModel, kCGImagePropertyTIFFSoftware,
+        kCGImagePropertyTIFFDateTime,
     ]
 
     /// Optimises `data`. See the type's doc for the rules.
@@ -91,6 +110,12 @@ public enum ImageOptimizer {
     ///   - data: The image bytes, as dropped.
     ///   - maxPixelSize: Longest edge past which the image is downscaled; never upscales.
     public static func optimise(_ data: Data, maxPixelSize: Int = defaultMaxPixelSize) -> Outcome {
+        optimise(data, maxPixelSize: maxPixelSize, writableTypes: nil)
+    }
+
+    /// `writableTypes` overrides the platform's encoder list, so tests can reach the "no encoder
+    /// for this format" path (WebP/AVIF in production) with fixtures ImageIO can write.
+    static func optimise(_ data: Data, maxPixelSize: Int, writableTypes: Set<String>?) -> Outcome {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let sourceType = CGImageSourceGetType(source) as String?,
               CGImageSourceGetCount(source) > 0,
@@ -101,17 +126,23 @@ public enum ImageOptimizer {
             return .failed("the image couldn’t be read")
         }
 
-        let hasLocation = properties[kCGImagePropertyGPSDictionary] != nil
+        let hasLocation = containsLocation(source)
+        let writable = writableTypes ?? Set((CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? [])
+        // Animated GIFs would lose every frame but the first in a re-encode.
+        let canReencodeInPlace = writable.contains(sourceType) && CGImageSourceGetCount(source) == 1
         let convertFrom = convertedTypes[sourceType]
-        let writable = Set((CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? [])
-        // Animated GIFs would lose every frame but the first in a re-encode; leave them be.
-        let animated = CGImageSourceGetCount(source) > 1
-        let needsDownscale = max(width, height) > maxPixelSize
-            && (convertFrom != nil || (writable.contains(sourceType) && !animated))
+        let needsDownscale = max(width, height) > maxPixelSize && (convertFrom != nil || canReencodeInPlace)
 
         if convertFrom == nil && !needsDownscale {
-            return hasLocation ? removeLocationLosslessly(source: source, type: sourceType) : .unchanged
+            guard hasLocation else { return .unchanged }
+            // Strip without touching the pixels; re-encode below only if that didn't work.
+            if canReencodeInPlace, let stripped = copyWithoutLocation(source), !containsLocation(stripped) {
+                return .optimised(Optimised(
+                    data: stripped, fileExtension: fileExtension(for: sourceType), changes: [.removedLocation]))
+            }
         }
+
+        let failure: (String) -> Outcome = { hasLocation ? .locationNotRemoved($0) : .failed($0) }
 
         // Decode, downscaling in the decoder where needed. The transform stays off: orientation
         // travels as metadata, so a portrait photo is still portrait without rotating pixels.
@@ -127,80 +158,117 @@ public enum ImageOptimizer {
         } else {
             image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         }
-        guard let image else { return .failed("the image couldn’t be decoded") }
+        guard let image else { return failure("the image couldn’t be decoded") }
 
-        let outputType: String
-        if convertFrom != nil {
-            outputType = hasAlpha(image) ? pngType : jpegType
-        } else {
-            outputType = sourceType
-        }
-
-        var options = properties
-        for key in [kCGImagePropertyGPSDictionary, kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight] {
-            options.removeValue(forKey: key)
-        }
-        // Stale once resized; the encoder writes the real dimensions.
-        if var exif = options[kCGImagePropertyExifDictionary] as? [CFString: Any] {
-            exif.removeValue(forKey: kCGImagePropertyExifPixelXDimension)
-            exif.removeValue(forKey: kCGImagePropertyExifPixelYDimension)
-            options[kCGImagePropertyExifDictionary] = exif
-        }
-        if outputType == jpegType {
-            options[kCGImageDestinationLossyCompressionQuality] = jpegQuality
-        }
-        options[kCGImageDestinationMergeMetadata] = true
+        // Keep the format when it's already web-ready and writable; otherwise JPEG, or PNG when
+        // there's transparency to keep.
+        let outputType = convertFrom == nil && canReencodeInPlace
+            ? sourceType
+            : (hasAlpha(image) ? pngType : jpegType)
 
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, outputType as CFString, 1, nil) else {
-            return .failed("the image couldn’t be re-encoded")
+            return failure("the image couldn’t be re-encoded")
         }
-        let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil).flatMap(metadataWithoutLocation)
-        CGImageDestinationAddImageAndMetadata(destination, image, metadata, options as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            return .failed("the image couldn’t be re-encoded")
+        let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil).flatMap(metadataForReencode)
+        CGImageDestinationAddImageAndMetadata(
+            destination, image, metadata, encodingProperties(from: properties, outputType: outputType) as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return failure("the image couldn’t be re-encoded") }
+        let encoded = output as Data
+        if hasLocation && containsLocation(encoded) {
+            return .locationNotRemoved("location data survived re-encoding")
         }
 
         var changes: [Change] = []
-        if let convertFrom {
-            changes.append(.converted(from: convertFrom, to: displayNames[outputType] ?? outputType))
+        if outputType != sourceType {
+            let from = convertFrom ?? displayName(for: sourceType)
+            changes.append(.converted(from: from, to: displayName(for: outputType)))
         }
         if needsDownscale {
             changes.append(.downscaled(fromWidth: width, fromHeight: height, toWidth: image.width, toHeight: image.height))
         }
         if hasLocation { changes.append(.removedLocation) }
-        return .optimised(Optimised(
-            data: output as Data, fileExtension: fileExtension(for: outputType), changes: changes))
+        return .optimised(Optimised(data: encoded, fileExtension: fileExtension(for: outputType), changes: changes))
     }
 
-    /// Strips GPS from an image that needs nothing else, without re-encoding the pixels.
-    private static func removeLocationLosslessly(source: CGImageSource, type: String) -> Outcome {
+    /// Whether `data` carries location data (a GPS dictionary or XMP `exif:GPS…` tags).
+    static func containsLocation(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        return containsLocation(source)
+    }
+
+    /// Whether the first image in `source` has a GPS dictionary or any XMP `exif:GPS…` tag.
+    private static func containsLocation(_ source: CGImageSource) -> Bool {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        if properties?[kCGImagePropertyGPSDictionary] != nil { return true }
+        guard let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return false }
+        return !gpsTagPaths(in: metadata).isEmpty
+    }
+
+    /// A lossless copy of `source` with GPS excluded, or `nil` when ImageIO refuses.
+    private static func copyWithoutLocation(_ source: CGImageSource) -> Data? {
+        guard let type = CGImageSourceGetType(source) else { return nil }
         let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, type as CFString, 1, nil) else {
-            return .failed("location data couldn’t be removed from this image type")
-        }
+        guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else { return nil }
         var error: Unmanaged<CFError>?
         let copied = CGImageDestinationCopyImageSource(
             destination, source, [kCGImageMetadataShouldExcludeGPS: true] as CFDictionary, &error)
-        guard copied else { return .failed("location data couldn’t be removed") }
-        return .optimised(Optimised(
-            data: output as Data, fileExtension: fileExtension(for: type), changes: [.removedLocation]))
+        return copied ? output as Data : nil
     }
 
-    /// A copy of `metadata` with every `exif:GPS…` tag removed — the XMP mirror of the GPS
-    /// dictionary, which would otherwise carry the location across a re-encode.
-    private static func metadataWithoutLocation(_ metadata: CGImageMetadata) -> CGImageMetadata? {
-        guard let mutable = CGImageMetadataCreateMutableCopy(metadata) else { return nil }
-        var gpsPaths: [String] = []
+    /// Top-level XMP tag paths naming a GPS field (`exif:GPSLatitude`, …).
+    private static func gpsTagPaths(in metadata: CGImageMetadata) -> [String] {
+        var paths: [String] = []
         CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, nil) { path, _ in
             let name = (path as String).split(separator: ":").last.map(String.init) ?? ""
-            if name.hasPrefix("GPS") { gpsPaths.append(path as String) }
+            if name.hasPrefix("GPS") { paths.append(path as String) }
             return true
         }
-        for path in gpsPaths {
+        return paths
+    }
+
+    /// XMP mirrors of the source's own encoding and dimensions — stale or wrong once re-encoded.
+    private static let encodingTagPaths = [
+        "tiff:Compression", "tiff:PhotometricInterpretation", "tiff:BitsPerSample", "tiff:SamplesPerPixel",
+        "tiff:PlanarConfiguration", "tiff:ImageWidth", "tiff:ImageLength",
+        "exif:PixelXDimension", "exif:PixelYDimension",
+    ]
+
+    /// A copy of `metadata` for a re-encode: every GPS tag removed (the XMP mirror of the GPS
+    /// dictionary, which would otherwise carry the location across) and the source's encoding
+    /// fields dropped — the metadata counterpart of ``encodingProperties(from:outputType:)``.
+    private static func metadataForReencode(_ metadata: CGImageMetadata) -> CGImageMetadata? {
+        guard let mutable = CGImageMetadataCreateMutableCopy(metadata) else { return nil }
+        for path in gpsTagPaths(in: metadata) + encodingTagPaths {
             _ = CGImageMetadataRemoveTagWithPath(mutable, nil, path as CFString)
         }
         return mutable
+    }
+
+    /// The encoder properties for a re-encode: an allow-list of what's meant to survive —
+    /// orientation, descriptive TIFF fields, IPTC, Exif minus its (now stale) pixel dimensions —
+    /// plus JPEG quality. Never GPS; never the source format's own encoding fields.
+    private static func encodingProperties(from properties: [CFString: Any], outputType: String) -> [CFString: Any] {
+        var kept: [CFString: Any] = [:]
+        if let orientation = properties[kCGImagePropertyOrientation] {
+            kept[kCGImagePropertyOrientation] = orientation
+        }
+        if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+            let descriptive = tiff.filter { keptTIFFKeys.contains($0.key) }
+            if !descriptive.isEmpty { kept[kCGImagePropertyTIFFDictionary] = descriptive }
+        }
+        if let iptc = properties[kCGImagePropertyIPTCDictionary] {
+            kept[kCGImagePropertyIPTCDictionary] = iptc
+        }
+        if var exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
+            exif.removeValue(forKey: kCGImagePropertyExifPixelXDimension)
+            exif.removeValue(forKey: kCGImagePropertyExifPixelYDimension)
+            kept[kCGImagePropertyExifDictionary] = exif
+        }
+        if outputType == jpegType {
+            kept[kCGImageDestinationLossyCompressionQuality] = jpegQuality
+        }
+        return kept
     }
 
     private static func hasAlpha(_ image: CGImage) -> Bool {
@@ -210,9 +278,12 @@ public enum ImageOptimizer {
         }
     }
 
+    private static func displayName(for type: String) -> String {
+        displayNames[type] ?? convertedTypes[type] ?? (type.split(separator: ".").last.map { $0.uppercased() } ?? type)
+    }
+
     private static func fileExtension(for type: String) -> String {
-        if let known = fileExtensions[type] { return known }
-        return convertedTypes[type]?.lowercased() ?? "img"
+        fileExtensions[type] ?? displayName(for: type).lowercased()
     }
 }
 #endif

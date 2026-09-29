@@ -2049,7 +2049,12 @@ struct SiteWindow: View {
 
                     let assetPath: String?
                     do {
-                        assetPath = try WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
+                        // #2019: `ingest` reads settings and may decode/re-encode a large photo
+                        // synchronously — keep that off the main actor this `Task` inherits.
+                        let dropped = bytes
+                        assetPath = try await Task.detached(priority: .userInitiated) {
+                            try WYSIWYGImageAssetIngestor.ingest(bytes: dropped, siteDirectory: siteDirectory)
+                        }.value
                     } catch {
                         await logCenter.append(
                             source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,

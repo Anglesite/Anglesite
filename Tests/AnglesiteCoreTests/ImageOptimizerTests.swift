@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 
 /// Drop-time image optimisation (#2019). Fixtures are generated in-test with ImageIO, so there's
 /// nothing binary checked in and each case states exactly the metadata it starts from.
-@Suite("ImageOptimizer (#2019)")
+@Suite("ImageOptimizer (#2019)", .timeLimit(.minutes(1)))
 struct ImageOptimizerTests {
 
     // MARK: - Fixtures
@@ -166,6 +166,48 @@ struct ImageOptimizerTests {
         #expect(LicenseMetadataEmbedder.readLicense(from: result.data, type: .jpeg) == license)
     }
 
+    @Test("XMP-only GPS tags are detected and removed")
+    func xmpOnlyLocation() throws {
+        let metadata = CGImageMetadataCreateMutable()
+        let exif = "http://ns.adobe.com/exif/1.0/" as CFString
+        let tag = try #require(CGImageMetadataTagCreate(exif, "exif" as CFString, "GPSLatitude" as CFString, .string, "37,21.0N" as CFString))
+        #expect(CGImageMetadataSetTagWithPath(metadata, nil, "exif:GPSLatitude" as CFString, tag))
+        let output = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImageAndMetadata(destination, Self.image(width: 64, height: 48), metadata, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let jpeg = output as Data
+        #expect(ImageOptimizer.containsLocation(jpeg))
+
+        let result = try Self.optimised(ImageOptimizer.optimise(jpeg))
+        #expect(result.changes == [.removedLocation])
+        #expect(!ImageOptimizer.containsLocation(result.data))
+    }
+
+    @Test("a located image in a format with no encoder is re-encoded rather than kept with its location")
+    func locationWithoutEncoder() throws {
+        let jpeg = Self.encode(Self.image(width: 64, height: 48), type: .jpeg, properties: Self.taggedProperties())
+        // No writable types: the lossless strip is unavailable, as it is for WebP/AVIF in production.
+        let result = try Self.optimised(ImageOptimizer.optimise(jpeg, maxPixelSize: 2000, writableTypes: []))
+        #expect(!ImageOptimizer.containsLocation(result.data))
+        #expect(result.changes.contains(.removedLocation))
+        #expect(Self.properties(of: result.data)[kCGImagePropertyOrientation] as? Int == 6)
+    }
+
+    @Test("a re-encode keeps descriptive TIFF fields but not the source's own encoding fields")
+    func encoderPropertiesAllowList() throws {
+        let tiff = Self.encode(
+            Self.image(width: 64, height: 48), type: .tiff,
+            properties: [kCGImagePropertyTIFFDictionary: [
+                kCGImagePropertyTIFFCopyright: "© 2026 Owner",
+                kCGImagePropertyTIFFCompression: 5,
+            ] as [CFString: Any]])
+        let result = try Self.optimised(ImageOptimizer.optimise(tiff))
+        let tiffDictionary = Self.properties(of: result.data)[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
+        #expect(tiffDictionary?[kCGImagePropertyTIFFCopyright] as? String == "© 2026 Owner")
+        #expect(tiffDictionary?[kCGImagePropertyTIFFCompression] == nil)
+    }
+
     // MARK: - Failure
 
     @Test("bytes that don't decode fail softly instead of throwing")
@@ -188,7 +230,9 @@ struct ImageOptimizerTests {
 }
 
 /// The ingestor half of #2019: the optimiser runs on drop, and the per-site opt-out bypasses it.
-@Suite("WYSIWYGImageAssetIngestor optimisation (#2019)")
+/// `.timeLimit` bounds the log-line waits below: each awaits a line from a fire-and-forget `Task`,
+/// so a regression that stops logging fails the suite instead of hanging CI.
+@Suite("WYSIWYGImageAssetIngestor optimisation (#2019)", .timeLimit(.minutes(1)))
 struct WYSIWYGImageAssetIngestorOptimisationTests {
 
     /// A throwaway `Foo.anglesite` with `Source/` (what `ingest` is given) and `Config/`.
@@ -206,7 +250,7 @@ struct WYSIWYGImageAssetIngestorOptimisationTests {
         try Data(contentsOf: WYSIWYGImageAssetIngestor.fileURL(forAssetPath: path, siteDirectory: source))
     }
 
-    @Test("by default a TIFF drop is written as a JPEG and the log says what changed")
+    @Test("by default a TIFF drop is converted and the log says what changed")
     func optimisesByDefault() async throws {
         let (package, source) = try Self.package(disabled: nil)
         defer { try? FileManager.default.removeItem(at: package) }
@@ -215,15 +259,15 @@ struct WYSIWYGImageAssetIngestorOptimisationTests {
         let subscription = await logCenter.subscribe()
 
         let path = try #require(try WYSIWYGImageAssetIngestor.ingest(bytes: tiff, siteDirectory: source, logCenter: logCenter))
-        #expect(path.hasSuffix(".jpg"))
-        #expect(ImageOptimizerTests.type(of: try Self.written(path, in: source)) == UTType.jpeg.identifier)
+        #expect(path.hasSuffix(".jpg") || path.hasSuffix(".png"))
+        #expect(ImageOptimizerTests.type(of: try Self.written(path, in: source)) != UTType.tiff.identifier)
 
         var iterator = subscription.stream.makeAsyncIterator()
         let line = await iterator.next()
         subscription.cancel()
         #expect(line?.source == WYSIWYGImageAssetIngestor.logSource)
         #expect(line?.text.hasPrefix("optimised dropped image: ") == true)
-        #expect(line?.text.hasSuffix("(TIFF → JPEG)") == true)
+        #expect(line?.text.contains("(TIFF → ") == true)
     }
 
     @Test("with imageOptimisationDisabled the original bytes are written byte-for-byte")
@@ -233,7 +277,7 @@ struct WYSIWYGImageAssetIngestorOptimisationTests {
         let tiff = ImageOptimizerTests.encode(ImageOptimizerTests.image(width: 64, height: 48), type: .tiff)
 
         let path = try #require(try WYSIWYGImageAssetIngestor.ingest(bytes: tiff, siteDirectory: source, logCenter: LogCenter()))
-        #expect(path.hasSuffix(".tif"))
+        #expect(path.hasSuffix(".tiff"))
         #expect(try Self.written(path, in: source) == tiff)
     }
 
@@ -264,6 +308,36 @@ struct WYSIWYGImageAssetIngestorOptimisationTests {
         #expect(line?.text.hasPrefix("couldn't optimise dropped image") == true)
     }
 
+    @Test("a HEIC/TIFF/BMP that can't be converted is refused, not published as a broken image")
+    func unconvertibleNonWebFormatRefused() async throws {
+        let (package, source) = try Self.package(disabled: nil)
+        defer { try? FileManager.default.removeItem(at: package) }
+        let truncatedTIFF = Data([0x49, 0x49, 0x2A, 0x00, 0, 0, 0, 0])
+        let logCenter = LogCenter()
+        let subscription = await logCenter.subscribe()
+
+        let path = try WYSIWYGImageAssetIngestor.ingest(bytes: truncatedTIFF, siteDirectory: source, logCenter: logCenter)
+        #expect(path == nil)
+        #expect(!FileManager.default.fileExists(atPath: source.appendingPathComponent("public/images").path))
+
+        var iterator = subscription.stream.makeAsyncIterator()
+        let line = await iterator.next()
+        subscription.cancel()
+        #expect(line?.stream == .stderr)
+        #expect(line?.text.hasPrefix("couldn't convert dropped TIFF image") == true)
+    }
+
+    @Test("a directory that isn't a package's Source/ ignores a stray parent Config/ and optimises")
+    func nonPackageDirectoryIsOn() throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent("plain-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try SiteConfigStore.write(SiteSettings(imageOptimisationDisabled: true), to: parent.appendingPathComponent("Config"))
+        let site = parent.appendingPathComponent("Source")
+        let bmp = ImageOptimizerTests.encode(ImageOptimizerTests.image(width: 16, height: 16), type: .bmp)
+        let path = try #require(try WYSIWYGImageAssetIngestor.ingest(bytes: bmp, siteDirectory: site, logCenter: LogCenter()))
+        #expect(!path.hasSuffix(".bmp"))
+    }
+
     @Test("HEIC, AVIF, TIFF and BMP drops are recognised by their signatures")
     func sniffsNewFormats() {
         func ftyp(_ brand: String) -> Data { Data([0, 0, 0, 0x18]) + Data("ftyp\(brand)".utf8) }
@@ -274,6 +348,11 @@ struct WYSIWYGImageAssetIngestorOptimisationTests {
         #expect(WYSIWYGImageAssetIngestor.sniffedUTType(Data([0x4D, 0x4D, 0x00, 0x2A])) == .tiff)
         #expect(WYSIWYGImageAssetIngestor.sniffedUTType(Data("BM".utf8)) == .bmp)
         #expect(WYSIWYGImageAssetIngestor.sniffedUTType(ftyp("isom")) == nil)
+        // A generic major brand with HEIC among the compatible brands.
+        let compatible = Data([0, 0, 0, 0x18]) + Data("ftypmif1".utf8) + Data([0, 0, 0, 0]) + Data("mif1heic".utf8)
+        #expect(WYSIWYGImageAssetIngestor.sniffedUTType(compatible) == .heic)
+        let avifCompatible = Data([0, 0, 0, 0x18]) + Data("ftypisom".utf8) + Data([0, 0, 0, 0]) + Data("isomavif".utf8)
+        #expect(WYSIWYGImageAssetIngestor.sniffedUTType(avifCompatible)?.preferredFilenameExtension == "avif")
     }
 }
 #endif
