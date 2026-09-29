@@ -95,8 +95,8 @@ private struct ScreeningModelRow: View {
             HStack {
                 ProgressView(value: progress.fraction)
                 Text("Downloading…").foregroundStyle(.secondary)
+                Button("Cancel") { model.cancel() }
             }
-            .accessibilityElement(children: .combine)
         case .installed:
             HStack {
                 Label("Ready", systemImage: "checkmark.circle")

@@ -595,7 +595,9 @@ final class SiteWindowModel {
         guard hasInbox, KevModelAssetPin.isConfigured, !AppSettings.shared.screeningModelOfferShown else { return }
         // Five `fileExists` probes under Application Support; off the main actor.
         let installed = await Task.detached { KevModelLocator.installedAssets() != nil }.value
-        guard !installed else { return }
+        // Re-checked after the suspension: two windows opening or deploying together both pass
+        // the guard above, and only the first to get here may show the alert.
+        guard !installed, !AppSettings.shared.screeningModelOfferShown else { return }
         AppSettings.shared.screeningModelOfferShown = true
         screeningModelOfferPresented = true
     }

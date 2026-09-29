@@ -61,6 +61,17 @@ public struct KevAssetManifest: Codable, Sendable, Equatable {
             }
             guard entry.bytes >= 0 else { throw KevModelDownloadError.invalidManifest("negative size for \(path)") }
         }
+        // A key that is also an ancestor directory of another key can't be both a file and a
+        // directory on disk; say so here rather than as a createDirectory error mid-download.
+        for path in files.keys {
+            var ancestor = Substring(path)
+            while let slash = ancestor.lastIndex(of: "/") {
+                ancestor = ancestor[..<slash]
+                if files[String(ancestor)] != nil {
+                    throw KevModelDownloadError.invalidManifest("path collision: \(ancestor) is listed as a file and used as a directory")
+                }
+            }
+        }
         let probe = KevModelAssets(directory: URL(fileURLWithPath: "/"))
         let required = [probe.vocabURL, probe.mergesURL, probe.addedTokensURL, probe.headMetadataURL, probe.headWeightsURL]
             .map(\.lastPathComponent)
@@ -88,6 +99,11 @@ public enum KevModelDownloadError: Error, Equatable, Sendable {
     case invalidManifest(String)
     /// A downloaded file's size differs from the manifest's.
     case fileSizeMismatch(path: String, expected: Int64, actual: Int64)
+    /// The host kept sending past the manifest's size for this file; the transfer was stopped
+    /// there rather than allowed to fill the disk.
+    case fileExceedsManifestSize(path: String, expected: Int64)
+    /// The volume holding the destination has less free space than the manifest's total.
+    case insufficientDiskSpace(required: Int64, available: Int64)
     /// A downloaded file's bytes don't hash to the manifest's digest for it.
     case fileDigestMismatch(path: String)
     /// Everything verified but the staging directory couldn't be moved into place.
@@ -170,35 +186,25 @@ public struct KevModelDownloader: Sendable {
         }
     }
 
-    /// Streams through `URLSession.shared` in ~1 MiB chunks so a 1 GB file never sits in memory.
+    /// One `URLSessionDataTask` whose body reaches `sink` as the whole `Data` chunks the
+    /// session's delegate receives — never a per-byte `AsyncBytes` walk, which costs ~10⁹
+    /// iterations for the backbone. Cancelling the awaiting Swift task cancels the transfer, and
+    /// the delegate shape is the one a background-configured session would plug into later.
     public static let defaultTransport: KevAssetTransport = { request, sink in
-        #if canImport(FoundationNetworking)
-        // swift-corelibs-foundation has no `bytes(for:)`; the Linux build only ever exercises the
-        // downloader through a test transport, so a whole-body fetch is an acceptable fallback.
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
+        let delegate = ChunkedDataTaskDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        let task = session.dataTask(with: request)
+        task.resume()
+        try await withTaskCancellationHandler {
+            for try await chunk in delegate.chunks { try await sink(chunk) }
+        } onCancel: {
+            task.cancel()
+        }
+        guard let http = delegate.httpResponse else {
             throw KevModelDownloadError.fetchFailed("non-HTTP response from \(request.url?.absoluteString ?? "?")")
         }
-        try await sink(data)
         return http
-        #else
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw KevModelDownloadError.fetchFailed("non-HTTP response from \(request.url?.absoluteString ?? "?")")
-        }
-        guard 200..<300 ~= http.statusCode else { return http }
-        var chunk = Data()
-        chunk.reserveCapacity(1 << 20)
-        for try await byte in bytes {
-            chunk.append(byte)
-            if chunk.count >= 1 << 20 {
-                try await sink(chunk)
-                chunk.removeAll(keepingCapacity: true)
-            }
-        }
-        if !chunk.isEmpty { try await sink(chunk) }
-        return http
-        #endif
     }
 
     /// Runs the whole install. Returns the installed assets on success; on any failure the
@@ -211,6 +217,9 @@ public struct KevModelDownloader: Sendable {
     public func install(progress: (@Sendable (KevModelDownloadProgress) async -> Void)? = nil) async throws -> KevModelAssets {
         do {
             return try await installOrThrow(progress: progress)
+        } catch is CancellationError {
+            await log("Screening model download cancelled; nothing installed")
+            throw CancellationError()
         } catch {
             await log("Screening model install failed: \(error)")
             throw error
@@ -221,6 +230,19 @@ public struct KevModelDownloader: Sendable {
     public static func remove(at directory: URL, fileManager: FileManager = .default) throws {
         guard fileManager.fileExists(atPath: directory.path) else { return }
         try fileManager.removeItem(at: directory)
+    }
+
+    /// Removes staging (`.<name>.download-*`) and swapped-out (`.<name>.replaced-*`) siblings of
+    /// `destination` left by an install that never got to clean up — a quit mid-download, a
+    /// crash, power loss. Each is up to the full asset size, so this runs at the start of every
+    /// install and whenever the app re-probes the model directory. Never touches `destination`.
+    public static func sweepLeftovers(besides destination: URL, fileManager: FileManager = .default) {
+        let parent = destination.deletingLastPathComponent()
+        let name = destination.lastPathComponent
+        guard let siblings = try? fileManager.contentsOfDirectory(atPath: parent.path) else { return }
+        for sibling in siblings where sibling.hasPrefix(".\(name).download-") || sibling.hasPrefix(".\(name).replaced-") {
+            try? fileManager.removeItem(at: parent.appendingPathComponent(sibling))
+        }
     }
 
     // MARK: - Steps
@@ -236,6 +258,12 @@ public struct KevModelDownloader: Sendable {
 
         let parent = destination.deletingLastPathComponent()
         let name = destination.lastPathComponent
+        Self.sweepLeftovers(besides: destination, fileManager: fileManager)
+        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        if let attributes = try? fileManager.attributesOfFileSystem(forPath: parent.path),
+           let free = (attributes[.systemFreeSize] as? NSNumber)?.int64Value, free < expected {
+            throw KevModelDownloadError.insufficientDiskSpace(required: expected, available: free)
+        }
         let staging = parent.appendingPathComponent(".\(name).download-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         var installed = false
@@ -248,7 +276,7 @@ public struct KevModelDownloader: Sendable {
             try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             let base = received
             let written = try await download(
-                baseURL.appendingPathComponent(path), to: target) { bytesSoFar in
+                baseURL.appendingPathComponent(path), to: target, path: path, limit: entry.bytes) { bytesSoFar in
                     guard let progress else { return }
                     await progress(KevModelDownloadProgress(
                         bytesReceived: base + bytesSoFar, bytesExpected: expected,
@@ -273,10 +301,18 @@ public struct KevModelDownloader: Sendable {
         return KevModelAssets(directory: destination)
     }
 
+    /// Manifests are a few KB; anything past this is not the manifest.
+    static let manifestByteLimit = 1 << 20
+
     private func fetchManifest() async throws -> KevAssetManifest {
         let url = baseURL.appendingPathComponent(manifestPath)
         let collector = ByteCollector()
-        let response = try await transport(URLRequest(url: url)) { chunk in await collector.append(chunk) }
+        let response = try await transport(URLRequest(url: url)) { chunk in
+            guard await collector.data.count + chunk.count <= Self.manifestByteLimit else {
+                throw KevModelDownloadError.fetchFailed("\(url.absoluteString): manifest larger than \(Self.manifestByteLimit) bytes")
+            }
+            await collector.append(chunk)
+        }
         guard 200..<300 ~= response.statusCode else {
             throw KevModelDownloadError.fetchFailed("\(url.absoluteString) → HTTP \(response.statusCode)")
         }
@@ -292,9 +328,13 @@ public struct KevModelDownloader: Sendable {
         }
     }
 
-    /// Streams one file to `target`, hashing and counting as it goes.
+    /// Streams one file to `target`, hashing and counting as it goes, and stops the transfer the
+    /// moment it passes `limit` (the manifest's size) so a misbehaving host can't fill the disk
+    /// before the size check. Cancellation surfaces as `CancellationError`, never as a fetch
+    /// failure, so the app can tell "the owner stopped it" from "it broke".
     private func download(
-        _ url: URL, to target: URL, onProgress: @escaping @Sendable (Int64) async -> Void
+        _ url: URL, to target: URL, path: String, limit: Int64,
+        onProgress: @escaping @Sendable (Int64) async -> Void
     ) async throws -> (bytes: Int64, sha256: String) {
         guard fileManager.createFile(atPath: target.path, contents: nil) else {
             throw KevModelDownloadError.installFailed("couldn't create \(target.path)")
@@ -304,12 +344,21 @@ public struct KevModelDownloader: Sendable {
         let response: HTTPURLResponse
         do {
             response = try await transport(URLRequest(url: url)) { chunk in
+                guard await sink.count + Int64(chunk.count) <= limit else {
+                    throw KevModelDownloadError.fileExceedsManifestSize(path: path, expected: limit)
+                }
                 try await sink.write(chunk)
                 await onProgress(await sink.count)
             }
         } catch let error as KevModelDownloadError {
             try? handle.close()
             throw error
+        } catch is CancellationError {
+            try? handle.close()
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            try? handle.close()
+            throw CancellationError()
         } catch {
             try? handle.close()
             throw KevModelDownloadError.fetchFailed("\(url.absoluteString): \(error)")
@@ -334,6 +383,44 @@ public struct KevModelDownloader: Sendable {
             throw KevModelDownloadError.installFailed("\(error)")
         }
         if hadPrevious { try? fileManager.removeItem(at: previous) }
+    }
+}
+
+/// Receives one data task's body as delegate-delivered `Data` chunks and republishes them as an
+/// `AsyncThrowingStream`, finishing with the task's error (a cancelled task ends in
+/// `URLError.cancelled`, which the downloader maps to `CancellationError`). Chunks are buffered
+/// unboundedly between arrival and the sink's disk write; disk is faster than the network in
+/// practice, and the per-file size bound still caps what a run can hold.
+private final class ChunkedDataTaskDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
+    private var response: HTTPURLResponse?
+    let chunks: AsyncThrowingStream<Data, Error>
+
+    override init() {
+        var captured: AsyncThrowingStream<Data, Error>.Continuation?
+        chunks = AsyncThrowingStream { captured = $0 }
+        super.init()
+        continuation = captured
+    }
+
+    var httpResponse: HTTPURLResponse? {
+        lock.lock(); defer { lock.unlock() }
+        return response
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        lock.lock(); self.response = response as? HTTPURLResponse; lock.unlock()
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        continuation?.yield(data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error { continuation?.finish(throwing: error) } else { continuation?.finish() }
     }
 }
 

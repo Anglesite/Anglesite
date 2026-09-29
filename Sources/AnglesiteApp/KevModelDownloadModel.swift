@@ -35,11 +35,15 @@ final class KevModelDownloadModel {
         Task { await refresh() }
     }
 
-    /// Re-probes the model directory. Off the main actor: five `fileExists` calls under
-    /// Application Support.
+    /// Re-probes the model directory, first sweeping any staging directory a previous run left
+    /// behind (a crash or quit mid-download can strand up to the full asset size). Off the main
+    /// actor: directory listing plus five `fileExists` calls under Application Support.
     func refresh() async {
         if case .downloading = status { return }
-        let installed = await Task.detached { KevModelLocator.installedAssets() != nil }.value
+        let installed = await Task.detached {
+            if let directory = KevModelLocator.defaultDirectory() { KevModelDownloader.sweepLeftovers(besides: directory) }
+            return KevModelLocator.installedAssets() != nil
+        }.value
         switch (installed, status) {
         case (true, _): status = .installed
         case (false, .failed): break  // keep the failure visible until the next attempt
@@ -51,7 +55,16 @@ final class KevModelDownloadModel {
     /// screening factory picks the installed directory up on the next site open with no further
     /// wiring (`InteractionScreenerFactory.makeDefault`).
     func download() {
-        guard downloadTask == nil, let downloader = KevModelDownloader.makeDefault() else { return }
+        guard downloadTask == nil else { return }
+        guard let downloader = KevModelDownloader.makeDefault() else {
+            // No Application Support directory: nowhere to install. Visible, not silent.
+            status = .failed("no Application Support directory")
+            Task {
+                await LogCenter.shared.append(source: "KevModelDownload", stream: .stderr,
+                                              text: "Screening model download failed: no Application Support directory")
+            }
+            return
+        }
         status = .downloading(KevModelDownloadProgress(bytesReceived: 0, bytesExpected: 0, filesCompleted: 0, fileCount: 0))
         downloadTask = Task { [weak self] in
             defer { self?.downloadTask = nil }
@@ -60,12 +73,21 @@ final class KevModelDownloadModel {
                     await MainActor.run { self?.status = .downloading(progress) }
                 }
                 self?.status = .installed
+            } catch is CancellationError {
+                // The owner stopped it (``cancel()``); the downloader already removed its staging.
+                self?.status = .notInstalled
             } catch {
                 self?.status = .failed("\(error)")
                 await LogCenter.shared.append(source: "KevModelDownload", stream: .stderr,
                                               text: "Screening model download failed: \(error)")
             }
         }
+    }
+
+    /// Stops an in-flight download. The transfer is cancelled at the transport, the staging
+    /// directory is removed, and the model directory is untouched.
+    func cancel() {
+        downloadTask?.cancel()
     }
 
     /// Deletes the installed model; the screen returns to inert on the next site open.

@@ -1665,7 +1665,7 @@ struct SiteWindow: View {
             Button("Download (1 GB)") { KevModelDownloadModel.shared.download() }
             Button("Not Now", role: .cancel) {}
         } message: {
-            Text("Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. You can also download or remove it later in Settings › General.")
+            Text("Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later.")
         }
         .sheet(isPresented: $bindableModel.newCollectionPresented) {
             NewCollectionEntrySheet(

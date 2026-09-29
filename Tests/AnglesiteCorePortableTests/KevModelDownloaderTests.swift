@@ -230,6 +230,107 @@ struct KevModelDownloaderTests {
         #expect(try Self.leftovers(in: parent).isEmpty)
     }
 
+    @Test("a host that keeps sending past the manifest's size is cut off there, not at end of body")
+    func oversizeBodyIsStoppedEarly() async throws {
+        let parent = try Self.temporaryParent()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let destination = parent.appendingPathComponent("kev-0.5b", isDirectory: true)
+        let published = Published.sample()
+        let server = Server(published)
+        let expected = Int64(published.files["vocab.json"]!.count)
+        await server.replace("vocab.json", with: published.files["vocab.json"]! + Data(repeating: 0xaa, count: 4096))
+
+        await #expect(throws: KevModelDownloadError.fileExceedsManifestSize(path: "vocab.json", expected: expected)) {
+            try await Self.downloader(published, server: server, destination: destination).install()
+        }
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        #expect(try Self.leftovers(in: parent).isEmpty)
+    }
+
+    @Test("a manifest claiming more bytes than the volume has free is refused before any file is fetched")
+    func insufficientDiskSpaceIsRefused() async throws {
+        let parent = try Self.temporaryParent()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let destination = parent.appendingPathComponent("kev-0.5b", isDirectory: true)
+        var huge = Published.sample()
+        let entries = huge.files.mapValues { ["sha256": PinnedManifestFetch.sha256Hex($0), "bytes": $0.count] as [String: Any] }
+        var inflated = entries
+        inflated["Kev.mlmodelc/weights/weight.bin"] = ["sha256": entries["Kev.mlmodelc/weights/weight.bin"]!["sha256"]!, "bytes": Int64(1) << 60]
+        huge.manifestData = try JSONSerialization.data(withJSONObject: ["files": inflated], options: [.sortedKeys])
+        let server = Server(huge)
+
+        do {
+            try await Self.downloader(huge, server: server, destination: destination).install()
+            Issue.record("expected insufficientDiskSpace")
+        } catch KevModelDownloadError.insufficientDiskSpace(let required, let available) {
+            #expect(required >= Int64(1) << 60 && available < required)
+        }
+        #expect(await server.requested.count == 1)
+        #expect(try Self.leftovers(in: parent).isEmpty)
+    }
+
+    @Test("staging left by an earlier interrupted run is swept before a new install starts")
+    func staleStagingIsSwept() async throws {
+        let parent = try Self.temporaryParent()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let destination = parent.appendingPathComponent("kev-0.5b", isDirectory: true)
+        let stale = parent.appendingPathComponent(".kev-0.5b.download-old", isDirectory: true)
+        let replaced = parent.appendingPathComponent(".kev-0.5b.replaced-old", isDirectory: true)
+        let unrelated = parent.appendingPathComponent(".other", isDirectory: true)
+        for dir in [stale, replaced, unrelated] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data([1]).write(to: dir.appendingPathComponent("junk.bin"))
+        }
+        #expect(try Self.leftovers(in: parent).count == 2)
+
+        let published = Published.sample()
+        try await Self.downloader(published, server: Server(published), destination: destination).install()
+        #expect(try Self.leftovers(in: parent).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+
+        // The app's re-probe path sweeps too, without needing an install.
+        try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
+        KevModelDownloader.sweepLeftovers(besides: destination)
+        #expect(try Self.leftovers(in: parent).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("vocab.json").path))
+    }
+
+    @Test("a manifest listing a path as both a file and a directory is refused up front")
+    func pathCollisionIsRefused() async throws {
+        let parent = try Self.temporaryParent()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        var collision = Published.sample()
+        collision.files["Kev.mlmodelc"] = Data([1, 2])
+        collision.manifestData = Published.manifest(for: collision.files)
+        let server = Server(collision)
+        await #expect(throws: KevModelDownloadError.invalidManifest("path collision: Kev.mlmodelc is listed as a file and used as a directory")) {
+            try await Self.downloader(collision, server: server, destination: parent.appendingPathComponent("kev-0.5b")).install()
+        }
+        #expect(await server.requested.count == 1)
+    }
+
+    @Test("cancellation surfaces as CancellationError, not a fetch failure, and leaves nothing behind")
+    func cancellationIsClean() async throws {
+        let parent = try Self.temporaryParent()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let destination = parent.appendingPathComponent("kev-0.5b", isDirectory: true)
+        let published = Published.sample()
+        let server = Server(published)
+        let base = server.transport()
+        // Cancel from inside the second file's transfer, the way the URLSession task ends when
+        // the awaiting Swift task is cancelled.
+        let cancelling: KevAssetTransport = { request, sink in
+            if request.url!.lastPathComponent == "head.bin" { throw URLError(.cancelled) }
+            return try await base(request, sink)
+        }
+        let downloader = KevModelDownloader(
+            baseURL: Self.base, manifestPath: "MANIFEST.json", manifestSHA256: published.manifestSHA256,
+            destination: destination, transport: cancelling, log: { _ in })
+        await #expect(throws: CancellationError.self) { try await downloader.install() }
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        #expect(try Self.leftovers(in: parent).isEmpty)
+    }
+
     @Test("with no digest pinned nothing is fetched")
     func unconfiguredPinFetchesNothing() async throws {
         let parent = try Self.temporaryParent()
