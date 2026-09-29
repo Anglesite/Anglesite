@@ -160,6 +160,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// Settings.
     public var externalLinkCheckEnabled: Bool?
 
+    /// Owner opt-out from drop-time image optimisation (#2019). `nil`/`false` (the default) means
+    /// on: `WYSIWYGImageAssetIngestor` converts HEIC/TIFF/BMP to JPEG or PNG, downscales anything
+    /// past `ImageOptimizer.defaultMaxPixelSize`, and removes location data before writing a
+    /// dropped image — so existing sites get it without a migration, matching the
+    /// `markdownForAgentsDisabled` precedent. `true` writes dropped images byte-for-byte.
+    public var imageOptimisationDisabled: Bool?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -187,7 +194,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         workerProvisioned: Bool? = nil,
         sourceBundleBucket: String? = nil,
         emdashAdminURL: URL? = nil,
-        externalLinkCheckEnabled: Bool? = nil
+        externalLinkCheckEnabled: Bool? = nil,
+        imageOptimisationDisabled: Bool? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -213,6 +221,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.sourceBundleBucket = sourceBundleBucket
         self.emdashAdminURL = emdashAdminURL
         self.externalLinkCheckEnabled = externalLinkCheckEnabled
+        self.imageOptimisationDisabled = imageOptimisationDisabled
     }
 }
 
