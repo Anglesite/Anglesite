@@ -236,13 +236,9 @@ public actor DeployCommand {
         // #2050: an EmDash site is server-rendered, so the static pipeline below (build `dist/`,
         // scan, publish) would replace the live site with one that has none of its articles.
         // Refused first, below every UI gate, so Shortcuts and headless deploys are covered too.
-        // A package whose marker can't be read fails closed as an unrecognised kind, with its
-        // own reason: nothing about the site is known to be wrong, it just can't be confirmed.
-        let surfaces = SiteEditingSurfaces.forSourceDirectory(siteDirectory)
-        guard surfaces.staticDeploy else {
-            let reason = surfaces.kind == .emdash
-                ? SiteEditingSurfaces.staticDeployUnavailableReason
-                : SiteEditingSurfaces.siteKindUnconfirmedReason
+        // The same decision the app's Publish Site gate makes (`staticDeployRefusal`), so the
+        // menu and this backstop never tell the owner different stories.
+        if let reason = SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: siteDirectory) {
             return .failed(reason: reason, exitCode: nil)
         }
 

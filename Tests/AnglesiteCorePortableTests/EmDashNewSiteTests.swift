@@ -49,6 +49,54 @@ struct EmDashNewSiteTests {
         #expect(FileManager.default.fileExists(atPath: config.path))
     }
 
+    @Test("the template never references a starter entry outside its collection folder")
+    func templateIntegrityWithoutStarterContent() throws {
+        // Removing the starter entries is only safe while every page lists collections
+        // dynamically. A page that linked or rendered one by slug would break on an EmDash site.
+        let template = Self.templateContent.deletingLastPathComponent().deletingLastPathComponent()
+        let fm = FileManager.default
+        let slugs = try fm.subpathsOfDirectory(atPath: Self.templateContent.path)
+            .filter { $0.hasSuffix(".md") }
+            .map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension }
+        #expect(!slugs.isEmpty)
+        var offenders: [String] = []
+        for folder in ["src", "public", "scripts"] {
+            let root = template.appendingPathComponent(folder)
+            guard let paths = fm.enumerator(atPath: root.path) else { continue }
+            for case let path as String in paths {
+                guard !path.hasPrefix("content/"), !path.contains(".test."),
+                      ["astro", "ts", "js", "mjs", "md", "mdx", "json", "html"].contains((path as NSString).pathExtension),
+                      let text = try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+                else { continue }
+                for line in text.split(separator: "\n") {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("//") || trimmed.hasPrefix("*") || trimmed.hasPrefix("/*") { continue }
+                    for slug in slugs where line.contains(slug) {
+                        offenders.append("\(folder)/\(path): \(slug)")
+                    }
+                }
+            }
+        }
+        #expect(offenders.isEmpty, "\(offenders)")
+    }
+
+    @Test("Publish Site and the deploy share one refusal decision")
+    func sharedStaticDeployRefusal() throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (anglesite, _) = try AnglesitePackage.createSkeleton(at: root.appendingPathComponent("Blog.anglesite"), displayName: "Blog")
+        let (emdash, _) = try AnglesitePackage.createSkeleton(
+            at: root.appendingPathComponent("News.anglesite"), displayName: "News", kind: .emdash)
+        #expect(SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: anglesite.sourceURL) == nil)
+        #expect(SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: emdash.sourceURL)
+            == SiteEditingSurfaces.staticDeployUnavailableReason)
+        try FileManager.default.removeItem(at: anglesite.infoPlistURL)
+        #expect(SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: anglesite.sourceURL)
+            == SiteEditingSurfaces.siteKindUnconfirmedReason)
+        // A bare directory (tests, import) isn't a package, so nothing to refuse.
+        #expect(SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: root) == nil)
+    }
+
     @Test("a site with no content folder is left alone")
     func noContentFolder() throws {
         let root = try Self.tempDir()

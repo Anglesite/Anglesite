@@ -108,6 +108,17 @@ public struct SiteEditingSurfaces: Sendable, Equatable {
     public static let typedContentUnavailableReason =
         "This site's posts are written and published in EmDash, not in Anglesite. Open EmDash to add or publish a post."
 
+    /// Why Publish Site can't run the static deploy for the site whose `Source/` is
+    /// `sourceDirectory`, or `nil` when it can. The one decision both the app's Publish Site gate
+    /// and `DeployCommand` use, so they can't disagree: a package whose marker can't be read fails
+    /// closed here in both (no recents fallback), with ``siteKindUnconfirmedReason``; an EmDash
+    /// site gets ``staticDeployUnavailableReason``.
+    public static func staticDeployRefusal(sourceDirectory: URL, fileManager: FileManager = .default) -> String? {
+        let surfaces = forSourceDirectory(sourceDirectory, fileManager: fileManager)
+        guard !surfaces.staticDeploy else { return nil }
+        return surfaces.kind == .emdash ? staticDeployUnavailableReason : siteKindUnconfirmedReason
+    }
+
     /// The `.failed(reason:)` text `DeployCommand` returns for a site that can't use the static
     /// deploy. Phrased about the site (decision D1).
     public static let staticDeployUnavailableReason =

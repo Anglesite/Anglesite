@@ -169,11 +169,14 @@ struct NewSiteWizard: View {
         .pickerStyle(.menu)
         .fixedSize()
         .help("Who writes this website's articles. This can't be changed after the website is created.")
+        // `.help` isn't reliably announced by VoiceOver, so the can't-change caveat goes here too.
+        .accessibilityHint("Who writes this website's articles. This can't be changed after the website is created.")
     }
 
     private static func siteKindLabel(_ kind: AnglesitePackage.SiteKind) -> String {
         switch kind {
-        case .emdash: return String(localized: "A team, in EmDash")
+        // The caveat sits in the item itself, so it's read before the choice is made.
+        case .emdash: return String(localized: "A team, in EmDash (can't publish yet)")
         case .anglesite, .unrecognized: return String(localized: "Me, in Anglesite")
         }
     }

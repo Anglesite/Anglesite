@@ -138,10 +138,15 @@ public actor SiteScaffolder {
 
         // 2a. An EmDash site's articles live in EmDash (#2050, decision 2), so the template's
         // starter entries never enter its repo. Fatal: a leftover starter post would be published
-        // from git on a site whose content is supposed to come only from EmDash.
+        // from git on a site whose content is supposed to come only from EmDash. The half-built
+        // package is removed too: its marker already says EmDash, a kind that can't be changed,
+        // so it could never become a usable site.
         if draft.siteKind == .emdash {
             do { try EmDashScaffold.removeStarterContent(siteDirectory: siteDir, fileManager: fileManager) }
-            catch { return emit(.failed(step: "copyingTemplate", message: humanize(error))) }
+            catch {
+                try? fileManager.removeItem(at: package.url)
+                return emit(.failed(step: "copyingTemplate", message: humanize(error)))
+            }
         }
 
         // 2b. git init in Source/ (non-fatal — coordinates with #68).

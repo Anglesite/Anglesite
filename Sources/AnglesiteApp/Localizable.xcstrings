@@ -300,7 +300,7 @@
     "A BCP 47 language tag, e.g. \"en\", \"fr-CA\", \"es\". Screen readers and search engines use this to pronounce and index your content correctly." : {
 
     },
-    "A team, in EmDash" : {
+    "A team, in EmDash (can't publish yet)" : {
 
     },
     "A TXT record already exists for %@ with different content. Update it in Website → Manage Domain, then try again." : {
