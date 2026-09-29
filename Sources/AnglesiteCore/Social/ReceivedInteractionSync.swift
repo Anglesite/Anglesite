@@ -64,8 +64,7 @@ public enum ReceivedInteractionSync {
         client: WebmentionInboxD1Client, siteDirectory: URL,
         screener: InteractionScreener? = nil, ledger: InteractionScreeningLedger? = nil
     ) async -> Int {
-        guard let mentions = try? await client.listVerifiedMentions() else { return 0 }
-        var interactions = mentions.compactMap(Self.makeInteraction(from:))
+        guard var interactions = await fetchInteractions(client: client) else { return 0 }
         if let screener {
             let interactionsDir = siteDirectory.appendingPathComponent("data/interactions", isDirectory: true)
             let rulings = ledger?.load().rulings ?? [:]
@@ -83,6 +82,14 @@ public enum ReceivedInteractionSync {
         return committedIDs.count
     }
 
+    /// Queries `client` for the full current verified inbox, mapped to `ReceivedInteraction`
+    /// (malformed rows skipped per `makeInteraction(from:)`). `nil` when the D1 query failed —
+    /// distinct from an empty inbox, so callers can tell "nothing there" from "couldn't ask".
+    public static func fetchInteractions(client: WebmentionInboxD1Client) async -> [ReceivedInteraction]? {
+        guard let mentions = try? await client.listVerifiedMentions() else { return nil }
+        return mentions.compactMap(Self.makeInteraction(from:))
+    }
+
     /// Reads the site's `SiteSettings` and the Cloudflare API token from `secretStore`; no-ops
     /// (returns 0, no network call) unless a D1 database has been provisioned
     /// (`provisionedWorkerResources.d1DatabaseID`, set once the webmention receive Worker has been
@@ -98,17 +105,45 @@ public enum ReceivedInteractionSync {
         transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport,
         screener: InteractionScreener? = nil
     ) async -> Int {
-        guard let settings = try? SiteConfigStore.read(from: configDirectory),
-              let databaseID = settings.provisionedWorkerResources?.d1DatabaseID, !databaseID.isEmpty
+        guard let client = await makeClientIfConfigured(
+            configDirectory: configDirectory, secretStore: secretStore, baseURL: baseURL, transport: transport)
         else { return 0 }
-        guard let token = try? await CloudflareAPICredentials.resolve(secretStore: secretStore), !token.isEmpty
-        else { return 0 }
-        guard let accountID = await CloudflareAccountLookup.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
-        else { return 0 }
-
-        let client = WebmentionInboxD1Client(
-            accountID: accountID, databaseID: databaseID, apiToken: token, baseURL: baseURL, transport: transport)
         let ledger = screener == nil ? nil : InteractionScreeningLedger(configDirectory: configDirectory)
         return await pullAndCommit(client: client, siteDirectory: siteDirectory, screener: screener, ledger: ledger)
+    }
+
+    /// The read-only counterpart of ``pullAndCommitIfConfigured(siteDirectory:configDirectory:secretStore:baseURL:transport:screener:)``
+    /// for the moderation queue (#2066): the current verified inbox with nothing written to git.
+    /// `nil` when the site has no provisioned inbox, no token, or the query failed.
+    public static func fetchInteractionsIfConfigured(
+        configDirectory: URL,
+        secretStore: any SecretStore = PlatformSecretStore.make(),
+        baseURL: String = "https://api.cloudflare.com/client/v4",
+        transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport
+    ) async -> [ReceivedInteraction]? {
+        guard let client = await makeClientIfConfigured(
+            configDirectory: configDirectory, secretStore: secretStore, baseURL: baseURL, transport: transport)
+        else { return nil }
+        return await fetchInteractions(client: client)
+    }
+
+    /// Resolves the D1 client for a site, or `nil` when the inbox isn't provisioned
+    /// (`provisionedWorkerResources.d1DatabaseID` unset), no Cloudflare token is available, or
+    /// the account lookup failed — the shared gate for both entry points above.
+    private static func makeClientIfConfigured(
+        configDirectory: URL,
+        secretStore: any SecretStore,
+        baseURL: String,
+        transport: @escaping CloudflareTransport
+    ) async -> WebmentionInboxD1Client? {
+        guard let settings = try? SiteConfigStore.read(from: configDirectory),
+              let databaseID = settings.provisionedWorkerResources?.d1DatabaseID, !databaseID.isEmpty
+        else { return nil }
+        guard let token = try? await CloudflareAPICredentials.resolve(secretStore: secretStore), !token.isEmpty
+        else { return nil }
+        guard let accountID = await CloudflareAccountLookup.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+        else { return nil }
+        return WebmentionInboxD1Client(
+            accountID: accountID, databaseID: databaseID, apiToken: token, baseURL: baseURL, transport: transport)
     }
 }

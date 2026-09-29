@@ -1275,6 +1275,9 @@
     "Commentary" : {
 
     },
+    "Comments" : {
+
+    },
     "Communities" : {
 
     },
@@ -1318,6 +1321,9 @@
 
     },
     "Condition, e.g. (min-width: 768px)" : {
+
+    },
+    "Confidence: %@" : {
 
     },
     "Config…" : {
@@ -1614,10 +1620,16 @@
     "Couldn't publish" : {
 
     },
+    "Couldn't publish this comment right now. It will be published the next time this site syncs." : {
+
+    },
     "Couldn't reach this site" : {
 
     },
     "Couldn't reach this site. Check your connection and try again." : {
+
+    },
+    "Couldn't reach your inbox." : {
 
     },
     "Couldn't read the GitHub token from the Keychain: %@" : {
@@ -2081,6 +2093,9 @@
     "Error: %@" : {
 
     },
+    "Estimated chance this is unwanted: %@" : {
+
+    },
     "Events" : {
 
     },
@@ -2375,6 +2390,9 @@
     "Hide Related Pages" : {
 
     },
+    "Hide the comment from %@" : {
+
+    },
     "Hide Website Inspector" : {
 
     },
@@ -2545,6 +2563,9 @@
 
     },
     "Keep it at your current registrar — you'll add it to Cloudflare and point its nameservers there. We'll connect it automatically on your next Publish once that's done." : {
+
+    },
+    "Keep it hidden" : {
 
     },
     "Keep the original" : {
@@ -2946,6 +2967,9 @@
 
     },
     "No channel to follow into." : {
+
+    },
+    "No comments are waiting for your review." : {
 
     },
     "No communities found." : {
@@ -4192,6 +4216,9 @@
     "Show Source" : {
 
     },
+    "Show the comment from %@" : {
+
+    },
     "Show Website Inspector" : {
 
     },
@@ -4220,6 +4247,9 @@
 
     },
     "Show related pages" : {
+
+    },
+    "Show this comment" : {
 
     },
     "Show this content in traditional search results." : {
@@ -4487,6 +4517,9 @@
     "Text on cards will be hard to read" : {
 
     },
+    "This comment can't be shown until your inbox is reachable." : {
+
+    },
     "TLS report mailbox" : {
 
     },
@@ -4602,6 +4635,9 @@
 
     },
     "This charges the payment method on file for your connected Cloudflare account." : {
+
+    },
+    "This comment is no longer in your inbox." : {
 
     },
     "This component changed outside Anglesite — your edit wasn't applied, reloaded the latest version." : {
