@@ -595,6 +595,9 @@ final class SiteWindowModel {
         let settings = try? await SiteConfigStore(configDirectory: site.configDirectory).load()
         isHostedCommunity = settings?.communityActorURL != nil
         emdashAdminURL = settings.flatMap { editingSurfaces.emdashAdminURL(settings: $0) }
+        // The second Moderation… gate (#2066) lives on the model that owns the queue, so the view
+        // and this menu item read one flag; the same deploy that provisions the inbox flips it.
+        await moderation.refreshCanReviewComments()
     }
 
     /// Reads the site kind from the package marker off the main actor (a plist read under the
@@ -704,6 +707,9 @@ final class SiteWindowModel {
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }
             activeEditor = nil
             await moderation.reload()
+            // The held-comments queue is an inbox fetch (network), so it refreshes alongside the
+            // pane rather than holding it back — `ModerationModel.reload()`'s doc has the detail.
+            Task { await moderation.reloadHeldComments() }
             await clearInspectorThenSwitchPane(to: .moderation)
         }
     }
@@ -885,7 +891,11 @@ final class SiteWindowModel {
     /// after a successful deploy with a Group actor (Phase 2), not at creation time. Unlike
     /// Communities/Followers (always enabled once a site is focused), a personal site or an
     /// undeployed community never enables this — there's nothing to moderate yet.
-    var canOpenModeration: Bool { isHostedCommunity }
+    /// Since #2066 also enabled when the held-comments queue applies
+    /// (`ModerationModel.canReviewComments`: a decision model is installed *and* this site has a
+    /// provisioned inbox), so the queue is reachable on a personal site with an inbox — and a
+    /// site with neither never gets an item that opens an always-empty pane.
+    var canOpenModeration: Bool { isHostedCommunity || moderation.canReviewComments }
 
     /// Website ▸ Open EmDash (#2050): shown on an EmDash site, enabled once its admin URL is known.
     var showsOpenEmDash: Bool { editingSurfaces.externalContentEditor == .emdash }
