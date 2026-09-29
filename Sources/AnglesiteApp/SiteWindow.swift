@@ -1947,7 +1947,7 @@ struct SiteWindow: View {
         case .communities:
             CommunitiesView(communities: model.communities)
         case .moderation:
-            ModerationView(moderation: model.moderation)
+            ModerationView(moderation: model.moderation, showsCommunitySections: model.isHostedCommunity)
         case .contacts:
             ContactsView(
                 contacts: model.contacts,
