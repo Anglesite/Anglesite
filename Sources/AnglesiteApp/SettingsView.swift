@@ -62,9 +62,54 @@ private struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // The on-demand screening model (#2068). Hidden entirely until a download is pinned
+            // (`KevModelAssetPin.isConfigured`) or a model is installed, so a build with nothing
+            // published never shows a button that can't work.
+            if screeningModel.isAvailable {
+                Section("Comment Screening") {
+                    ScreeningModelRow(model: screeningModel)
+                    Text("Checks new comments on this Mac before they appear on your site and holds anything that looks like spam for you to review under Website › Moderation. The screening model is about 1 GB, stays on your Mac, and never sends your comments anywhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()
+        .task { await screeningModel.refresh() }
+    }
+
+    private var screeningModel: KevModelDownloadModel { .shared }
+}
+
+/// Download / progress / Ready + Remove / try again, in owner vocabulary (decision D1).
+private struct ScreeningModelRow: View {
+    @Bindable var model: KevModelDownloadModel
+
+    var body: some View {
+        switch model.status {
+        case .notInstalled:
+            Button("Download Screening Model") { model.download() }
+        case .downloading(let progress):
+            HStack {
+                ProgressView(value: progress.fraction)
+                Text("Downloading…").foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        case .installed:
+            HStack {
+                Label("Ready", systemImage: "checkmark.circle")
+                Spacer()
+                Button("Remove Screening Model") { Task { await model.remove() } }
+            }
+        case .failed:
+            HStack {
+                Text("Couldn't download the screening model.").foregroundStyle(.secondary)
+                Spacer()
+                Button("Try Again") { model.download() }
+            }
+        }
     }
 }
 
