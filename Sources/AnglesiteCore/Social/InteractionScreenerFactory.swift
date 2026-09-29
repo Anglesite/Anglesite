@@ -45,7 +45,10 @@ public enum KevModelLocator {
 /// screener logs once and fails open on — so the owner sees the reason in the debug pane instead
 /// of a silently disabled screen.
 public enum InteractionScreenerFactory {
-    /// The default screener for this host, or `nil`.
+    /// The default screener for this host, or `nil`. `async` so that its disk work — the asset
+    /// probes, and with `configDirectory` the ledger read and temperature fit — runs on the
+    /// global executor rather than on whichever actor the caller is on (`PreviewModel.open` is
+    /// `@MainActor`).
     ///
     /// - Parameters:
     ///   - policy: Thresholds; see ``InteractionScreeningPolicy/default``.
@@ -59,9 +62,12 @@ public enum InteractionScreenerFactory {
         configDirectory: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         log: (@Sendable (String) async -> Void)? = nil
-    ) -> InteractionScreener? {
+    ) async -> InteractionScreener? {
         guard let assets = KevModelLocator.installedAssets(environment: environment) else { return nil }
-        let calibration = configDirectory.map { siteCalibration(configDirectory: $0, log: log) } ?? .identity
+        var calibration = TemperatureCalibration.identity
+        if let configDirectory {
+            calibration = await siteCalibration(configDirectory: configDirectory, log: log)
+        }
         guard let provider = makeProvider(assets: assets, calibration: calibration, log: log) else { return nil }
         return InteractionScreener(provider: provider, policy: policy, log: log)
     }
@@ -70,12 +76,12 @@ public enum InteractionScreenerFactory {
     /// rulings. Runs here — on the way to building a screener — because both moments the fit
     /// should land (site open, and right after an owner ruling) build a screener for the sync
     /// that follows, so the fit is applied on that very sync. Each refit logs one
-    /// ``InteractionScreeningCalibrationStore/FitReport/summary`` line for the Debug pane.
-    public static func siteCalibration(configDirectory: URL, log: (@Sendable (String) async -> Void)? = nil) -> TemperatureCalibration {
+    /// ``InteractionScreeningCalibrationStore/FitReport/summary`` line for the Debug pane,
+    /// awaited in place so it lands in order with the sync's own lines.
+    public static func siteCalibration(configDirectory: URL, log: (@Sendable (String) async -> Void)? = nil) async -> TemperatureCalibration {
         let store = InteractionScreeningCalibrationStore(configDirectory: configDirectory)
         if let report = store.refit(from: InteractionScreeningLedger(configDirectory: configDirectory)) {
-            let line = report.summary
-            Task { await (log ?? Self.reportLog)(line) }
+            await (log ?? Self.reportLog)(report.summary)
         }
         return store.current
     }

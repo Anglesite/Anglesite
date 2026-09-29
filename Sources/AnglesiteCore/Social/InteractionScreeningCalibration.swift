@@ -51,29 +51,40 @@ public struct InteractionScreeningCalibrationStore: Sendable {
         public let errorBefore: Double
         /// The same under `fitted`.
         public let errorAfter: Double
+        /// Why the fit could not be written to `Config/`, or `nil` when it was persisted. The
+        /// fit is still reported so the failure is visible (logs are sacred); the next refit
+        /// tries the write again.
+        public let saveFailure: String?
 
         public init(sampleCount: Int, previous: TemperatureCalibration, fitted: TemperatureCalibration,
-                    errorBefore: Double, errorAfter: Double) {
+                    errorBefore: Double, errorAfter: Double, saveFailure: String? = nil) {
             self.sampleCount = sampleCount
             self.previous = previous
             self.fitted = fitted
             self.errorBefore = errorBefore
             self.errorAfter = errorAfter
+            self.saveFailure = saveFailure
         }
 
-        /// One Debug-pane line: `Screening calibration: T = 1.32 from 24 rulings (was 1.00); ECE 0.112 → 0.041`.
+        /// One Debug-pane line: `Screening calibration: T = 1.32 from 24 rulings (was 1.00); ECE 0.112 → 0.041`,
+        /// with `; not saved: <error>` appended when the write failed.
         public var summary: String {
-            String(format: "Screening calibration: T = %.2f from %d rulings (was %.2f); ECE %.3f → %.3f",
-                   fitted.temperature, sampleCount, previous.temperature, errorBefore, errorAfter)
+            let line = String(format: "Screening calibration: T = %.2f from %d rulings (was %.2f); ECE %.3f → %.3f",
+                              fitted.temperature, sampleCount, previous.temperature, errorBefore, errorAfter)
+            return saveFailure.map { "\(line); not saved: \($0)" } ?? line
         }
     }
 
     /// Refits the site temperature from `ledger`'s labelled rulings and persists it, when there
     /// are at least ``TemperatureCalibration/minimumSamples`` of them; otherwise leaves whatever
-    /// is persisted untouched and returns `nil`. Idempotent and cheap (a golden-section search
-    /// over at most a few hundred samples), so callers run it at every site open and after every
-    /// ruling rather than scheduling anything. A failed write is swallowed: the report still
-    /// describes the fit, and the next refit tries the write again.
+    /// is persisted untouched and returns `nil`. The samples are the provider's raw scores
+    /// (``ScreeningDecision/scores``), so the fit is absolute — it *replaces* the persisted
+    /// temperature rather than composing with it, and rows recorded under different earlier fits
+    /// are all on the same footing. Idempotent and cheap (a golden-section search over at most a
+    /// few hundred samples), so callers run it at every site open and after every ruling rather
+    /// than scheduling anything. A failed write is reported in
+    /// ``FitReport/saveFailure`` rather than thrown: the fit itself stands for the report, and
+    /// the next refit tries the write again.
     ///
     /// - Returns: The report, or `nil` when there wasn't enough data to fit.
     @discardableResult
@@ -84,10 +95,12 @@ public struct InteractionScreeningCalibrationStore: Sendable {
         guard samples.count >= TemperatureCalibration.minimumSamples else { return nil }
         let fitted = TemperatureCalibration.fit(samples: samples)
         let previous = current
-        try? save(fitted)
+        var saveFailure: String?
+        do { try save(fitted) } catch { saveFailure = "\(error)" }
         return FitReport(
             sampleCount: samples.count, previous: previous, fitted: fitted,
             errorBefore: previous.expectedCalibrationError(samples: samples),
-            errorAfter: fitted.expectedCalibrationError(samples: samples))
+            errorAfter: fitted.expectedCalibrationError(samples: samples),
+            saveFailure: saveFailure)
     }
 }

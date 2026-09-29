@@ -48,7 +48,7 @@ struct InteractionScreeningCalibrationTests {
     }
 
     @Test("below the minimum sample count nothing is fitted and the site calibration stays identity")
-    func belowThresholdStaysIdentity() throws {
+    func belowThresholdStaysIdentity() async throws {
         let dir = try Self.temporaryConfigDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let ledger = InteractionScreeningLedger(configDirectory: dir)
@@ -58,7 +58,7 @@ struct InteractionScreeningCalibrationTests {
         #expect(store.load() == nil)
         #expect(store.current == .identity)
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(InteractionScreeningCalibrationStore.fileName).path))
-        #expect(InteractionScreenerFactory.siteCalibration(configDirectory: dir) == .identity)
+        #expect(await InteractionScreenerFactory.siteCalibration(configDirectory: dir) == .identity)
     }
 
     @Test("a ledger of over-confident scores fits a temperature above 1 and lowers ECE")
@@ -105,6 +105,75 @@ struct InteractionScreeningCalibrationTests {
         func score(state: String, question: DecisionQuestion) async throws -> [Double] { logits }
     }
 
+    /// A scorer whose raw logits depend on the interaction, keyed by a marker in its content.
+    private struct KeyedScorer: OptionScorer {
+        let logitsByMarker: [String: [Double]]
+        func score(state: String, question: DecisionQuestion) async throws -> [Double] {
+            guard let marker = logitsByMarker.keys.first(where: { state.contains($0) }) else {
+                throw DecisionError.unavailable("no logits for state")
+            }
+            return logitsByMarker[marker]!
+        }
+    }
+
+    private static func interaction(_ id: String, content: String) throws -> ReceivedInteraction {
+        try ReceivedInteraction(
+            id: id, type: .webmention, source: URL(string: "https://sender.example/\(id)")!,
+            target: URL(string: "https://me.example/blog/hi")!, interactionType: .reply,
+            author: .init(name: "Sender", url: nil, photo: nil), content: content,
+            published: now, verified: now, verificationStatus: .verified)
+    }
+
+    @Test("rows screened under a fitted temperature refit to the same temperature, not a compounded one")
+    func refitIsStableAcrossFits() async throws {
+        let dir = try Self.temporaryConfigDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ledger = InteractionScreeningLedger(configDirectory: dir)
+        Self.populate(ledger, count: 150, trueTemperature: 3)
+        let store = InteractionScreeningCalibrationStore(configDirectory: dir)
+        let first = try #require(store.refit(from: ledger)).fitted
+        #expect(first.temperature > 1.5)
+
+        // A second era: 150 more interactions screened by a provider that *applies* `first`, the
+        // way the app's screener would after the fit landed, labelled at the same true T.
+        var rng = LCG(state: 99)
+        var logitsByMarker: [String: [Double]] = [:]
+        var interactions: [ReceivedInteraction] = []
+        var rulings: [(String, Bool)] = []
+        for index in 0..<150 {
+            let logits = [rng.next() * 8 - 4, rng.next() * 8 - 4]
+            let marker = "era2-item-\(index)-"
+            logitsByMarker[marker] = logits
+            interactions.append(try Self.interaction("e\(index)", content: "\(marker) hello"))
+            let spamWasTrue = rng.next() < DecisionScoring.softmax(logits, temperature: 3)[0]
+            rulings.append(("e\(index)", !spamWasTrue))
+        }
+        let provider = ScoringDecisionProvider(scorer: KeyedScorer(logitsByMarker: logitsByMarker), calibration: first)
+        let screener = InteractionScreener(provider: provider, now: { Self.now }, log: { _ in })
+        let outcome = await screener.screen(interactions, isAlreadyPublished: { _ in false }, ownerRuling: { _ in nil })
+        #expect(outcome.decisions.count == 150)
+        // What the ledger keeps is the raw logits, untouched by `first`.
+        let sample = try #require(outcome.decisions.first { $0.interactionID == "e0" })
+        #expect(sample.rule == .model)
+        #expect(sample.scores == logitsByMarker["era2-item-0-"])
+        ledger.record(outcome.decisions)
+        for (id, approved) in rulings { ledger.rule(id, approved: approved, at: Self.now) }
+
+        let second = try #require(store.refit(from: ledger))
+        #expect(second.sampleCount == 300)
+        #expect(second.previous == first)
+        // Same true temperature (3) behind both eras, so the pooled refit stays near it and near
+        // the first fit. Had the screener recorded log-probabilities, the second era's scores
+        // would already be divided by `first`, its own fit would come out near 3 / first ≈ 1.5,
+        // and the pooled fit would drift down toward 2 — and lower on every refit after that.
+        #expect(second.fitted.temperature > 2.2 && second.fitted.temperature < 4)
+        #expect(abs(second.fitted.temperature - first.temperature) < 0.35 * first.temperature)
+        let eraTwoLogits = Set(logitsByMarker.values.map { $0.map { $0.bitPattern } })
+        let eraTwo = TemperatureCalibration.fit(
+            samples: ledger.calibrationSamples().filter { eraTwoLogits.contains($0.logits.map(\.bitPattern)) })
+        #expect(eraTwo.temperature > 2.2 && eraTwo.temperature < 5)
+    }
+
     @Test("the factory applies the site's fit on top of the scorer and logs one report line")
     func factoryPicksUpSiteCalibration() async throws {
         let dir = try Self.temporaryConfigDirectory()
@@ -112,13 +181,11 @@ struct InteractionScreeningCalibrationTests {
         let ledger = InteractionScreeningLedger(configDirectory: dir)
         Self.populate(ledger, count: 150, trueTemperature: 3)
         let recorder = LineRecorder()
-        let calibration = InteractionScreenerFactory.siteCalibration(configDirectory: dir) { line in
+        let calibration = await InteractionScreenerFactory.siteCalibration(configDirectory: dir) { line in
             await recorder.record(line)
         }
         #expect(calibration.temperature > 1.5)
         #expect(calibration == InteractionScreeningCalibrationStore(configDirectory: dir).current)
-        // The log line is dispatched on a detached task; give it a moment.
-        for _ in 0..<50 where await recorder.lines.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         let lines = await recorder.lines
         #expect(lines.count == 1)
         #expect(lines.first?.hasPrefix("Screening calibration: T = ") == true)
