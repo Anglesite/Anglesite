@@ -69,6 +69,8 @@ struct SiteOperationsTests {
             at: package.appendingPathComponent("Source", isDirectory: true),
             withIntermediateDirectories: true
         )
+        // A real marker: `DeployCommand` refuses a package whose site kind it can't confirm (#2050).
+        try AnglesitePackage(url: package).writeMarker(AnglesitePackage.Marker(displayName: "Portfolio"))
         return package
     }
 

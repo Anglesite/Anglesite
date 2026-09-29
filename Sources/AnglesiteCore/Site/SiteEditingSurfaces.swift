@@ -37,6 +37,12 @@ public struct SiteEditingSurfaces: Sendable, Equatable {
     public let pagesAndLayout: Bool
     /// The editor that owns this site's content, when it isn't the app.
     public let externalContentEditor: ExternalContentEditor?
+    /// Whether Publish Site may run the built-in static deploy (build `dist/`, scan, `wrangler
+    /// deploy`). `false` on an EmDash site: it is server-rendered (decision 4), so a static build
+    /// would publish a site with none of its articles over the real one. Its deploy arrives with
+    /// the server-rendered template and EmDash provisioning (decision 7); until then
+    /// `DeployCommand` refuses with ``staticDeployUnavailableReason``.
+    public let staticDeploy: Bool
 
     public init(kind: AnglesitePackage.SiteKind) {
         self.kind = kind
@@ -45,14 +51,17 @@ public struct SiteEditingSurfaces: Sendable, Equatable {
             typedContent = true
             pagesAndLayout = true
             externalContentEditor = nil
+            staticDeploy = true
         case .emdash:
             typedContent = false
             pagesAndLayout = true
             externalContentEditor = .emdash
+            staticDeploy = false
         case .unrecognized:
             typedContent = false
             pagesAndLayout = false
             externalContentEditor = nil
+            staticDeploy = false
         }
     }
 
@@ -98,6 +107,17 @@ public struct SiteEditingSurfaces: Sendable, Equatable {
     /// about the site, never about files or git (decision D1).
     public static let typedContentUnavailableReason =
         "This site's posts are written and published in EmDash, not in Anglesite. Open EmDash to add or publish a post."
+
+    /// The `.failed(reason:)` text `DeployCommand` returns for a site that can't use the static
+    /// deploy. Phrased about the site (decision D1).
+    public static let staticDeployUnavailableReason =
+        "This site's articles are published from EmDash, and publishing the site itself from Anglesite isn't available yet. Nothing was published."
+
+    /// The `.failed(reason:)` text `DeployCommand` returns when it can't confirm what kind of site
+    /// it's publishing (the package's marker couldn't be read, or names a kind this build doesn't
+    /// know). Nothing is published.
+    public static let siteKindUnconfirmedReason =
+        "Anglesite couldn't confirm what kind of website this is, so nothing was published. Try again once the website's files are available on this Mac."
 
     /// The EmDash admin to open for this site: `settings.emdashAdminURL` when this is an EmDash
     /// site and the URL is `https` with a host. Anything else (not yet provisioned or connected, a

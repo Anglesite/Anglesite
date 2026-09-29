@@ -58,6 +58,13 @@ form of option B.
    the existing too-new path, instead of treating its content as git-backed and deploying a
    static build over it. A kind this build doesn't recognise also opens read-only. The app's
    `Info.plist` editor exposes only the site title, so the kind can't be edited in-app.
+
+   New Site asks the question once, as **Writers: Me, in Anglesite / A team, in EmDash**
+   (`NewSiteDraft.siteKind`). An EmDash site is scaffolded without the template's starter
+   entries (`EmDashScaffold`), per decision 2. Until the server-rendered template and
+   provisioning land, `DeployCommand` refuses the static deploy for it
+   (`SiteEditingSurfaces.staticDeploy`). A static build would replace the live site with one
+   that has none of its articles.
 2. **In an EmDash site, EmDash is canonical for content and media.** The app never copies
    articles or artwork into `Source/`. Git holds only what the site *is* (theme, templates,
    configuration the template reads). By the

@@ -45,6 +45,11 @@ public final class NewSiteWizardModel {
     /// (`NewCommunityWizardModel`), not a chooser category.
     public static let chooserCategories: [SiteType] = [.business, .personal, .blog, .portfolio, .organization, .blank]
 
+    /// The site kinds the chooser offers (#2050), in menu order: an Anglesite site (the default)
+    /// or an EmDash site, for a team of writers who work in the browser. Owner-facing copy lives
+    /// in the app, not here.
+    public static let siteKindChoices: [AnglesitePackage.SiteKind] = [.anglesite, .emdash]
+
     /// The sidebar category currently selected. Starts on ``SiteType/blank`` — today's
     /// default: all eight built-in CSS-var themes, no site type recorded.
     public private(set) var selectedCategory: SiteType = .blank

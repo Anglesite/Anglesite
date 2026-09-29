@@ -1176,7 +1176,7 @@ final class SiteWindowModel {
         deploy.isRunning || backup.isRunning || audit.isRunning
     }
 
-    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
+    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy && editingSurfaces.staticDeploy }
     var canRunBackup: Bool { site?.isValid == true && !siteOperationRunning }
     var canRunAudit: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
     var canRunHarden: Bool { site?.isValid == true && !harden.isRunning }

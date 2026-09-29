@@ -97,7 +97,8 @@ public actor SiteScaffolder {
         emit(.creatingFolder)
         let package: AnglesitePackage
         do {
-            (package, _) = try AnglesitePackage.createSkeleton(at: packageURL, displayName: draft.name, fileManager: fileManager)
+            (package, _) = try AnglesitePackage.createSkeleton(
+                at: packageURL, displayName: draft.name, kind: draft.siteKind, fileManager: fileManager)
         } catch { return emit(.failed(step: "creatingFolder", message: humanize(error))) }
         let siteDir = package.sourceURL   // everything below runs in Source/
 
@@ -133,6 +134,14 @@ public actor SiteScaffolder {
             let existingConfig = (try? String(contentsOf: siteConfigURL, encoding: .utf8)) ?? ""
             let updatedConfig = SiteConfigFile.upsert([("ANGLESITE_VERSION", currentAppVersion)], into: existingConfig)
             try? updatedConfig.write(to: siteConfigURL, atomically: true, encoding: .utf8)
+        }
+
+        // 2a. An EmDash site's articles live in EmDash (#2050, decision 2), so the template's
+        // starter entries never enter its repo. Fatal: a leftover starter post would be published
+        // from git on a site whose content is supposed to come only from EmDash.
+        if draft.siteKind == .emdash {
+            do { try EmDashScaffold.removeStarterContent(siteDirectory: siteDir, fileManager: fileManager) }
+            catch { return emit(.failed(step: "copyingTemplate", message: humanize(error))) }
         }
 
         // 2b. git init in Source/ (non-fatal — coordinates with #68).

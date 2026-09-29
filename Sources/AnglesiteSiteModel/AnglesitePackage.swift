@@ -92,7 +92,7 @@ public struct AnglesitePackage: Sendable, Equatable {
     /// Where a site's content lives, chosen once when the package is created and never toggled
     /// afterwards: changing it is a migration (export from one, import into the other). See
     /// docs/specs/2026-09-28-external-cms-content-source-decision.md (#2050).
-    public enum SiteKind: Sendable, Equatable, Codable {
+    public enum SiteKind: Sendable, Hashable, Codable {
         /// Git-backed content in `Source/` — every package created before site kinds existed.
         case anglesite
         /// All authored content and media live in EmDash; `Source/` holds only code and theme,

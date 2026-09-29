@@ -233,6 +233,19 @@ public actor DeployCommand {
         onMarkdownForAgents: MarkdownForAgentsObserver? = nil,
         onProgress: ProgressHandler? = nil
     ) async -> Result {
+        // #2050: an EmDash site is server-rendered, so the static pipeline below (build `dist/`,
+        // scan, publish) would replace the live site with one that has none of its articles.
+        // Refused first, below every UI gate, so Shortcuts and headless deploys are covered too.
+        // A package whose marker can't be read fails closed as an unrecognised kind, with its
+        // own reason: nothing about the site is known to be wrong, it just can't be confirmed.
+        let surfaces = SiteEditingSurfaces.forSourceDirectory(siteDirectory)
+        guard surfaces.staticDeploy else {
+            let reason = surfaces.kind == .emdash
+                ? SiteEditingSurfaces.staticDeployUnavailableReason
+                : SiteEditingSurfaces.siteKindUnconfirmedReason
+            return .failed(reason: reason, exitCode: nil)
+        }
+
         // #1958 (owner decision D5): before anything else — before credentials, before a build,
         // before the scan — verify the app-owned script set (the pre-deploy gate and the modules
         // it imports) against the app's own copy, in the host repo and in whatever copy the
