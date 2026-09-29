@@ -42,7 +42,10 @@ public final class ThemeApplyWizardModel: Identifiable {
     /// branching stays in one place.
     public var step: Step = .pickSource
     /// The chosen source; `nil` until the first step is answered (which is what gates Continue).
-    public var source: Source?
+    /// Changing it discards any contrast fixes, like choosing a different theme does.
+    public var source: Source? {
+        didSet { if source != oldValue { tokenOverrides = [:] } }
+    }
     /// The chosen built-in theme's id, when `source == .builtIn`. Choosing a different theme
     /// discards any contrast fixes made to the previous one.
     public var selectedBuiltInID: String? {

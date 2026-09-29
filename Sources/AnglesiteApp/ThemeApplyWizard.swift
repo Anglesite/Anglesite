@@ -124,6 +124,8 @@ struct ThemeApplyWizard: View {
                     }
                 }
             }
+            // Up to seven rows; keep Back/Apply on screen in the fixed-size sheet.
+            .frame(maxHeight: 140)
             Text("You can still apply this theme as it is.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -147,37 +149,69 @@ struct ThemeApplyWizard: View {
     }
 }
 
-/// One readability finding: a sample of the pairing as it would render, what's affected, and a
-/// Fix button when a readable colour exists.
+/// One readability finding: the pairing as it renders now, what's affected, and — when a
+/// readable colour exists — a preview of the fix beside its Fix button.
 private struct ContrastFindingRow: View {
     let finding: DesignTokenContrastFinding
     let onFix: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(verbatim: "Aa")
-                .font(.callout.bold())
-                .foregroundStyle(Color(hex: finding.foreground))
-                .frame(width: 36, height: 24)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: finding.background)))
-                .accessibilityHidden(true)
+            ContrastSample(foreground: finding.foreground, background: finding.background)
             Image(systemName: finding.severity == .error ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
                 .foregroundStyle(finding.severity == .error ? Color.orange : Color.secondary)
                 .accessibilityHidden(true)
-            Group {
-                if finding.severity == .error {
-                    Text("\(finding.pair.place) will be hard to read")
-                } else {
-                    Text("\(finding.pair.place) may be hard to read at small sizes")
-                }
-            }
-            .font(.callout)
+            message.font(.callout)
             Spacer()
-            if finding.suggestedValue != nil {
+            if let fixed = fixedColors {
+                Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                ContrastSample(foreground: fixed.foreground, background: fixed.background)
                 Button("Fix", action: onFix)
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// The pairing's colours after the fix: the suggestion replaces whichever side the fix adjusts
+    /// (the foreground, or the primary fill for button labels).
+    private var fixedColors: (foreground: String, background: String)? {
+        guard let suggested = finding.suggestedValue else { return nil }
+        return finding.pair.adjustedToken == finding.pair.foregroundToken
+            ? (suggested, finding.background)
+            : (finding.foreground, suggested)
+    }
+
+    /// One whole sentence per place and severity, so each translates as a unit. Warnings only
+    /// occur for links and button labels.
+    @ViewBuilder
+    private var message: some View {
+        switch (finding.pair.place, finding.severity) {
+        case (.bodyText, _): Text("Body text will be hard to read")
+        case (.secondaryText, _): Text("Secondary text will be hard to read")
+        case (.cardText, _): Text("Text on cards will be hard to read")
+        case (.cardSecondaryText, _): Text("Secondary text on cards will be hard to read")
+        case (.links, .error): Text("Links will be hard to read")
+        case (.links, .warning): Text("Links may be hard to read at small sizes")
+        case (.buttonLabels, .error): Text("Button labels will be hard to read")
+        case (.buttonLabels, .warning): Text("Button labels may be hard to read at small sizes")
+        case (.cardLinks, .error): Text("Links on cards will be hard to read")
+        case (.cardLinks, .warning): Text("Links on cards may be hard to read at small sizes")
+        }
+    }
+}
+
+/// "Aa" drawn in a pairing's colours — the owner judges readability by eye, not by ratio.
+private struct ContrastSample: View {
+    let foreground: String
+    let background: String
+
+    var body: some View {
+        Text(verbatim: "Aa")
+            .font(.callout.bold())
+            .foregroundStyle(Color(hex: foreground))
+            .frame(width: 36, height: 24)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: background)))
+            .accessibilityHidden(true)
     }
 }
 

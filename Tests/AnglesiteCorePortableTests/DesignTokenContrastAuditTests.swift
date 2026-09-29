@@ -142,6 +142,24 @@ struct DesignTokenContrastAuditTests {
         #expect(fixed["color-surface"] == vars["color-surface"])
     }
 
+    @Test("with both spellings of a token, the -- one is read and fixed, whatever the dictionary order")
+    func mixedSpellingIsDeterministic() throws {
+        let vars = ["--color-text": "#dddddd", "color-text": "#000000", "color-background": "#ffffff"]
+        for _ in 0..<20 {
+            let finding = try #require(DesignTokenContrastAudit.findings(for: vars).first)
+            #expect(finding.foreground == "#dddddd")
+            let fixed = DesignTokenContrastAudit.applyingFix(finding, to: vars)
+            #expect(fixed["color-text"] == "#000000")
+            #expect(fixed["--color-text"] != "#dddddd")
+        }
+    }
+
+    @Test("every place appears in exactly one pairing")
+    func placesAreOneToOne() {
+        #expect(Set(DesignTokenContrastAudit.pairs.map(\.place)) == Set(DesignTokenContrastAudit.Place.allCases))
+        #expect(DesignTokenContrastAudit.pairs.count == DesignTokenContrastAudit.Place.allCases.count)
+    }
+
     @Test("a fix keeps the key's original spelling")
     func fixKeepsKeySpelling() throws {
         let vars = ["--color-text": "#dddddd", "--color-background": "#ffffff"]
@@ -184,7 +202,7 @@ struct ThemeApplyWizardModelContrastTests {
         let model = Self.model()
         #expect(model.contrastFindings.isEmpty)
         model.selectedBuiltInID = "pastel"
-        #expect(model.contrastFindings.map(\.pair.place) == ["Links", "Button labels"])
+        #expect(model.contrastFindings.map(\.pair.place) == [.links, .buttonLabels])
         model.selectedBuiltInID = "clean"
         #expect(model.contrastFindings.isEmpty)
     }
@@ -211,6 +229,19 @@ struct ThemeApplyWizardModelContrastTests {
         model.selectedBuiltInID = "clean"
         #expect(model.tokenOverrides.isEmpty)
         model.selectedBuiltInID = "pastel"
+        #expect(!model.contrastFindings.isEmpty)
+    }
+
+    @Test("changing the source discards fixes too") @MainActor
+    func sourceChangeClearsOverrides() {
+        let model = Self.model()
+        model.selectedBuiltInID = "pastel"
+        model.fixAllContrast()
+        #expect(!model.tokenOverrides.isEmpty)
+        model.source = .freedesignmd
+        #expect(model.tokenOverrides.isEmpty)
+        model.source = .builtIn
+        #expect(model.tokenOverrides.isEmpty)
         #expect(!model.contrastFindings.isEmpty)
     }
 

@@ -7,12 +7,6 @@
     "!community@instance or URL" : {
 
     },
-    "%@ may be hard to read at small sizes" : {
-
-    },
-    "%@ will be hard to read" : {
-
-    },
     "\"%@\" isn't a usable license address. Use an https:// URL or a path on this site starting with /." : {
 
     },
@@ -895,6 +889,9 @@
     "Body" : {
 
     },
+    "Body text will be hard to read" : {
+
+    },
     "Bookmarks" : {
 
     },
@@ -947,6 +944,12 @@
 
     },
     "Bumps to %@" : {
+
+    },
+    "Button labels may be hard to read at small sizes" : {
+
+    },
+    "Button labels will be hard to read" : {
 
     },
     "Buy %@" : {
@@ -2660,6 +2663,18 @@
     "Linked to a followed feed" : {
 
     },
+    "Links may be hard to read at small sizes" : {
+
+    },
+    "Links on cards may be hard to read at small sizes" : {
+
+    },
+    "Links on cards will be hard to read" : {
+
+    },
+    "Links will be hard to read" : {
+
+    },
     "List" : {
 
     },
@@ -3907,6 +3922,12 @@
     "Runtime host" : {
 
     },
+    "Secondary text on cards will be hard to read" : {
+
+    },
+    "Secondary text will be hard to read" : {
+
+    },
     "SEO" : {
 
     },
@@ -4461,6 +4482,9 @@
 
     },
     "Syndication recorded" : {
+
+    },
+    "Text on cards will be hard to read" : {
 
     },
     "TLS report mailbox" : {

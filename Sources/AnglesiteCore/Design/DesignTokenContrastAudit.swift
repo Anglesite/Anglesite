@@ -50,14 +50,33 @@ public enum DesignTokenContrastAudit {
     /// from a warning to an error.
     public static let largeTextRatio = 3.0
 
+    /// Where on the site a pairing renders.
+    public enum Place: String, Sendable, Equatable, CaseIterable {
+        /// `--color-text` on `--color-background`.
+        case bodyText
+        /// `--color-text-muted` on `--color-background`.
+        case secondaryText
+        /// `--color-primary` on `--color-background`.
+        case links
+        /// `--color-background` on `--color-primary`.
+        case buttonLabels
+        /// `--color-text` on `--color-surface`.
+        case cardText
+        /// `--color-text-muted` on `--color-surface`.
+        case cardSecondaryText
+        /// `--color-primary` on `--color-surface`.
+        case cardLinks
+    }
+
     /// One foreground/background token pairing the template renders.
     public struct Pair: Sendable, Equatable {
         /// Token names without the leading `--`, matching `DesignTokenWriter`'s keys.
         public let foregroundToken: String
         /// The token the foreground is drawn on.
         public let backgroundToken: String
-        /// Owner-facing name for where the pairing shows up, e.g. "Links".
-        public let place: String
+        /// Where the pairing shows up. An enum rather than display text so the app can give each
+        /// one a full, translatable sentence instead of splicing an English noun into one.
+        public let place: Place
         /// Whether this renders as a link or button — possibly large, so 3:1 is the error line.
         public let isLinkOrButton: Bool
 
@@ -80,17 +99,18 @@ public enum DesignTokenContrastAudit {
 
     /// The pairings `global.css` renders, in the order findings are reported.
     public static let pairs: [Pair] = [
-        Pair(foregroundToken: "color-text", backgroundToken: "color-background", place: "Body text", isLinkOrButton: false),
-        Pair(foregroundToken: "color-text-muted", backgroundToken: "color-background", place: "Secondary text", isLinkOrButton: false),
-        Pair(foregroundToken: "color-primary", backgroundToken: "color-background", place: "Links", isLinkOrButton: true),
-        Pair(foregroundToken: "color-background", backgroundToken: "color-primary", place: "Button labels", isLinkOrButton: true),
-        Pair(foregroundToken: "color-text", backgroundToken: "color-surface", place: "Text on cards", isLinkOrButton: false),
-        Pair(foregroundToken: "color-text-muted", backgroundToken: "color-surface", place: "Secondary text on cards", isLinkOrButton: false),
-        Pair(foregroundToken: "color-primary", backgroundToken: "color-surface", place: "Links on cards", isLinkOrButton: true),
+        Pair(foregroundToken: "color-text", backgroundToken: "color-background", place: .bodyText, isLinkOrButton: false),
+        Pair(foregroundToken: "color-text-muted", backgroundToken: "color-background", place: .secondaryText, isLinkOrButton: false),
+        Pair(foregroundToken: "color-primary", backgroundToken: "color-background", place: .links, isLinkOrButton: true),
+        Pair(foregroundToken: "color-background", backgroundToken: "color-primary", place: .buttonLabels, isLinkOrButton: true),
+        Pair(foregroundToken: "color-text", backgroundToken: "color-surface", place: .cardText, isLinkOrButton: false),
+        Pair(foregroundToken: "color-text-muted", backgroundToken: "color-surface", place: .cardSecondaryText, isLinkOrButton: false),
+        Pair(foregroundToken: "color-primary", backgroundToken: "color-surface", place: .cardLinks, isLinkOrButton: true),
     ]
 
     /// Every pairing in `cssVars` below 4.5:1. Keys may be written with or without the leading
-    /// `--`; a missing or unparseable token skips its pairings silently.
+    /// `--` (when a map has both spellings of one token, the `--` one wins); a missing or
+    /// unparseable token skips its pairings silently.
     public static func findings(for cssVars: [String: String]) -> [DesignTokenContrastFinding] {
         let tokens = normalized(cssVars)
         return pairs.compactMap { pair in
@@ -113,7 +133,8 @@ public enum DesignTokenContrastAudit {
     public static func applyingFix(_ finding: DesignTokenContrastFinding, to cssVars: [String: String]) -> [String: String] {
         guard let value = finding.suggestedValue else { return cssVars }
         var fixed = cssVars
-        let key = cssVars.keys.first { stripped($0) == finding.pair.adjustedToken } ?? finding.pair.adjustedToken
+        let token = finding.pair.adjustedToken
+        let key = cssVars["--\(token)"] != nil ? "--\(token)" : token
         fixed[key] = value
         return fixed
     }
@@ -143,7 +164,16 @@ public enum DesignTokenContrastAudit {
         key.hasPrefix("--") ? String(key.dropFirst(2)) : key
     }
 
+    /// Bare-keyed values. Deterministic when both spellings of a token are present: the `--`
+    /// spelling (the one CSS actually reads) wins, whatever the dictionary's iteration order.
     private static func normalized(_ cssVars: [String: String]) -> [String: String] {
-        Dictionary(cssVars.map { (stripped($0.key), $0.value.trimmingCharacters(in: .whitespaces)) }) { first, _ in first }
+        var result: [String: String] = [:]
+        for (key, value) in cssVars where !key.hasPrefix("--") {
+            result[key] = value.trimmingCharacters(in: .whitespaces)
+        }
+        for (key, value) in cssVars where key.hasPrefix("--") {
+            result[stripped(key)] = value.trimmingCharacters(in: .whitespaces)
+        }
+        return result
     }
 }
