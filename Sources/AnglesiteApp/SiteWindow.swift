@@ -254,16 +254,26 @@ struct SiteWindow: View {
         // Built once per window; the typed-content gate (#2050) doesn't rely on that ordering —
         // `onChange(of: model.editingSurfaces)` below rebuilds these if the surfaces change after
         // the first build.
-        let typedContent = model.editingSurfaces.typedContent
-        newContentActions = NewContentActions(
-            newPage: { model.newPagePresented = true },
-            newCollection: typedContent ? { model.newCollectionPresented = true } : nil,
-            newPost: typedContent ? { model.newPostPresented = true } : nil,
-            newComponent: { model.newComponentPresented = true },
-            newLinkPost: typedContent ? {
+        // Explicitly typed optionals rather than `cond ? { … } : nil` inline: the ternary form
+        // is more than the type checker can solve in one expression (it crashed the Xcode 27
+        // compile with "failed to produce diagnostic").
+        var newCollection: (@MainActor () -> Void)?
+        var newPost: (@MainActor () -> Void)?
+        var newLinkPost: (@MainActor () -> Void)?
+        if model.editingSurfaces.typedContent {
+            newCollection = { model.newCollectionPresented = true }
+            newPost = { model.newPostPresented = true }
+            newLinkPost = {
                 model.quickCaptureURL = QuickCapture.clipboardURLString()
                 model.quickCapturePresented = true
-            } : nil
+            }
+        }
+        newContentActions = NewContentActions(
+            newPage: { model.newPagePresented = true },
+            newCollection: newCollection,
+            newPost: newPost,
+            newComponent: { model.newComponentPresented = true },
+            newLinkPost: newLinkPost
         )
     }
 
