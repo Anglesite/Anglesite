@@ -30,7 +30,7 @@ deletes, and the screening ledger accumulates the site-specific labels a later f
 | 7 | `scripts/kev/` — `extract-kev-head.py` (run, stdlib only), `gen-*-golden.py` (run), `convert-kev-coreml.py` (needs a Mac with torch + coremltools) | owner's Mac | export unrun |
 | 8 | Owner runs the export with `--verify`, installs to `Models/kev-0.5b/`, opens a site with a provisioned inbox, confirms a held mention appears in the ledger and the Debug pane shows no load errors | owner's Mac | pending |
 | 9 | Moderation pane: `ModerationModel` lists `ledger.held()` beside pending followers; Accept/Reject → `ledger.rule(_:approved:)` | macOS app | #2066 — written; app build not run in that session |
-| 10 | Calibration: fit `TemperatureCalibration` from `ledger.calibrationSamples()` at ≥ 20 rulings; ECE to the Debug pane | Core + app | follow-up PR |
+| 10 | Calibration: fit `TemperatureCalibration` from `ledger.calibrationSamples()` at ≥ 20 rulings; ECE to the Debug pane | Core + app | #2067 — written; app build not run in that session |
 | 11 | Asset delivery: download-on-demand with integrity check against `MANIFEST.json`; until then the asset is installed by the recipe in `scripts/kev/README.md` | app | follow-up PR |
 
 ## Verification gates

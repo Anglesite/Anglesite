@@ -260,14 +260,16 @@ final class ModerationModel {
 
     /// Off the main actor: the ledger write, the inbox sync and the snapshot probe are all disk
     /// (and network) I/O. `pullAndCommitIfConfigured`'s count can't tell "nothing new" from
-    /// "couldn't run", so success is the snapshot file existing afterwards.
+    /// "couldn't run", so success is the snapshot file existing afterwards. Building the screener
+    /// after the ruling is written is also what refits the site's temperature calibration
+    /// (#2067) — the ruling just recorded is in the labelled set the factory fits on.
     nonisolated private static func record(
         id: String, approved: Bool, sourceDirectory: URL, configDirectory: URL, secretStore: any SecretStore
     ) async -> HeldInteractionRulingOutcome {
         await HeldInteractionQueue.rule(id, approved: approved, ledger: InteractionScreeningLedger(configDirectory: configDirectory)) {
             _ = await ReceivedInteractionSync.pullAndCommitIfConfigured(
                 siteDirectory: sourceDirectory, configDirectory: configDirectory, secretStore: secretStore,
-                screener: InteractionScreenerFactory.makeDefault())
+                screener: InteractionScreenerFactory.makeDefault(configDirectory: configDirectory))
             return FileManager.default.fileExists(atPath: sourceDirectory.appendingPathComponent("data/interactions/\(id).json").path)
         }
     }

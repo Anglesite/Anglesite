@@ -49,21 +49,44 @@ public enum InteractionScreenerFactory {
     ///
     /// - Parameters:
     ///   - policy: Thresholds; see ``InteractionScreeningPolicy/default``.
+    ///   - configDirectory: The site's `Config/`, to apply (and first refit, see
+    ///     ``siteCalibration(configDirectory:log:)``) that site's temperature calibration (#2067).
+    ///     `nil` uses the checkpoint's temperature alone.
     ///   - environment: Process environment, for the ``KevModelLocator/environmentOverride``.
-    ///   - log: Where load failures go; defaults to `LogCenter`.
+    ///   - log: Where load failures and calibration reports go; defaults to `LogCenter`.
     public static func makeDefault(
         policy: InteractionScreeningPolicy = .default,
+        configDirectory: URL? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         log: (@Sendable (String) async -> Void)? = nil
     ) -> InteractionScreener? {
         guard let assets = KevModelLocator.installedAssets(environment: environment) else { return nil }
-        guard let provider = makeProvider(assets: assets, log: log) else { return nil }
+        let calibration = configDirectory.map { siteCalibration(configDirectory: $0, log: log) } ?? .identity
+        guard let provider = makeProvider(assets: assets, calibration: calibration, log: log) else { return nil }
         return InteractionScreener(provider: provider, policy: policy, log: log)
+    }
+
+    /// The site's temperature calibration (#2067), refitting first when the ledger has enough
+    /// rulings. Runs here — on the way to building a screener — because both moments the fit
+    /// should land (site open, and right after an owner ruling) build a screener for the sync
+    /// that follows, so the fit is applied on that very sync. Each refit logs one
+    /// ``InteractionScreeningCalibrationStore/FitReport/summary`` line for the Debug pane.
+    public static func siteCalibration(configDirectory: URL, log: (@Sendable (String) async -> Void)? = nil) -> TemperatureCalibration {
+        let store = InteractionScreeningCalibrationStore(configDirectory: configDirectory)
+        if let report = store.refit(from: InteractionScreeningLedger(configDirectory: configDirectory)) {
+            let line = report.summary
+            Task { await (log ?? Self.reportLog)(line) }
+        }
+        return store.current
     }
 
     /// The ``DecisionProvider`` over `assets`, or `nil` when it can't be assembled on this host.
     /// Exposed so other gates can share one provider; `makeDefault` is the screener-specific wrap.
-    public static func makeProvider(assets: KevModelAssets, log: (@Sendable (String) async -> Void)? = nil) -> (any DecisionProvider)? {
+    /// `calibration` composes on top of the checkpoint's own temperature (identity by default).
+    public static func makeProvider(
+        assets: KevModelAssets, calibration: TemperatureCalibration = .identity,
+        log: (@Sendable (String) async -> Void)? = nil
+    ) -> (any DecisionProvider)? {
         #if canImport(CoreML)
         let head: KevPointerHead
         do {
@@ -75,7 +98,7 @@ public enum InteractionScreenerFactory {
         let backbone = CoreMLKevBackbone(modelURL: assets.backboneURL, hiddenSize: head.hiddenSize)
         do {
             let scorer = try KevOptionScorer(assets: assets, head: head, backbone: backbone)
-            return ScoringDecisionProvider(scorer: scorer)
+            return ScoringDecisionProvider(scorer: scorer, calibration: calibration)
         } catch {
             Task { await (log ?? Self.defaultLog)("Kev scorer failed to assemble from \(assets.directory.path): \(error)") }
             return nil
@@ -87,5 +110,10 @@ public enum InteractionScreenerFactory {
 
     private static let defaultLog: @Sendable (String) async -> Void = { text in
         await LogCenter.shared.append(source: "InteractionScreenerFactory", stream: .stderr, text: text)
+    }
+
+    /// Calibration reports are status, not failures, so they go to stdout.
+    private static let reportLog: @Sendable (String) async -> Void = { text in
+        await LogCenter.shared.append(source: "InteractionScreenerFactory", stream: .stdout, text: text)
     }
 }
