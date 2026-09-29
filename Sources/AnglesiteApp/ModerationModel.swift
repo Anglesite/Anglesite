@@ -23,6 +23,28 @@ final class ModerationModel {
     private(set) var moderators: [String] = []
     private(set) var pendingFollowers: [PendingFollower] = []
     private(set) var reports: [FlagReport] = []
+    /// Comments the spam screen held for the owner (#2066): the ledger's unresolved holds joined
+    /// with the live inbox record. Loaded by ``reloadHeldComments()``, separately from
+    /// ``reload()`` — see that method's doc comment for why the inbox fetch never rides along
+    /// with the local-disk community loads.
+    private(set) var heldInteractions: [HeldInteraction] = []
+    /// Whether the held-comments queue applies to this site (#2066): a Kev decision model is
+    /// installed on this Mac (`KevModelLocator.installedAssets()`) *and* the site has a
+    /// provisioned inbox (`SiteSettings.provisionedWorkerResources.d1DatabaseID`) — without the
+    /// first nothing is ever held, without the second there is no inbox to hold from. The single
+    /// source for both the section in `ModerationView` and `SiteWindowModel.canOpenModeration`.
+    /// Refreshed by ``refreshCanReviewComments()``: at ``configure(site:)`` and after every
+    /// successful deploy (the one that provisions the inbox), alongside `isHostedCommunity`.
+    private(set) var canReviewComments = false
+    /// Whether the last ``reloadHeldComments()`` could consult the Worker's inbox. `false` is
+    /// distinct from an empty inbox: every hold then has no record to show, and the pane must not
+    /// let the owner rule on comments they can't see (a ruling is permanent) — it offers a retry
+    /// instead. Starts `true` so the section doesn't flash the failure state before the first load.
+    private(set) var inboxReachable = true
+    /// Ids whose ruling (``showComment(_:)``/``keepHidden(_:)``) is still running. The row's
+    /// buttons are disabled meanwhile, so a double-click can't run the approve sync — a git
+    /// commit — twice concurrently.
+    private(set) var rulingsInFlight: Set<String> = []
     var errorMessage: String?
     /// Cleared by whichever confirmation-dialog button runs — same no-op-setter/
     /// clear-in-button-action contract `SiteWindow.swift:898-916`'s delete confirmation uses
@@ -70,7 +92,9 @@ final class ModerationModel {
            let siteURL = URL(string: siteURLString) {
             ownActorURL = ActivityPubActor.actorURL(siteURL: siteURL)
         }
+        await refreshCanReviewComments()
         await reload()
+        await reloadHeldComments()
     }
 
     /// Re-reads the moderator list plus every member/post snapshot from disk, and re-fetches the
@@ -86,6 +110,11 @@ final class ModerationModel {
     /// `SiteConfigStore`'s async `load()` is itself an actor method (hops off `@MainActor` on its
     /// own); ``decodeAll(_:from:)`` is `nonisolated` for the same reason — its doc comment has the
     /// detail.
+    ///
+    /// Deliberately does *not* load the held-comments queue: that is a Cloudflare round-trip
+    /// (inbox fetch), and awaiting it here would hold every member/post/moderator list behind a
+    /// slow API call on each presentation. ``reloadHeldComments()`` is its own entry point, run
+    /// alongside (not ahead of) this by `SiteWindowModel.presentModeration()`.
     func reload() async {
         guard let sourceDirectory, let configDirectory else { return }
         let settings = (try? await SiteConfigStore(configDirectory: configDirectory).load()) ?? SiteSettings()
@@ -147,6 +176,99 @@ final class ModerationModel {
         } catch {
             errorMessage = String(localized: "Couldn't load reports: \(error.localizedDescription)")
             return []
+        }
+    }
+
+    /// Re-evaluates ``canReviewComments`` from disk. No-ops until ``configure(site:)`` has run.
+    /// Called by `SiteWindowModel.refreshIsHostedCommunity()` after every successful deploy, so
+    /// the deploy that provisions the inbox enables the queue live.
+    func refreshCanReviewComments() async {
+        guard let configDirectory else { return }
+        canReviewComments = await Self.evaluateCanReviewComments(configDirectory: configDirectory)
+    }
+
+    /// Off the main actor: five `fileExists` probes under Application Support plus the
+    /// synchronous `SiteConfigStore.read` inside the `.anglesite` package.
+    nonisolated private static func evaluateCanReviewComments(configDirectory: URL) async -> Bool {
+        guard KevModelLocator.installedAssets() != nil,
+              let settings = try? SiteConfigStore.read(from: configDirectory),
+              let databaseID = settings.provisionedWorkerResources?.d1DatabaseID, !databaseID.isEmpty
+        else { return false }
+        return true
+    }
+
+    /// Loads the held-comments queue (#2066): the ledger's unresolved holds joined with the
+    /// current inbox, via `HeldInteractionQueue.build`. Skips the network entirely when nothing
+    /// is held or ``canReviewComments`` is off. A failed inbox fetch still lists the holds (so
+    /// they never silently vanish) but records ``inboxReachable`` `false`, which the pane shows
+    /// as "couldn't reach your inbox" with a retry — never as "this comment is gone", and never
+    /// with the verdict buttons enabled.
+    func reloadHeldComments() async {
+        guard canReviewComments, let configDirectory else {
+            heldInteractions = []
+            return
+        }
+        let load = await Self.loadHeld(configDirectory: configDirectory, secretStore: secretStore)
+        heldInteractions = load.items
+        inboxReachable = load.inboxReachable
+    }
+
+    /// Off the main actor for the same reason as ``decodeAll(_:from:)``: the ledger read and
+    /// `SiteConfigStore.read` are synchronous disk I/O inside the `.anglesite` package.
+    nonisolated private static func loadHeld(configDirectory: URL, secretStore: any SecretStore) async -> HeldInteractionLoad {
+        let held = InteractionScreeningLedger(configDirectory: configDirectory).held()
+        guard !held.isEmpty else { return HeldInteractionLoad(items: [], inboxReachable: true) }
+        let interactions = await ReceivedInteractionSync.fetchInteractionsIfConfigured(
+            configDirectory: configDirectory, secretStore: secretStore)
+        return HeldInteractionQueue.build(held: held, interactions: interactions)
+    }
+
+    /// The owner's "show this comment": records an approving ruling in the ledger and re-runs the
+    /// inbox sync so the comment is snapshotted into git on this click, not at the next site
+    /// open. If that sync can't confirm the snapshot (offline, no token, git failure) the ruling
+    /// still stands — the next sync publishes it — and the owner is told so via `errorMessage`
+    /// rather than watching the row vanish silently. No confirmation dialog — publishing a
+    /// comment is reversible by deleting its snapshot file, the same rationale ``approve(_:)``
+    /// uses.
+    func showComment(_ item: HeldInteraction) async {
+        await rule(item, approved: true)
+    }
+
+    /// The owner's "keep it hidden": records a rejecting ruling. The comment stays in the
+    /// Worker's inbox and out of git; nothing is deleted, per the screening design's "the gate
+    /// never loses an interaction" rule.
+    func keepHidden(_ item: HeldInteraction) async {
+        await rule(item, approved: false)
+    }
+
+    /// Applies a verdict through `HeldInteractionQueue.rule` (ledger first, publish only on
+    /// approve — the ordering that suite pins). Re-entrant clicks on the same row are dropped via
+    /// ``rulingsInFlight`` (the view also disables the buttons), and an unreachable inbox is
+    /// refused outright: the owner would be ruling on a comment they can't see.
+    private func rule(_ item: HeldInteraction, approved: Bool) async {
+        guard let sourceDirectory, let configDirectory, inboxReachable,
+              !rulingsInFlight.contains(item.id) else { return }
+        rulingsInFlight.insert(item.id)
+        defer { rulingsInFlight.remove(item.id) }
+        let outcome = await Self.record(id: item.id, approved: approved, sourceDirectory: sourceDirectory,
+                                        configDirectory: configDirectory, secretStore: secretStore)
+        heldInteractions.removeAll { $0.id == item.id }
+        if outcome == .publishFailed {
+            errorMessage = String(localized: "Couldn't publish this comment right now. It will be published the next time this site syncs.")
+        }
+    }
+
+    /// Off the main actor: the ledger write, the inbox sync and the snapshot probe are all disk
+    /// (and network) I/O. `pullAndCommitIfConfigured`'s count can't tell "nothing new" from
+    /// "couldn't run", so success is the snapshot file existing afterwards.
+    nonisolated private static func record(
+        id: String, approved: Bool, sourceDirectory: URL, configDirectory: URL, secretStore: any SecretStore
+    ) async -> HeldInteractionRulingOutcome {
+        await HeldInteractionQueue.rule(id, approved: approved, ledger: InteractionScreeningLedger(configDirectory: configDirectory)) {
+            _ = await ReceivedInteractionSync.pullAndCommitIfConfigured(
+                siteDirectory: sourceDirectory, configDirectory: configDirectory, secretStore: secretStore,
+                screener: InteractionScreenerFactory.makeDefault())
+            return FileManager.default.fileExists(atPath: sourceDirectory.appendingPathComponent("data/interactions/\(id).json").path)
         }
     }
 
