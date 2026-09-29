@@ -8,7 +8,7 @@ import Foundation
 /// typed-content editors (New Post, New Link Post, collection entries, the typed inspector form,
 /// Publish/Move to Drafts) and offers "Open EmDash" instead. The block editor stays the owner's
 /// surface for what git still holds: pages, layout and theme. A kind this build doesn't recognise
-/// opens read-only (``AnglesitePackage/compatibility(for:)``), so it offers nothing.
+/// opens read-only (`AnglesitePackage.compatibility(for:)`), so it offers nothing.
 ///
 /// Pure and I/O-free, like ``CMSModeStatus``: the app reads it synchronously from
 /// `SiteStore.Site.kind` for `.disabled(...)` gates, and the create paths call
