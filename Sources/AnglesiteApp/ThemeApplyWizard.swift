@@ -91,6 +91,7 @@ struct ThemeApplyWizard: View {
                 if let theme = model.selectedBuiltInTheme {
                     Text(theme.name).font(.headline)
                     Text(theme.blurb).foregroundStyle(.secondary)
+                    contrastSection
                 }
             case .freedesignmd:
                 if let slug = model.selectedFreedesignmdSlug {
@@ -98,6 +99,34 @@ struct ThemeApplyWizard: View {
                 }
             case nil: EmptyView()
             }
+        }
+    }
+
+    /// Advisory readability findings for the selected theme's colours (#2021). Never blocks Apply;
+    /// each row shows the pairing as it would render and offers a one-click fix, so the owner
+    /// judges by eye rather than by a contrast ratio.
+    @ViewBuilder
+    private var contrastSection: some View {
+        let findings = model.contrastFindings
+        if !findings.isEmpty {
+            Divider().padding(.vertical, 4)
+            HStack {
+                Text("Readability").font(.subheadline.bold())
+                Spacer()
+                if findings.contains(where: { $0.suggestedValue != nil }) {
+                    Button("Fix All") { model.fixAllContrast() }
+                }
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(findings) { finding in
+                        ContrastFindingRow(finding: finding) { model.fixContrast(finding) }
+                    }
+                }
+            }
+            Text("You can still apply this theme as it is.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -115,6 +144,40 @@ struct ThemeApplyWizard: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+/// One readability finding: a sample of the pairing as it would render, what's affected, and a
+/// Fix button when a readable colour exists.
+private struct ContrastFindingRow: View {
+    let finding: DesignTokenContrastFinding
+    let onFix: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(verbatim: "Aa")
+                .font(.callout.bold())
+                .foregroundStyle(Color(hex: finding.foreground))
+                .frame(width: 36, height: 24)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: finding.background)))
+                .accessibilityHidden(true)
+            Image(systemName: finding.severity == .error ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
+                .foregroundStyle(finding.severity == .error ? Color.orange : Color.secondary)
+                .accessibilityHidden(true)
+            Group {
+                if finding.severity == .error {
+                    Text("\(finding.pair.place) will be hard to read")
+                } else {
+                    Text("\(finding.pair.place) may be hard to read at small sizes")
+                }
+            }
+            .font(.callout)
+            Spacer()
+            if finding.suggestedValue != nil {
+                Button("Fix", action: onFix)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

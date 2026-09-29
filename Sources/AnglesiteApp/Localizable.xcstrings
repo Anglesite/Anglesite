@@ -7,6 +7,12 @@
     "!community@instance or URL" : {
 
     },
+    "%@ may be hard to read at small sizes" : {
+
+    },
+    "%@ will be hard to read" : {
+
+    },
     "\"%@\" isn't a usable license address. Use an https:// URL or a path on this site starting with /." : {
 
     },
@@ -2210,6 +2216,12 @@
     "First words" : {
 
     },
+    "Fix" : {
+
+    },
+    "Fix All" : {
+
+    },
     "Flip Horizontally" : {
 
     },
@@ -3543,6 +3555,9 @@
 
     },
     "Quarantined copies" : {
+
+    },
+    "Readability" : {
 
     },
     "RSL" : {
@@ -5062,6 +5077,9 @@
 
     },
     "Yes, mostly Apple" : {
+
+    },
+    "You can still apply this theme as it is." : {
 
     },
     "You closed the sign-in page before finishing. Sign in when you're ready." : {
