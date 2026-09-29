@@ -136,7 +136,9 @@ public enum ImageOptimizer {
         if convertFrom == nil && !needsDownscale {
             guard hasLocation else { return .unchanged }
             // Strip without touching the pixels; re-encode below only if that didn't work.
-            if canReencodeInPlace, let stripped = copyWithoutLocation(source), !containsLocation(stripped) {
+            let orientation = properties[kCGImagePropertyOrientation] as? Int
+            if canReencodeInPlace, let stripped = copyWithoutLocation(source, orientation: orientation),
+               !containsLocation(stripped), self.orientation(of: stripped) == orientation {
                 return .optimised(Optimised(
                     data: stripped, fileExtension: fileExtension(for: sourceType), changes: [.removedLocation]))
             }
@@ -205,15 +207,25 @@ public enum ImageOptimizer {
         return !gpsTagPaths(in: metadata).isEmpty
     }
 
-    /// A lossless copy of `source` with GPS excluded, or `nil` when ImageIO refuses.
-    private static func copyWithoutLocation(_ source: CGImageSource) -> Data? {
+    /// A lossless copy of `source` with GPS excluded, or `nil` when ImageIO refuses. Excluding
+    /// GPS can also drop the orientation, so it's passed back in explicitly; the caller still
+    /// checks it survived and re-encodes otherwise.
+    private static func copyWithoutLocation(_ source: CGImageSource, orientation: Int?) -> Data? {
         guard let type = CGImageSourceGetType(source) else { return nil }
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else { return nil }
+        var options: [CFString: Any] = [kCGImageMetadataShouldExcludeGPS: true]
+        if let orientation { options[kCGImageDestinationOrientation] = orientation }
         var error: Unmanaged<CFError>?
-        let copied = CGImageDestinationCopyImageSource(
-            destination, source, [kCGImageMetadataShouldExcludeGPS: true] as CFDictionary, &error)
+        let copied = CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, &error)
         return copied ? output as Data : nil
+    }
+
+    /// The EXIF orientation of the first image in `data`, if it declares one.
+    private static func orientation(of data: Data) -> Int? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        return properties?[kCGImagePropertyOrientation] as? Int
     }
 
     /// Top-level XMP tag paths naming a GPS field (`exif:GPSLatitude`, …).
