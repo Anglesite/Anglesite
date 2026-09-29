@@ -351,6 +351,9 @@
     "AI systems" : {
 
     },
+    "Also check links to other sites during audits" : {
+
+    },
     "API token" : {
 
     },
@@ -790,6 +793,9 @@
     "Auditing…" : {
 
     },
+    "Audits" : {
+
+    },
     "Auto-Align Table Cell" : {
 
     },
@@ -1117,6 +1123,24 @@
 
     },
     "Choose Logo" : {
+
+    },
+    "Choose Website ▸ Apply a Theme… to try a new look for your whole site." : {
+
+    },
+    "Choose Website ▸ Assistant ▸ Review Copy… for a second look at the writing on your pages." : {
+
+    },
+    "Choose Website ▸ Connect a Domain… to give your site its own web address." : {
+
+    },
+    "Choose Website ▸ Graph… to see how your pages connect to each other." : {
+
+    },
+    "Choose Website ▸ Preview in ▸ Default Browser to see your site in your own browser." : {
+
+    },
+    "Choose Website ▸ Reader… to follow other people’s websites without leaving Anglesite." : {
 
     },
     "Choose a License" : {
@@ -1919,6 +1943,9 @@
     "Drafts platform-sized posts for this article. Anglesite never posts for you — copy each one out, then record the published URLs below." : {
 
     },
+    "Drag a link from your browser onto the Sites window to start a link post." : {
+
+    },
     "Duplicate" : {
 
     },
@@ -2211,6 +2238,9 @@
 
     },
     "Format" : {
+
+    },
+    "Found something worth sharing? Press ⇧⌘L to save it as a link post." : {
 
     },
     "Forward" : {
@@ -2720,6 +2750,9 @@
     "Missing required files" : {
 
     },
+    "Miss the sound of a 56K modem? Turn on “Play dial-up sound while loading” in Settings." : {
+
+    },
     "Mode" : {
 
     },
@@ -2745,6 +2778,9 @@
 
     },
     "Move to Drafts" : {
+
+    },
+    "Moving from WordPress? Choose File ▸ Import WordPress Export (WXR)… to bring your posts along." : {
 
     },
     "My New Webpage" : {
@@ -2838,6 +2874,9 @@
 
     },
     "New selector, e.g. .card-footer" : {
+
+    },
+    "Next Tip" : {
 
     },
     "No AI company currently honors this standard; it records your terms — the license and AI usage settings above — in machine-readable form (rsl.xml, a robots.txt License: line, and a matching Link header)." : {
@@ -3263,6 +3302,9 @@
     "Pasted callback URL" : {
 
     },
+    "Pasting from another app? ⌥⇧⌘V pastes the text without its formatting." : {
+
+    },
     "Pause" : {
 
     },
@@ -3333,6 +3375,30 @@
 
     },
     "Preserve as Hand-Authored" : {
+
+    },
+    "Press ⇧⌘, to open Website Settings." : {
+
+    },
+    "Press ⇧⌘P to publish. Anglesite checks your site for problems before every publish." : {
+
+    },
+    "Press ⌃⌘K to show Chat and ask for help with your site." : {
+
+    },
+    "Press ⌘1 to jump back to the preview." : {
+
+    },
+    "Press ⌘F to find text on the page you’re editing." : {
+
+    },
+    "Press ⌘N to add a new page to your site." : {
+
+    },
+    "Press ⌘R to reload the preview, or ⌥⌘R to restart it if something seems stuck." : {
+
+    },
+    "Press ⌥⌘J to open the Website Inspector for site-wide details." : {
 
     },
     "Preview" : {
@@ -4132,6 +4198,9 @@
     "Showing the first 200 entries." : {
 
     },
+    "Shows another tip." : {
+
+    },
     "Shows the most recent pre-deploy scan results" : {
 
     },
@@ -4631,6 +4700,12 @@
     "Three personality words" : {
 
     },
+    "Tip" : {
+
+    },
+    "Tip: %@" : {
+
+    },
     "Title" : {
 
     },
@@ -4675,6 +4750,9 @@
       }
     },
     "Turn on the Fediverse in Settings ▸ Workers, then publish again." : {
+
+    },
+    "Turn on “Auto-generate alt text for dropped images” in Settings, and Anglesite describes new images for people using screen readers." : {
 
     },
     "Type" : {
@@ -4764,6 +4842,12 @@
     "Use MX Records from DNS" : {
 
     },
+    "Use ⌃⌘← and ⌃⌘→ to go back and forward between pages in the preview." : {
+
+    },
+    "Use ⌘+ and ⌘− to zoom the preview. ⌘0 returns to actual size." : {
+
+    },
     "Use Selection for Find" : {
 
     },
@@ -4837,6 +4921,9 @@
 
     },
     "Visitors" : {
+
+    },
+    "Visits each page your site links to on other sites and reports the ones that are gone. Audits take up to a minute longer, and sites that block automated visitors are reported as not checked rather than broken." : {
 
     },
     "Vulnerability Reports" : {
@@ -4968,6 +5055,9 @@
     "Workers are unavailable for this site — its package configuration folder couldn't be found." : {
 
     },
+    "Working in another app? Anglesite can notify you when a publish, backup, or audit finishes — see Settings." : {
+
+    },
     "Working…" : {
 
     },
@@ -5011,6 +5101,9 @@
 
     },
     "Your test is live. Visitors will see one version or the other; I'll tell you when there's a clear answer." : {
+
+    },
+    "Your website belongs to you. It’s stored on your Mac, and you can take it anywhere." : {
 
     },
     "Your website was created with warnings. You can open it anyway and fix it from the website window." : {

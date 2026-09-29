@@ -49,6 +49,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let notifiesOnCompletion = "anglesite.notifiesOnCompletion"
         /// Backs ``AppSettings/playsDialupSoundEffect``.
         public static let playsDialupSoundEffect = "anglesite.playsDialupSoundEffect"
+        /// Backs ``AppSettings/startupTipCursor``.
+        public static let startupTipCursor = "anglesite.startupTipCursor"
         /// One-shot flag consumed by ``AppSettings/removeLegacyChatBackendDefaultsIfNeeded()`` so
         /// the legacy-key cleanup runs exactly once per defaults suite.
         public static let didCleanLegacyChatBackendDefaults = "anglesite.didCleanLegacyChatBackendDefaults"
@@ -447,6 +449,14 @@ public final class AppSettings: @unchecked Sendable {
     public var playsDialupSoundEffect: Bool {
         get { defaults.bool(forKey: Key.playsDialupSoundEffect) }
         set { defaults.set(newValue, forKey: Key.playsDialupSoundEffect) }
+    }
+
+    /// Where the startup screen's tips & tricks rotation resumes (``StartupTipDeck``), so
+    /// successive startups walk through every tip instead of repeating the first one. Not a
+    /// user-facing setting; `0` when absent.
+    public var startupTipCursor: Int {
+        get { defaults.integer(forKey: Key.startupTipCursor) }
+        set { defaults.set(newValue, forKey: Key.startupTipCursor) }
     }
 
     /// The site that was most-recently focused. Used by the Sites launcher to auto-open

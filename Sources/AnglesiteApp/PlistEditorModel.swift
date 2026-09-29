@@ -105,6 +105,11 @@ final class PlistEditorModel {
     /// content. Defaults to `true` (enabled), matching the feature's default-on ask.
     private(set) var markdownForAgentsEnabled = true
     private(set) var markdownForAgentsError: String?
+    /// Whether site audits also check links to other sites (#2001) — `Config/`-backed
+    /// (`SiteSettings.externalLinkCheckEnabled`), read by `BrokenLinkAuditRunner` at audit time.
+    /// Defaults to `false`: network-dependent findings stay opt-in.
+    private(set) var externalLinkCheckEnabled = false
+    private(set) var externalLinkCheckError: String?
     var mtaStsSettings = MTAStsPolicyAsset.Settings()
     private(set) var savedMtaStsSettings = MTAStsPolicyAsset.Settings()
     private(set) var mtaStsError: String?
@@ -402,10 +407,13 @@ final class PlistEditorModel {
             if let configDirectory {
                 let settings = (try? await SiteConfigStore(configDirectory: configDirectory).load()) ?? SiteSettings()
                 markdownForAgentsEnabled = !(settings.markdownForAgentsDisabled ?? false)
+                externalLinkCheckEnabled = settings.externalLinkCheckEnabled ?? false
             } else {
                 markdownForAgentsEnabled = true
+                externalLinkCheckEnabled = false
             }
             markdownForAgentsError = nil
+            externalLinkCheckError = nil
             let lang = SiteLanguageAsset.parseSettings(from: config)
             langSettings = lang
             savedLangSettings = lang
@@ -1463,6 +1471,23 @@ final class PlistEditorModel {
             markdownForAgentsError = nil
         } catch {
             markdownForAgentsError = String(localized: "Couldn't save this change: \(error.localizedDescription)")
+        }
+    }
+
+    /// Persists the audits' off-site link opt-in immediately (#2001) — same read-modify-write of
+    /// `Config/settings.plist` and immediate-persist contract as `setMarkdownForAgentsEnabled`.
+    /// Off is stored as `nil`, so a site that never opted in keeps no key for it.
+    func setExternalLinkCheckEnabled(_ enabled: Bool) async {
+        guard let configDirectory else { return }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        var settings = (try? await store.load()) ?? SiteSettings()
+        settings.externalLinkCheckEnabled = enabled ? true : nil
+        do {
+            try await store.save(settings)
+            externalLinkCheckEnabled = enabled
+            externalLinkCheckError = nil
+        } catch {
+            externalLinkCheckError = String(localized: "Couldn't save this change: \(error.localizedDescription)")
         }
     }
 

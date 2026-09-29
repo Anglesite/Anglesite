@@ -26,6 +26,8 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-28 | [System One decision seam + received-interaction spam screen — design](specs/2026-09-28-system-one-decision-seam-design.md) | [#2058](https://github.com/Anglesite/Anglesite/issues/2058), [#2059](https://github.com/Anglesite/Anglesite/issues/2059) | current |
+| 2026-09-28 | [Startup screen tips & tricks — design](specs/2026-09-28-startup-tips-design.md) | — | current |
 | 2026-09-13 | [3D DOM exploder — exploded-layer view of the preview for debugging nested elements — design](specs/2026-09-13-3d-dom-exploder-design.md) | [#1999](https://github.com/Anglesite/Anglesite/issues/1999) | draft |
 | 2026-09-04 | [Design: Route Worker provisioning through the DeployCommand spine (#1821)](specs/2026-09-04-worker-provisioning-deploy-spine-design.md) | [#1821](https://github.com/Anglesite/Anglesite/issues/1821) | draft |
 | 2026-09-04 | [Safari MCP transport spike: how a sandboxed `Anglesite.app` reaches a user-launched `safaridriver --mcp`](specs/2026-09-04-safari-mcp-transport-spike.md) | [#1887](https://github.com/Anglesite/Anglesite/issues/1887), [#453](https://github.com/Anglesite/Anglesite/issues/453) | current |
@@ -222,6 +224,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-28 | [Kev-0.5B on-device scorer — implementation plan](plans/2026-09-28-kev-coreml-scorer-plan.md) | [#2059](https://github.com/Anglesite/Anglesite/issues/2059), [#2058](https://github.com/Anglesite/Anglesite/issues/2058) | current |
 | 2026-09-06 | [Safari MCP: Sessionful HTTP Transport + Detect/Connect Implementation Plan](plans/2026-09-06-safari-mcp-sessionful-transport.md) | — | current |
 | 2026-09-04 | [Worker Provisioning Deploy Spine Implementation Plan](plans/2026-09-04-worker-provisioning-deploy-spine-plan.md) | — | current |
 | 2026-09-04 | [Cloudflare Core Transport Unification (Phase 1 of #1818) Implementation Plan](plans/2026-09-04-cloudflare-core-transport-unification.md) | [#1818](https://github.com/Anglesite/Anglesite/issues/1818) | historical |

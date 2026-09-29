@@ -444,9 +444,13 @@ final class PreviewModel {
                 siteDirectory: siteDirectory, configDirectory: configDirectory)
             // #362: pull the webmention Worker's verified inbox from D1 and snapshot it into the
             // git working copy. No-ops for sites without a provisioned D1 database
-            // (SiteSettings.provisionedWorkerResources.d1DatabaseID unset).
+            // (SiteSettings.provisionedWorkerResources.d1DatabaseID unset). #2059: when a Kev
+            // decision model is installed, each new mention passes the spam screen first and a
+            // held one waits in Config/interaction-screening.json for the owner; with no model
+            // the factory returns nil and this is the unscreened path.
             _ = await ReceivedInteractionSync.pullAndCommitIfConfigured(
-                siteDirectory: siteDirectory, configDirectory: configDirectory)
+                siteDirectory: siteDirectory, configDirectory: configDirectory,
+                screener: InteractionScreenerFactory.makeDefault())
             // #1236: pull replies/likes/reposts on every Bluesky-POSSE'd post from the public
             // AppView and snapshot them alongside the webmention/AP interactions above. No-ops
             // for sites that have never syndicated to Bluesky (no "bluesky" entry in the local

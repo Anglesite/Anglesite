@@ -153,6 +153,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// until then, and always on an Anglesite site. Provisioned infrastructure, hence `Config/`.
     public var emdashAdminURL: URL?
 
+    /// Owner opt-in to checking off-site links during audits (#2001). `nil`/`false` (the default)
+    /// means off: `BrokenLinkAuditRunner` only counts external links, never fetches them — probing
+    /// needs the network, is slow, and trips bot challenges, so network-dependent findings stay
+    /// out of every audit the owner didn't ask for. `true` means the owner turned it on in Site
+    /// Settings.
+    public var externalLinkCheckEnabled: Bool?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -179,7 +186,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         workerDeployed: Bool? = nil,
         workerProvisioned: Bool? = nil,
         sourceBundleBucket: String? = nil,
-        emdashAdminURL: URL? = nil
+        emdashAdminURL: URL? = nil,
+        externalLinkCheckEnabled: Bool? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -204,6 +212,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.workerProvisioned = workerProvisioned
         self.sourceBundleBucket = sourceBundleBucket
         self.emdashAdminURL = emdashAdminURL
+        self.externalLinkCheckEnabled = externalLinkCheckEnabled
     }
 }
 

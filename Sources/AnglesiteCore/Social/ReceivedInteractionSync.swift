@@ -47,9 +47,37 @@ public enum ReceivedInteractionSync {
     /// callers simply re-attempt on the next site-open rather than surfacing a transient network
     /// error. An empty inbox still reconciles (proceeds to `commit`) rather than short-circuiting,
     /// so previously-snapshotted mentions that were later unverified/removed still get cleaned up.
-    public static func pullAndCommit(client: WebmentionInboxD1Client, siteDirectory: URL) async -> Int {
+    ///
+    /// With a `screener`, each interaction passes through the spam/abuse gate first
+    /// (``InteractionScreener/screen(_:isAlreadyPublished:ownerRuling:)``): only the `published`
+    /// partition reaches the commit, every decision is recorded in `ledger`, and a held
+    /// interaction stays in D1 for the owner's ruling. Without one (the default, and the app's
+    /// wiring until a decision model ships), behavior is exactly the pre-screening path.
+    ///
+    /// - Parameters:
+    ///   - client: The site's D1 inbox.
+    ///   - siteDirectory: The site's `Source/` working copy.
+    ///   - screener: The gate, or `nil` to publish everything.
+    ///   - ledger: Where decisions and owner rulings live; only consulted when `screener` is set.
+    /// - Returns: How many snapshot files the resulting commit wrote or deleted.
+    public static func pullAndCommit(
+        client: WebmentionInboxD1Client, siteDirectory: URL,
+        screener: InteractionScreener? = nil, ledger: InteractionScreeningLedger? = nil
+    ) async -> Int {
         guard let mentions = try? await client.listVerifiedMentions() else { return 0 }
-        let interactions = mentions.compactMap(Self.makeInteraction(from:))
+        var interactions = mentions.compactMap(Self.makeInteraction(from:))
+        if let screener {
+            let interactionsDir = siteDirectory.appendingPathComponent("data/interactions", isDirectory: true)
+            let rulings = ledger?.load().rulings ?? [:]
+            let outcome = await screener.screen(
+                interactions,
+                isAlreadyPublished: { id in
+                    FileManager.default.fileExists(atPath: interactionsDir.appendingPathComponent("\(id).json").path)
+                },
+                ownerRuling: { id in rulings[id] })
+            ledger?.record(outcome.decisions)
+            interactions = outcome.published
+        }
         let committedIDs = await ReceivedInteractionCommitter.commit(
             interactions: interactions, scopedTo: [.webmention], into: siteDirectory)
         return committedIDs.count
@@ -60,13 +88,15 @@ public enum ReceivedInteractionSync {
     /// (`provisionedWorkerResources.d1DatabaseID`, set once the webmention receive Worker has been
     /// provisioned — see `SocialWorkerProvisionCommand`) and a token is available.
     /// `configDirectory` is the package's `Config/` directory (`AnglesitePackage.configURL`), a
-    /// sibling of `siteDirectory` (`AnglesitePackage.sourceURL`).
+    /// sibling of `siteDirectory` (`AnglesitePackage.sourceURL`); with a `screener`, it also
+    /// hosts the ``InteractionScreeningLedger``.
     public static func pullAndCommitIfConfigured(
         siteDirectory: URL,
         configDirectory: URL,
         secretStore: any SecretStore = PlatformSecretStore.make(),
         baseURL: String = "https://api.cloudflare.com/client/v4",
-        transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport
+        transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport,
+        screener: InteractionScreener? = nil
     ) async -> Int {
         guard let settings = try? SiteConfigStore.read(from: configDirectory),
               let databaseID = settings.provisionedWorkerResources?.d1DatabaseID, !databaseID.isEmpty
@@ -78,6 +108,7 @@ public enum ReceivedInteractionSync {
 
         let client = WebmentionInboxD1Client(
             accountID: accountID, databaseID: databaseID, apiToken: token, baseURL: baseURL, transport: transport)
-        return await pullAndCommit(client: client, siteDirectory: siteDirectory)
+        let ledger = screener == nil ? nil : InteractionScreeningLedger(configDirectory: configDirectory)
+        return await pullAndCommit(client: client, siteDirectory: siteDirectory, screener: screener, ledger: ledger)
     }
 }

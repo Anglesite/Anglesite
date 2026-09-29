@@ -303,6 +303,32 @@ struct PlistEditorView: View {
                     .font(.callout)
             }
             publishingSection
+            auditsSection
+        }
+    }
+
+    /// Site audit options (#2001). Off-site link checking lives with the site's other declared
+    /// properties because it's per-site and rarely changed; the audit sheet is where its findings
+    /// show up.
+    private var auditsSection: some View {
+        SettingsBox(title: "Audits") {
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(
+                    "Also check links to other sites during audits",
+                    isOn: Binding(
+                        get: { model.externalLinkCheckEnabled },
+                        set: { newValue in Task { await model.setExternalLinkCheckEnabled(newValue) } }))
+                    .toggleStyle(.switch)
+                Text("Visits each page your site links to on other sites and reports the ones that are gone. Audits take up to a minute longer, and sites that block automated visitors are reported as not checked rather than broken.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let externalLinkCheckError = model.externalLinkCheckError {
+                    Text(externalLinkCheckError)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+            }
         }
     }
 

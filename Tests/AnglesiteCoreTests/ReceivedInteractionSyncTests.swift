@@ -186,6 +186,83 @@ struct ReceivedInteractionSyncTests {
         #expect(count == 0)
     }
 
+    // MARK: - pullAndCommit with a screener
+
+    /// Answers the spam question with a fixed `p(spam)` keyed on the source host in the state.
+    private struct HostKeyedProvider: DecisionProvider {
+        let spamProbabilityByHost: [String: Double]
+        func decide(state: String, questions: [DecisionQuestion]) async throws -> [DecisionAnswer] {
+            let p = spamProbabilityByHost.first { state.contains($0.key) }?.value ?? 0
+            return [DecisionAnswer(probabilities: [p, 1 - p])]
+        }
+    }
+
+    @Test("a screener keeps held mentions out of git and records every decision in the ledger")
+    func screenerHoldsSpamAndRecordsLedger() async throws {
+        let siteDirectory = try Self.makeThrowawayGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+        let configDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("interactions-sync-ledger-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: configDir) }
+
+        let body = Self.d1Body("""
+        {"id": "wm-fine", "source": "https://alice.example/post", "target": "https://me.example/blog/hi",
+         "verified_at": 1753300000000, "interaction_type": "reply", "author_name": "Alice",
+         "author_url": null, "author_photo": null, "content": "Great post!", "published_at": 1753299000000},
+        {"id": "wm-spam", "source": "https://casino.example/win", "target": "https://me.example/blog/hi",
+         "verified_at": 1753300000000, "interaction_type": "reply", "author_name": null,
+         "author_url": null, "author_photo": null, "content": "BUY NOW", "published_at": 1753299000000}
+        """)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token", transport: { _ in (body, Self.response(200)) })
+        let screener = InteractionScreener(
+            provider: HostKeyedProvider(spamProbabilityByHost: ["casino.example": 0.95]), log: { _ in })
+        let ledger = InteractionScreeningLedger(configDirectory: configDir)
+
+        let count = await ReceivedInteractionSync.pullAndCommit(
+            client: client, siteDirectory: siteDirectory, screener: screener, ledger: ledger)
+        #expect(count == 1)
+        let interactionsDir = siteDirectory.appendingPathComponent("data/interactions", isDirectory: true)
+        #expect(FileManager.default.fileExists(atPath: interactionsDir.appendingPathComponent("wm-fine.json").path))
+        #expect(!FileManager.default.fileExists(atPath: interactionsDir.appendingPathComponent("wm-spam.json").path))
+        #expect(ledger.held().map(\.interactionID) == ["wm-spam"])
+        #expect(ledger.load().decisions["wm-fine"]?.verdict == .publish)
+
+        // The owner accepts it in the moderation pane; the next sync publishes it.
+        ledger.rule("wm-spam", approved: true)
+        let second = await ReceivedInteractionSync.pullAndCommit(
+            client: client, siteDirectory: siteDirectory, screener: screener, ledger: ledger)
+        #expect(second == 1)
+        #expect(FileManager.default.fileExists(atPath: interactionsDir.appendingPathComponent("wm-spam.json").path))
+        #expect(ledger.held().isEmpty)
+    }
+
+    @Test("a screener never un-publishes a mention already snapshotted in git")
+    func screenerGrandfathersExistingSnapshots() async throws {
+        let siteDirectory = try Self.makeThrowawayGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+
+        let body = Self.d1Body("""
+        {"id": "wm-old", "source": "https://casino.example/win", "target": "https://me.example/blog/hi",
+         "verified_at": 1753300000000, "interaction_type": "reply", "author_name": null,
+         "author_url": null, "author_photo": null, "content": "BUY NOW", "published_at": 1753299000000}
+        """)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token", transport: { _ in (body, Self.response(200)) })
+        // First sync without a screener: today's behavior, the mention is published.
+        let unscreened = await ReceivedInteractionSync.pullAndCommit(client: client, siteDirectory: siteDirectory)
+        #expect(unscreened == 1)
+
+        let screener = InteractionScreener(
+            provider: HostKeyedProvider(spamProbabilityByHost: ["casino.example": 0.99]), log: { _ in })
+        let count = await ReceivedInteractionSync.pullAndCommit(
+            client: client, siteDirectory: siteDirectory, screener: screener, ledger: nil)
+        #expect(count == 0)
+        #expect(FileManager.default.fileExists(
+            atPath: siteDirectory.appendingPathComponent("data/interactions/wm-old.json").path))
+    }
+
     // MARK: - pullAndCommitIfConfigured
 
     @Test("pullAndCommitIfConfigured no-ops when the site has no provisioned D1 database")
