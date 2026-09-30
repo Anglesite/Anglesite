@@ -49,6 +49,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let notifiesOnCompletion = "anglesite.notifiesOnCompletion"
         /// Backs ``AppSettings/playsDialupSoundEffect``.
         public static let playsDialupSoundEffect = "anglesite.playsDialupSoundEffect"
+        /// Backs ``AppSettings/screeningModelOfferShown`` (#2068).
+        public static let screeningModelOfferShown = "anglesite.screeningModelOfferShown"
         /// Backs ``AppSettings/startupTipCursor``.
         public static let startupTipCursor = "anglesite.startupTipCursor"
         /// One-shot flag consumed by ``AppSettings/removeLegacyChatBackendDefaultsIfNeeded()`` so
@@ -449,6 +451,15 @@ public final class AppSettings: @unchecked Sendable {
     public var playsDialupSoundEffect: Bool {
         get { defaults.bool(forKey: Key.playsDialupSoundEffect) }
         set { defaults.set(newValue, forKey: Key.playsDialupSoundEffect) }
+    }
+
+    /// Whether the one-time "screen new comments for spam?" offer (#2068) has been shown on this
+    /// Mac. Set the first time a site with a provisioned inbox opens or deploys while no
+    /// screening model is installed and a download is pinned; Settings ▸ General remains the
+    /// way to download (or remove) it afterwards.
+    public var screeningModelOfferShown: Bool {
+        get { defaults.bool(forKey: Key.screeningModelOfferShown) }
+        set { defaults.set(newValue, forKey: Key.screeningModelOfferShown) }
     }
 
     /// Where the startup screen's tips & tricks rotation resumes (``StartupTipDeck``), so
