@@ -100,6 +100,9 @@ enum AXID {
     /// Settings ▸ Advanced ▸ "Show developer tools" — the one toggle behind which every code
     /// editor and the Safari bridge setup live (`DeveloperToolsVisibility`).
     static let settingsDeveloperToolsToggle = "settings.developerTools.toggle"
+    /// Settings ▸ Advanced ▸ Developer Tools ▸ "Track errors in your site's Workers" (#2095) —
+    /// shown only while developer tools are on (`DeveloperToolsVisibility.showsWorkerIssuesSetting`).
+    static let settingsWorkerIssuesToggle = "settings.developerTools.workerIssues"
 
     // MARK: Safari MCP Bridge (#1910)
 
@@ -123,7 +126,7 @@ enum AXID {
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,
         debugServerHeader, debugLocalWorkersHeader,
-        settingsDeveloperToolsToggle,
+        settingsDeveloperToolsToggle, settingsWorkerIssuesToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
     ]
 }

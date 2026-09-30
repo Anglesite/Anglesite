@@ -26,6 +26,17 @@ public struct DeveloperToolsVisibility: Sendable, Equatable {
     /// Terminal command the owner is asked to run, so the whole section is a developer tool.
     public var showsSafariBridgeSetup: Bool { settingEnabled }
 
+    /// The Worker error-tracking toggle in Settings ▸ Advanced (#2095) — the first Developer
+    /// feature, since it hands diagnostics to Cloudflare Workers Issues on the owner's account.
+    public var showsWorkerIssuesSetting: Bool { settingEnabled }
+
+    /// Whether a publish opts the site's Worker into Cloudflare Workers Issues (#2095): only when
+    /// developer tools are on *and* the owner turned the feature on. Hiding developer tools turns
+    /// it off on the next publish without clearing the stored opt-in.
+    public func tracksWorkerIssues(optedIn: Bool) -> Bool {
+        settingEnabled && optedIn
+    }
+
     /// Whether the editor `EditorKind.resolve` picked for a file may be shown. Only the raw
     /// text editor is gated: the Website Settings form (`.plist`), the post editor
     /// (`.markdown`) and the Component Editor's Design canvas (`.component`) are owner surfaces

@@ -1044,4 +1044,36 @@ struct WorkerCompositionTests {
             siteName: "site", workers: [indieauthWorker], resources: resources)
         #expect(config.resources == resources)
     }
+
+    // MARK: Workers Issues (#2095)
+
+    @Test("issuesEnabled emits an [observability.issues] sub-table after [observability]")
+    func issuesEnabledEmitsSubTable() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], issuesEnabled: true
+        ).toml
+        #expect(toml.contains("""
+            [observability]
+            enabled = true
+            head_sampling_rate = 1
+
+            [observability.issues]
+            enabled = true
+            """))
+    }
+
+    @Test("issuesEnabled defaults to off, leaving the observability block unchanged")
+    func issuesDisabledByDefault() throws {
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [indieauthWorker]).toml
+        #expect(toml.contains("[observability]"))
+        #expect(!toml.contains("[observability.issues]"))
+    }
+
+    @Test("issuesEnabled on a static-only site composes nothing — there is no Worker to watch")
+    func issuesEnabledStaticOnlyIsInert() throws {
+        let off = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: []).toml
+        let on = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [], issuesEnabled: true).toml
+        #expect(on == off)
+        #expect(!on.contains("observability"))
+    }
 }

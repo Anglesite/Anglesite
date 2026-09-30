@@ -240,6 +240,10 @@ public actor SocialWorkerProvisionCommand {
         /// `needsKV`-flagged worker active still needs `SOCIAL_KV` when MCP is on, since
         /// `worker/mcp-server.ts`'s rate limiter binds to it.
         mcpEnabled: Bool = false,
+        /// Whether the composed Worker opts into Cloudflare Workers Issues (#2095,
+        /// `AppSettings.tracksWorkerIssues`). Forwarded to `WorkerComposition.generateWranglerToml`
+        /// unchanged; provisions nothing of its own.
+        issuesEnabled: Bool = false,
         /// The site's currently published route set, forwarded verbatim to `DeployCommand.deploy`.
         currentRoutes: [String] = [],
         /// Forwarded verbatim to `DeployCommand.deploy` so a caller (`DeployModel`) can observe
@@ -293,6 +297,7 @@ public actor SocialWorkerProvisionCommand {
             acknowledgesPaidPlan: acknowledgesPaidPlan, inboxCaptureEnabled: inboxCaptureEnabled,
             inboxForwardEmail: inboxForwardEmail, activityPubActorType: activityPubActorType,
             moderators: moderators, experiments: experiments, mcpEnabled: mcpEnabled,
+            issuesEnabled: issuesEnabled,
             keyPairSource: keyPairSource, solidOidcSigningKeySource: solidOidcSigningKeySource,
             webdavPepperSource: webdavPepperSource, secretRunner: secretRunner, accountIDSource: self.accountIDSource)
 

@@ -121,11 +121,17 @@ owner-facing consent copy that is explicit about what leaves their account.
 
 ## 6. App changes
 
-1. **Setting.** Add `AppSettings.reportWorkerErrorsEnabled`, a new `Key` + `@AppStorage` flag.
-   It shows in the Developer Tools section only while `developerTools.settingEnabled` is on, with
-   owner-vocabulary copy such as *"Send errors from your site's add-ons to their authors so they
-   can fix them."* Add a per-site override in the site's Workers tab later, if needed.
-2. **Composition.** Add a parameter `issuesEnabled: Bool` to `generateWranglerToml`. When both it
+1. **Setting** *(slice 1, shipped)*. `AppSettings.workerIssuesEnabled` stores the opt-in, a new
+   `Key` + `@AppStorage` flag. The toggle, *"Track errors in your site's Workers"*, appears in the
+   Developer Tools section only while developer tools are on
+   (`DeveloperToolsVisibility.showsWorkerIssuesSetting`). Deploy reads
+   `AppSettings.tracksWorkerIssues`, which requires both settings. Hiding developer tools therefore
+   switches Issues off on the next publish but keeps the stored choice. Slice 2 changes the copy to
+   say that errors go to the Workers' authors. A per-site override in the Workers tab can come
+   later if needed.
+2. **Composition** *(slice 1, shipped)*. Add a parameter `issuesEnabled: Bool` to `generateWranglerToml`,
+   threaded through `SocialWorkerProvisionCommand`/`SocialWorkerProvisionTarget` from both
+   `DeployModel` and the headless `SiteOperations` deploy. When both it
    and `composesWorker` are true, the observability block also emits `[observability.issues]` with
    `enabled = true`. It defaults to `false`, so existing `WorkerCompositionTests` stay
    byte-identical; add cases for the on state. Local `wrangler dev`

@@ -182,7 +182,10 @@ public struct SiteOperations: Sendable {
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
-            mcpEnabled: mcpEnabled
+            mcpEnabled: mcpEnabled,
+            // #2095: an app-wide Developer Tools opt-in, not a site setting — mirrors
+            // DeployModel.runDeploy so a headless redeploy doesn't switch Issues back off.
+            issuesEnabled: AppSettings.shared.tracksWorkerIssues
         )
         onProgress?(.deployFinalizing)
 

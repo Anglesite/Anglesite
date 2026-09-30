@@ -31,6 +31,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let debugPaneEnabled   = "anglesite.debugPaneEnabled"
         /// Backs ``AppSettings/developerToolsEnabled`` (#1964).
         public static let developerToolsEnabled = "anglesite.developerToolsEnabled"
+        /// Backs ``AppSettings/workerIssuesEnabled`` (#2095).
+        public static let workerIssuesEnabled = "anglesite.workerIssuesEnabled"
         /// Backs ``AppSettings/botPreferenceSyncUIEnabled``.
         public static let botPreferenceSyncUIEnabled = "anglesite.botPreferenceSyncUIEnabled"
         /// Backs ``AppSettings/esiPreviewUnprocessed``.
@@ -268,6 +270,22 @@ public final class AppSettings: @unchecked Sendable {
     public var developerToolsEnabled: Bool {
         get { defaults.bool(forKey: Key.developerToolsEnabled) }
         set { defaults.set(newValue, forKey: Key.developerToolsEnabled) }
+    }
+
+    /// Opt-in toggle (Settings → Advanced → Developer Tools, #2095) that turns on Cloudflare
+    /// Workers Issues for each site's composed Worker on its next publish. The raw stored choice —
+    /// deploy reads ``tracksWorkerIssues``, which also requires ``developerToolsEnabled``, so
+    /// hiding developer tools switches the feature off without forgetting the owner's choice.
+    public var workerIssuesEnabled: Bool {
+        get { defaults.bool(forKey: Key.workerIssuesEnabled) }
+        set { defaults.set(newValue, forKey: Key.workerIssuesEnabled) }
+    }
+
+    /// Whether a publish should opt the site's Worker into Cloudflare Workers Issues (#2095) —
+    /// ``DeveloperToolsVisibility/tracksWorkerIssues(optedIn:)`` over the two stored settings.
+    public var tracksWorkerIssues: Bool {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
+            .tracksWorkerIssues(optedIn: workerIssuesEnabled)
     }
 
     /// Opt-in toggle (Settings → Advanced) that reveals the "Bot blocklist managed by" control in

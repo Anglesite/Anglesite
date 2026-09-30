@@ -190,6 +190,20 @@ final class AppSettingsTests {
         #expect(!settings.botPreferenceSyncUIEnabled)
     }
 
+    @Test("Worker Issues opt-in defaults to false and needs developer tools to take effect (#2095)")
+    func workerIssuesGatedOnDeveloperTools() {
+        let settings = AppSettings(defaults: defaults)
+        #expect(!settings.workerIssuesEnabled)
+        #expect(!settings.tracksWorkerIssues)
+        settings.workerIssuesEnabled = true
+        #expect(!settings.tracksWorkerIssues, "hidden developer tools switch it off")
+        settings.developerToolsEnabled = true
+        #expect(settings.tracksWorkerIssues)
+        settings.developerToolsEnabled = false
+        #expect(settings.workerIssuesEnabled, "hiding developer tools keeps the stored choice")
+        #expect(!settings.tracksWorkerIssues)
+    }
+
     // MARK: Auto alt-text (C.7 — vision alt-text pipeline)
 
     @Test("autoGenerateAltText defaults to true (on)") func autoAltTextDefaultsToTrue() {

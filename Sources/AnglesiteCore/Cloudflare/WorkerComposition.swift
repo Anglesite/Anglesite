@@ -302,6 +302,12 @@ public enum WorkerComposition {
     ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
     ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
     ///     Defaults to `false` (inert).
+    ///   - issuesEnabled: Whether the composed Worker opts into Cloudflare Workers Issues (#2095,
+    ///     `AppSettings.tracksWorkerIssues`) — emits an `[observability.issues]` sub-table under
+    ///     `[observability]`. Only meaningful when a Worker is composed at all; a static-only site
+    ///     ignores it. Wrangler turns Issues back *off* on any deploy whose config omits the key,
+    ///     so this must be threaded on every deploy rather than set once. Defaults to `false`;
+    ///     the local-dev path never passes it.
     ///   - projectRoot: Absolute guest path the composed file's `main`, `[assets].directory`, and
     ///     `migrations_dir` fields are rooted at, or `nil` (default) to leave them relative to the
     ///     wrangler.toml's own location — wrangler's normal resolution and what the deploy path
@@ -335,6 +341,7 @@ public enum WorkerComposition {
         apIcon: String? = nil,
         experiments: [DomainConfig.Experiments.Experiment] = [],
         mcpEnabled: Bool = false,
+        issuesEnabled: Bool = false,
         projectRoot: String? = nil
     ) throws -> WranglerConfiguration {
         guard isValidSiteName(siteName) else {
@@ -715,6 +722,11 @@ public enum WorkerComposition {
             lines.append("[observability]")
             lines.append("enabled = true")
             lines.append("head_sampling_rate = 1")
+            if issuesEnabled {
+                lines.append("")
+                lines.append("[observability.issues]")
+                lines.append("enabled = true")
+            }
         }
 
         lines.append("")

@@ -413,6 +413,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
     @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
+    @AppStorage(AppSettings.Key.workerIssuesEnabled) private var workerIssuesEnabled: Bool = false
     @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
@@ -503,6 +504,16 @@ private struct AdvancedSettingsView: View {
                 Text("Adds a Source tab and code-level Style and Metadata inspectors to the Component Editor, opens your site's other files as plain text, and shows the Safari bridge setup below. Off by default: Anglesite takes care of these files for you, and everything you publish works without them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // The first Developer feature (#2095): opts each site's Worker into Cloudflare
+                // Workers Issues on its next publish. Rides the toggle above, and deploy reads
+                // `AppSettings.tracksWorkerIssues`, so hiding developer tools also switches it off.
+                if developerTools.showsWorkerIssuesSetting {
+                    Toggle("Track errors in your site's Workers", isOn: $workerIssuesEnabled)
+                        .accessibilityIdentifier(AXID.settingsWorkerIssuesToggle)
+                    Text("Asks Cloudflare to group repeated errors from your site's Workers so you can see what broke and when, in your Cloudflare dashboard. Takes effect the next time you publish, and only on sites with Workers turned on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // The bridge's setup guidance is a Terminal command (#1910) — a developer tool by

@@ -1239,6 +1239,9 @@ final class DeployModel {
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
             mcpEnabled: mcpEnabled,
+            // #2095: Settings ▸ Advanced ▸ Developer Tools opt-in. Threaded on every deploy —
+            // wrangler turns Issues back off whenever the config omits the key.
+            issuesEnabled: AppSettings.shared.tracksWorkerIssues,
             currentRoutes: currentRoutes,
             onPreflight: { [weak self] outcome in
                 Task { @MainActor in self?.onScanComplete?(outcome) }

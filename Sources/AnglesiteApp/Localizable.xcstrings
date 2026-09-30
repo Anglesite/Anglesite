@@ -766,6 +766,9 @@
     "Ask the assistant…" : {
 
     },
+    "Asks Cloudflare to group repeated errors from your site's Workers so you can see what broke and when, in your Cloudflare dashboard. Takes effect the next time you publish, and only on sites with Workers turned on." : {
+
+    },
     "Assert nothing" : {
 
     },
@@ -4527,6 +4530,9 @@
 
     },
     "TLS report mailbox" : {
+
+    },
+    "Track errors in your site's Workers" : {
 
     },
     "TTL" : {
