@@ -22,6 +22,12 @@
  * With --strict: warnings are promoted into `failures` (both in the --json envelope and for
  * exit-code purposes) — used by `npm run build:ci`, the single entry point for non-interactive
  * runners (#799), where a warning-only issue must still block an automated bake/deploy.
+ *
+ * A server-rendered (EmDash) build puts its public files in `dist/client/` and its Worker in
+ * `dist/server/` (#2055 slice 2, the deploy layer of the re-scoped gate). The public files get
+ * every check above, reported under the same `dist/…` paths a static site uses, since that is
+ * where they are served from. The server bundle gets the secrets check, and must contain the
+ * site's pinned publish gate (`checkServerBuild`). See `anglesite-build-manifest.ts`.
  */
 
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -33,6 +39,7 @@ import { isMTAStsMarkerOwned, isSecurityTxtMarkerOwned, normalizeMTAStsMX, readL
 import { ANGLESITE_CONFIG_RECOGNIZED_VERSIONS } from "./anglesite-config";
 import { rslActive, rslFileUrl } from "../src/lib/rsl.ts";
 import { GOAL_BEACON_SCRIPT_PATH } from "./experiments-paths.ts";
+import { BUILD_MANIFEST_PATH, REQUIRED_GATE_MODULES, sha256 } from "./anglesite-build-manifest.ts";
 import type { Issue } from "./gate-checks";
 import {
   checkSecrets,
@@ -72,7 +79,11 @@ const JSON_MODE = process.argv.includes("--json");
 const STRICT_MODE = process.argv.includes("--strict");
 const SOURCE_MODE = process.argv.includes("--source");
 const DIST_DIR = join(process.cwd(), "dist");
-const HEADERS_FILE = join(DIST_DIR, "_headers");
+// A server-rendered build (#2055 slice 2): dist/server/ (the Worker, entry.mjs) and dist/client/
+// (the public files the static checks read) instead of one static dist/.
+const SERVER_DIR = join(DIST_DIR, "server");
+const SERVER_ENTRY = join(SERVER_DIR, "entry.mjs");
+const CLIENT_DIR = join(DIST_DIR, "client");
 const CONFIG_FILE = join(process.cwd(), ".site-config");
 const ANGLESITE_CONFIG_FILE = join(process.cwd(), "anglesite.json");
 const SOURCE_CONTENT_DIR = join(process.cwd(), "src", "content");
@@ -1122,6 +1133,127 @@ export function checkExperiments(
   return issues;
 }
 
+/** The checks a public file in a vendored chunk skips: its bytes are a dependency's, not the owner's. */
+const VENDORED_PII_CATEGORIES = new Set(["pii-email", "pii-phone"]);
+
+/**
+ * `checkPII` for one public file, with the vendored relaxation applied: a chunk the build manifest
+ * lists as wholly dependency code (EmDash's admin UI) skips the email and phone patterns, which
+ * match its placeholder addresses and minified numeric constants. Its SSN check, and every other
+ * check, still run.
+ */
+export function checkPublicPII(content: string, rel: string, vendored: boolean): Issue[] {
+  const issues = checkPII(content, rel);
+  return vendored ? issues.filter((i) => !VENDORED_PII_CATEGORIES.has(i.category)) : issues;
+}
+
+/**
+ * The deploy layer's checks on a server-rendered build (#2055 slice 2). The publish gate is the
+ * site's real gate (ADR § Gate, layer 2), so a Worker that doesn't run it must not deploy:
+ *
+ * - The build manifest must exist and parse (it's written by the pinned
+ *   `anglesite-build-manifest.ts` integration, which the site's config registers).
+ * - Every `REQUIRED_GATE_MODULES` source must be in the server bundle, built from exactly the
+ *   file the site has now. `currentHashes` holds the SHA-256 of each on disk (null: missing). The
+ *   app's D5 hash pin holds those files to the app's own copies.
+ * - The manifest must record `gateRegistered: true`: the build saw EmDash's generated plugin list
+ *   register the `anglesite-gate` descriptor, not merely a bundled plugin module.
+ */
+export function checkServerBuild(manifestRaw: string | null, currentHashes: Record<string, string | null>): Issue[] {
+  const file = BUILD_MANIFEST_PATH;
+  const issues: Issue[] = [];
+  let manifest: { version?: unknown; gateModules?: unknown; gateRegistered?: unknown } | null = null;
+  if (manifestRaw !== null) {
+    try {
+      manifest = JSON.parse(manifestRaw);
+    } catch {
+      manifest = null;
+    }
+  }
+  const gateModules =
+    manifest && manifest.version === 1 && manifest.gateModules && typeof manifest.gateModules === "object"
+      ? (manifest.gateModules as Record<string, unknown>)
+      : null;
+  if (gateModules === null) {
+    issues.push({
+      severity: "error",
+      category: "publish-gate-missing",
+      message: manifestRaw === null
+        ? "The server build has no build manifest, so it can't show that the publishing safety check is built in."
+        : "The server build's manifest is unreadable, so it can't show that the publishing safety check is built in.",
+      file,
+      remediation: "Rebuild the site with its astro.config.ts registering anglesite-build-manifest.",
+    });
+    return issues;
+  }
+  for (const path of REQUIRED_GATE_MODULES) {
+    const built = gateModules[path];
+    const current = currentHashes[path] ?? null;
+    if (typeof built !== "string") {
+      issues.push({
+        severity: "error",
+        category: "publish-gate-missing",
+        message: `The server bundle doesn't include ${path}, so articles could be published without the safety check.`,
+        file,
+        remediation: "Register anglesite-gate in astro.config.ts from ./scripts/emdash-gate/plugin.ts and rebuild.",
+      });
+    } else if (current === null || built !== current) {
+      issues.push({
+        severity: "error",
+        category: "publish-gate-mismatch",
+        message: `The server bundle was built from a different ${path} than the site has now.`,
+        file,
+        remediation: "Rebuild the site so the Worker runs the pinned safety check.",
+      });
+    }
+  }
+  if (manifest?.gateRegistered !== true) {
+    issues.push({
+      severity: "error",
+      category: "publish-gate-missing",
+      message: "The server bundle doesn't register the anglesite-gate plugin, so articles could be published without the safety check.",
+      file,
+      remediation: "Register anglesite-gate in astro.config.ts's EmDash plugins and rebuild.",
+    });
+  }
+  return issues;
+}
+
+async function readOrNull(path: string): Promise<string | null> {
+  return readFile(path, "utf-8").catch((e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)));
+}
+
+/** The server bundle's share of the scan: secrets in every module, and the publish gate. */
+async function scanServerBuild(): Promise<Issue[]> {
+  const issues: Issue[] = [];
+  const serverFiles = await stat(SERVER_DIR).then(() => walk(SERVER_DIR), () => null);
+  for await (const file of serverFiles ?? []) {
+    if (!/\.(m?js|json)$/i.test(file)) continue;
+    issues.push(...checkSecrets(await readFile(file, "utf-8"), relative(process.cwd(), file)));
+  }
+  const currentHashes: Record<string, string | null> = {};
+  for (const path of REQUIRED_GATE_MODULES) {
+    // Raw bytes, as the build manifest hashes them.
+    const bytes = await readFile(join(process.cwd(), path)).catch((e: NodeJS.ErrnoException) =>
+      e.code === "ENOENT" ? null : Promise.reject(e),
+    );
+    currentHashes[path] = bytes === null ? null : sha256(bytes);
+  }
+  const manifestRaw = await readOrNull(join(process.cwd(), BUILD_MANIFEST_PATH));
+  issues.push(...checkServerBuild(manifestRaw, currentHashes));
+  return issues;
+}
+
+/** Vendored public chunks from the build manifest, as `dist/…` paths. Empty for a static site. */
+function vendoredPublicPaths(manifestRaw: string | null): Set<string> {
+  try {
+    const chunks = manifestRaw === null ? [] : JSON.parse(manifestRaw).vendoredClientChunks;
+    return new Set(Array.isArray(chunks) ? chunks.filter((c): c is string => typeof c === "string").map((c) => `dist/${c}`) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 async function scan(): Promise<Issue[]> {
   const issues: Issue[] = [];
 
@@ -1159,7 +1291,33 @@ async function scan(): Promise<Issue[]> {
     return issues;
   }
 
-  const headersContent = await readFile(HEADERS_FILE, "utf-8").catch((e: NodeJS.ErrnoException) =>
+  // Server-rendered: the static checks read the public files in dist/client/, and report them
+  // under the dist/… paths they're served at, so every check below applies unchanged. Any file
+  // only a server build writes marks the layout, so a renamed or missing Worker entry can't drop
+  // the build back to static mode (and past the publish-gate checks); it is a failure of its own.
+  // Bare dist/server/ or dist/client/ directories don't count: a static site's own /server/ page
+  // builds to dist/server/index.html.
+  const exists = (path: string) => stat(path).then(() => true, () => false);
+  const serverRendered = (
+    await Promise.all([SERVER_ENTRY, join(SERVER_DIR, "wrangler.json"), join(process.cwd(), BUILD_MANIFEST_PATH)].map(exists))
+  ).some(Boolean);
+  if (serverRendered && !(await exists(SERVER_ENTRY))) {
+    issues.push({
+      severity: "error",
+      category: "server-build-incomplete",
+      message: "The build is server-rendered but has no Worker entry at dist/server/entry.mjs.",
+      file: "dist/server/entry.mjs",
+      remediation: "Rebuild the site; if the adapter now names its entry differently, update pre-deploy-check.ts.",
+    });
+  }
+  const publicDir = serverRendered ? CLIENT_DIR : DIST_DIR;
+  const publicRel = (file: string) => (serverRendered ? join("dist", relative(publicDir, file)) : relative(process.cwd(), file));
+  const vendored = serverRendered
+    ? vendoredPublicPaths(await readOrNull(join(process.cwd(), BUILD_MANIFEST_PATH)))
+    : new Set<string>();
+  if (serverRendered) issues.push(...(await scanServerBuild()));
+
+  const headersContent = await readFile(join(publicDir, "_headers"), "utf-8").catch((e: NodeJS.ErrnoException) =>
     e.code === "ENOENT" ? null : Promise.reject(e),
   );
   const configContent = await readFile(CONFIG_FILE, "utf-8").catch((e: NodeJS.ErrnoException) =>
@@ -1167,19 +1325,19 @@ async function scan(): Promise<Issue[]> {
   );
   issues.push(...checkHeaders(headersContent, configContent));
 
-  const securityTxtContent = await readFile(join(DIST_DIR, ".well-known", "security.txt"), "utf-8").catch(
+  const securityTxtContent = await readFile(join(publicDir, ".well-known", "security.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   issues.push(...checkSecurityTxt(securityTxtContent, configContent, new Date()));
-  const mtaStsContent = await readFile(join(DIST_DIR, ".well-known", "mta-sts.txt"), "utf-8").catch(
+  const mtaStsContent = await readFile(join(publicDir, ".well-known", "mta-sts.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   issues.push(...checkMTAStsPolicy(mtaStsContent, configContent));
 
-  const robotsContent = await readFile(join(DIST_DIR, "robots.txt"), "utf-8").catch(
+  const robotsContent = await readFile(join(publicDir, "robots.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? "" : Promise.reject(e)),
   );
-  const rslXmlContent = await readFile(join(DIST_DIR, "rsl.xml"), "utf-8").catch(
+  const rslXmlContent = await readFile(join(publicDir, "rsl.xml"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   const { policy: licensingPolicy } = readLicensingPolicy(process.cwd());
@@ -1194,7 +1352,7 @@ async function scan(): Promise<Issue[]> {
     ),
   );
 
-  const sitemapContent = await readFile(join(DIST_DIR, "sitemap.xml"), "utf-8").catch(
+  const sitemapContent = await readFile(join(publicDir, "sitemap.xml"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   // Only ever two files' content is needed out of the whole walk below — the running
@@ -1209,13 +1367,13 @@ async function scan(): Promise<Issue[]> {
 
   const relPaths: string[] = [];
 
-  for await (const file of walk(DIST_DIR)) {
+  for await (const file of walk(publicDir)) {
     if (!/\.(html?|js|css|json|xml|txt)$/i.test(file)) continue;
     const content = await readFile(file, "utf-8");
-    const rel = relative(process.cwd(), file);
+    const rel = publicRel(file);
     relPaths.push(rel);
 
-    issues.push(...checkPII(content, rel));
+    issues.push(...checkPublicPII(content, rel, vendored.has(rel.replace(/\\/g, "/"))));
     issues.push(...checkNoRestrictedContentInDist(rel, content));
 
     const isHtmlOrCss = /\.(html?|css)$/i.test(file);

@@ -142,6 +142,64 @@ imports) so Node and Workers run the *same* code. The module is part of the app-
 | **2. Publish** (`anglesite-gate` EmDash plugin) | `content:beforePublish` and `content:beforeSchedule`, re-run when a scheduled post comes due | The draft's fields: text (Portable Text spans, link targets) and the URLs a page would load | Content checks: secrets, PII, embed-media hotlinks, mixed content, restricted-visibility content. Same severity policy as `build:ci --strict` | Publish cancelled via `{ cancel: true, reason }`, with the reason in writer terms in EmDash's editor |
 | **3. Render backstop** (SSR Worker) | Before a rendered page enters the cache | The rendered HTML response | Error-severity checks only: secrets, restricted content, blocked admin routes | Page withheld (not cached, served as unavailable) and the owner is alerted. It fails closed |
 
+**Layer 1 on a server-rendered build (#2055 slice 2).** `pre-deploy-check.ts` recognises the
+server layout by any file only a server build writes: the Worker entry
+(`dist/server/entry.mjs`), the adapter's `dist/server/wrangler.json`, or the build manifest. A
+server build without the Worker entry fails rather than falling back to the static checks. On a
+server-rendered build it does the following:
+- It reads the public files from `dist/client/` and runs every existing check on them, reported
+  under the `dist/…` paths they are served at.
+- It runs the secrets check on the server bundle. The PII checks don't run there: the bundle mixes
+  the owner's templates with library code, so a match says nothing about the owner's data.
+  Owner-authored rendered pages are covered at render time (layer 3).
+- It refuses the deploy unless the server bundle was built from the site's pinned
+  `scripts/gate-checks.ts` and `scripts/emdash-gate/`, unchanged since the build, and registers
+  `anglesite-gate`. Those facts come from `dist/anglesite-build.json`, which the pinned
+  `scripts/anglesite-build-manifest.ts` integration writes from the bundler. Each gate source is
+  hashed as Vite loads it for the server build. Registration is read from EmDash's compiled
+  `virtual:emdash/plugins` module, which carries a descriptor only for each registered plugin.
+  The manifest sits outside both `dist/client/` and `dist/server/`, so it is neither served nor
+  uploaded.
+- It lists public chunks made entirely of EmDash's own code (its admin UI) in the same manifest:
+  every module is under `node_modules/` or is one of EmDash's two admin-UI registries
+  (`virtual:emdash/admin-registry`, `virtual:emdash/auth-providers`). The deploy scan skips only
+  the email and phone patterns for those chunks, which match their placeholder addresses and
+  minified constants. It does the same for Pagefind's vendored files. EmDash's other generated
+  modules are built from the site's config and seed, so a chunk containing one is never treated
+  as vendored.
+
+**Layer 3 on an EmDash site (#2055 slice 4).** The pinned
+`scripts/emdash-gate/render-backstop.ts` checks every page the Worker renders on request, before
+a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
+- It runs the error-severity checks from the shared module: secrets, restricted-audience
+  content and blocked admin routes. PII stays a publish-time and deploy-time check, so a
+  reporter's published contact line doesn't take a page down.
+- A failing page is replaced by a plain `503` with `Cache-Control: no-store` that says nothing
+  about why. If the page can't be read or checked, it is withheld too, so the backstop fails
+  closed.
+- EmDash's own authenticated routes (`/_emdash/…`) and non-HTML responses are skipped.
+  Prerendered pages are skipped too: the deploy layer already scanned them as files.
+- The deploy layer lists the backstop in `REQUIRED_GATE_MODULES`, so a server build without it
+  is refused.
+- The owner is alerted in two places. The Worker's log gets one
+  `anglesite.render-backstop.withheld` line per withheld page, naming the path, the check
+  categories and their messages; the messages say what was found but never quote it. The site's
+  D1 database (EmDash's `DB`) gets one row per withheld path in `anglesite_withheld_pages`
+  (#2097). It is written only when a page is withheld, and refreshed at most every five minutes,
+  after the 503 has been sent (`waitUntil`), so a slow database never delays the reader.
+  The app reads that table (`EmDashWithheldPages`, via `SiteSettings.emdashD1DatabaseID`) and
+  shows a banner in the site window: which pages, why in owner terms, and Open EmDash. When a
+  listed page answers `200` again, or is gone (`404`/`410`, deleted or unpublished), the app
+  clears its row, so the notice goes away on its own. It only probes a path on the site's own
+  host. This matters because a false positive (a token-shaped string in an article about
+  security, say) takes a page down with a 503 the writer can't see.
+- Checking a page means reading all of it first, so server-rendered pages are no longer
+  streamed as they render. That is deliberate: nothing reaches a reader or a cache before the
+  whole page has been checked.
+- A response with no body (a `304` revalidation, a `HEAD` request) passes through unchanged.
+  A content-encoded body can't be read as the page's text, so it is withheld. Astro renders
+  uncompressed; Cloudflare compresses later, at the edge.
+
 Why three layers:
 - **Publish** is the real gate. It stops the problem before a reader can see it, and it tells the
   writer, not the owner, what to fix.

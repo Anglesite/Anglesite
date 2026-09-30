@@ -101,6 +101,16 @@ struct EmDashOverlayTemplateTests {
         #expect(Set(excludes.map { String($0.dropFirst()) }) == EmDashScaffold.overlaySkippedNames)
     }
 
+    @Test("the overlay wires the pinned render backstop into every server-rendered page")
+    func middlewareWiresRenderBackstop() throws {
+        let middleware = try String(contentsOf: Self.overlay.appendingPathComponent("src/middleware.ts"), encoding: .utf8)
+        #expect(middleware.contains(#"from "../scripts/emdash-gate/render-backstop.ts""#))
+        #expect(middleware.contains("d1WithheldReporter(db),"))
+        #expect(middleware.contains("cfContext.waitUntil(promise)"))
+        #expect(FileManager.default.fileExists(
+            atPath: Self.template.appendingPathComponent("scripts/emdash-gate/render-backstop.ts").path))
+    }
+
     @Test("the overlay's config builds on the renamed template config and registers the gate")
     func configRegistersGate() throws {
         let config = try String(contentsOf: Self.overlay.appendingPathComponent("astro.config.ts"), encoding: .utf8)
@@ -108,6 +118,9 @@ struct EmDashOverlayTemplateTests {
         #expect(config.contains(#"id: "anglesite-gate""#))
         #expect(config.contains("./scripts/emdash-gate/plugin.ts"))
         #expect(config.contains("plugins: [anglesiteGate]"))
+        // The deploy layer (#2055 slice 2) refuses a server build without the pinned manifest.
+        #expect(config.contains(#"from "./scripts/anglesite-build-manifest.ts""#))
+        #expect(config.contains("anglesiteBuildManifest()"))
         // The gate's manifest and the in-code descriptor grant the same, single capability.
         let manifest = try String(contentsOf: Self.template.deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("JS/anglesite-gate/emdash-plugin.jsonc"), encoding: .utf8)
