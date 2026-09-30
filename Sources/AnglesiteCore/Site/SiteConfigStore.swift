@@ -153,6 +153,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// until then, and always on an Anglesite site. Provisioned infrastructure, hence `Config/`.
     public var emdashAdminURL: URL?
 
+    /// The id of an EmDash site's D1 database (EmDash's `DB` binding, #2050). The app reads the
+    /// render backstop's `anglesite_withheld_pages` table from it to tell the owner when a page
+    /// isn't showing to readers (#2097). Written alongside ``emdashAdminURL`` when Anglesite
+    /// provisions EmDash or connects an existing install; `nil` until then, and always on an
+    /// Anglesite site. Provisioned infrastructure, hence `Config/`.
+    public var emdashD1DatabaseID: String?
+
     /// Owner opt-in to checking off-site links during audits (#2001). `nil`/`false` (the default)
     /// means off: `BrokenLinkAuditRunner` only counts external links, never fetches them — probing
     /// needs the network, is slow, and trips bot challenges, so network-dependent findings stay
@@ -194,6 +201,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         workerProvisioned: Bool? = nil,
         sourceBundleBucket: String? = nil,
         emdashAdminURL: URL? = nil,
+        emdashD1DatabaseID: String? = nil,
         externalLinkCheckEnabled: Bool? = nil,
         imageOptimisationDisabled: Bool? = nil
     ) {
@@ -220,6 +228,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.workerProvisioned = workerProvisioned
         self.sourceBundleBucket = sourceBundleBucket
         self.emdashAdminURL = emdashAdminURL
+        self.emdashD1DatabaseID = emdashD1DatabaseID
         self.externalLinkCheckEnabled = externalLinkCheckEnabled
         self.imageOptimisationDisabled = imageOptimisationDisabled
     }

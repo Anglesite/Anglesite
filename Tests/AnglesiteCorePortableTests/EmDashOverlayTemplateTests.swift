@@ -105,7 +105,8 @@ struct EmDashOverlayTemplateTests {
     func middlewareWiresRenderBackstop() throws {
         let middleware = try String(contentsOf: Self.overlay.appendingPathComponent("src/middleware.ts"), encoding: .utf8)
         #expect(middleware.contains(#"from "../scripts/emdash-gate/render-backstop.ts""#))
-        #expect(middleware.contains("applyRenderBackstop(context.url.pathname, response)"))
+        #expect(middleware.contains("d1WithheldReporter(db),"))
+        #expect(middleware.contains("cfContext.waitUntil(promise)"))
         #expect(FileManager.default.fileExists(
             atPath: Self.template.appendingPathComponent("scripts/emdash-gate/render-backstop.ts").path))
     }

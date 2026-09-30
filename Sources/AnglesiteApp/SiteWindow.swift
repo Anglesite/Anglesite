@@ -1009,6 +1009,16 @@ struct SiteWindow: View {
                         SiteUpdateNoticeBannerView(notice: notice, onDismiss: { model.dismissSiteUpdateNotice() })
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
+                    // EmDash sites (#2097): pages the render backstop is holding back from readers.
+                    if model.showsWithheldPagesNotice {
+                        WithheldPagesBannerView(
+                            pages: model.withheldPages,
+                            canOpenEmDash: model.canOpenEmDash,
+                            onOpenEmDash: { model.openEmDash() },
+                            onDismiss: { model.dismissWithheldPagesNotice() }
+                        )
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    }
                     HStack(spacing: 0) {
                         // Leading tool panel (#1588 Task 20): same Divider + fixed-width +
                         // transition convention the trailing chat/related-pages panels below use,
