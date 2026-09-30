@@ -12,7 +12,9 @@ and 4):
 
 - `astro.config.ts`: the template's config plus the Cloudflare adapter and the EmDash
   integration (D1 `DB`, R2 `MEDIA`). Every page that doesn't read EmDash stays prerendered.
-  `anglesite-gate` is registered here, in code, so an EmDash administrator can't remove it.
+  `anglesite-gate` is registered here, in code, so an EmDash administrator can't remove it, and
+  so is `scripts/anglesite-build-manifest.ts`. The pre-deploy gate uses its
+  `dist/anglesite-build.json` to confirm the Worker was built with the gate (#2055 slice 2).
 - `src/live.config.ts`: EmDash's live content collection.
 - `src/pages/articles/`: the article index and article pages, rendered on request from the
   EmDash `articles` collection with the template's h-entry markup.

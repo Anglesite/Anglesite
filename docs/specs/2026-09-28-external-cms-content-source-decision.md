@@ -142,6 +142,32 @@ imports) so Node and Workers run the *same* code. The module is part of the app-
 | **2. Publish** (`anglesite-gate` EmDash plugin) | `content:beforePublish` and `content:beforeSchedule`, re-run when a scheduled post comes due | The draft's fields: text (Portable Text spans, link targets) and the URLs a page would load | Content checks: secrets, PII, embed-media hotlinks, mixed content, restricted-visibility content. Same severity policy as `build:ci --strict` | Publish cancelled via `{ cancel: true, reason }`, with the reason in writer terms in EmDash's editor |
 | **3. Render backstop** (SSR Worker) | Before a rendered page enters the cache | The rendered HTML response | Error-severity checks only: secrets, restricted content, blocked admin routes | Page withheld (not cached, served as unavailable) and the owner is alerted. It fails closed |
 
+**Layer 1 on a server-rendered build (#2055 slice 2).** `pre-deploy-check.ts` recognises the
+server layout by any file only a server build writes: the Worker entry
+(`dist/server/entry.mjs`), the adapter's `dist/server/wrangler.json`, or the build manifest. A
+server build without the Worker entry fails rather than falling back to the static checks. On a
+server-rendered build it does the following:
+- It reads the public files from `dist/client/` and runs every existing check on them, reported
+  under the `dist/…` paths they are served at.
+- It runs the secrets check on the server bundle. The PII checks don't run there: the bundle mixes
+  the owner's templates with library code, so a match says nothing about the owner's data.
+  Owner-authored rendered pages are covered at render time (layer 3).
+- It refuses the deploy unless the server bundle was built from the site's pinned
+  `scripts/gate-checks.ts` and `scripts/emdash-gate/`, unchanged since the build, and registers
+  `anglesite-gate`. Those facts come from `dist/anglesite-build.json`, which the pinned
+  `scripts/anglesite-build-manifest.ts` integration writes from the bundler. Each gate source is
+  hashed as Vite loads it for the server build. Registration is read from EmDash's compiled
+  `virtual:emdash/plugins` module, which carries a descriptor only for each registered plugin.
+  The manifest sits outside both `dist/client/` and `dist/server/`, so it is neither served nor
+  uploaded.
+- It lists public chunks made entirely of EmDash's own code (its admin UI) in the same manifest:
+  every module is under `node_modules/` or is one of EmDash's two admin-UI registries
+  (`virtual:emdash/admin-registry`, `virtual:emdash/auth-providers`). The deploy scan skips only
+  the email and phone patterns for those chunks, which match their placeholder addresses and
+  minified constants. It does the same for Pagefind's vendored files. EmDash's other generated
+  modules are built from the site's config and seed, so a chunk containing one is never treated
+  as vendored.
+
 Why three layers:
 - **Publish** is the real gate. It stops the problem before a reader can see it, and it tells the
   writer, not the owner, what to fix.

@@ -111,7 +111,7 @@ jobs:
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
           matches 'JS/anglesite-gate/**' 'Resources/Template/scripts/gate-checks.ts' 'Resources/Template/scripts/emdash-gate/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && emdashGate=true
-          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
+          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/check-emdash-overlay.sh' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
           matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
