@@ -109,6 +109,12 @@ public enum SecretAccounts {
         "webdav:\(siteID):pepper"
     }
 
+    /// An EmDash site's `EMDASH_ENCRYPTION_KEY` (#2103), generated once by
+    /// `EmDashWorkerConfig.encryptionKey(siteID:secretStore:)`.
+    public static func emdashEncryptionKey(siteID: String) -> String {
+        "emdash:\(siteID):encryption-key"
+    }
+
     /// The site's own IndieAuth-issued DPoP-bound access token (V-4.3, #365) — what
     /// `MicrosubClient` presents to the site's deployed `/microsub` endpoint. Deliberately
     /// separate from `cloudflareToken`: this credential is minted by the site itself during
