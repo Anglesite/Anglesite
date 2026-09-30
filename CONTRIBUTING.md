@@ -84,8 +84,8 @@ Notes:
 - **Swift/SwiftUI with Apple frameworks only** — plain SwiftUI + actors, no TCA or third-party state libraries. New dependencies need explicit approval in an issue first.
 - **Process spawning is centralized** in `AnglesiteCore/Container/ProcessSupervisor` — never call `Process()` from a view.
 - **Logs are sacred** — every spawned subprocess streams stdout+stderr to the debug pane. Don't silently discard output.
-- **Git is the source of truth for sites** — the app must never become the only way to edit a site. A site's `Source/` repo stays clonable and editable outside the app.
-- **The app cannot bypass the template security gate** — `pre-deploy-check.ts` runs before every deploy; surface failures, don't add overrides.
+- **Git is the source of truth for sites** — the app must never become the only way to edit a site. A site's `Source/` repo stays clonable and editable outside the app. (EmDash sites keep content in EmDash; git holds their code/theme — [ADR](docs/specs/2026-09-28-external-cms-content-source-decision.md).)
+- **The app cannot bypass the template security gate** — `pre-deploy-check.ts` runs before every deploy; surface failures, don't add overrides. On EmDash sites the same pinned checks also gate publish and render.
 - **JS/TypeScript** (`JS/wysiwyg-engine`, the block editor and its page bridge) uses ES modules, vanilla APIs, and the existing oxlint/tsc/vitest toolchain.
 - **Comment and doc-comment conventions** are in [`docs/comment-style-guide.md`](docs/comment-style-guide.md) — read it before writing `///` doc comments on public API; CI fails on broken DocC symbol links or markup.
 

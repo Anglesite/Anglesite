@@ -45,6 +45,7 @@ jobs:
       swift: ${{ steps.filter.outputs.swift }}
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
       safariExt: ${{ steps.filter.outputs.safariExt }}
+      emdashGate: ${{ steps.filter.outputs.emdashGate }}
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
@@ -105,10 +106,11 @@ jobs:
             return 1
           }
 
-          swift=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
+          swift=false; wysiwyg=false; safariExt=false; emdashGate=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
+          matches 'JS/anglesite-gate/**' 'Resources/Template/scripts/gate-checks.ts' 'Resources/Template/scripts/emdash-gate/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && emdashGate=true
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
@@ -117,6 +119,7 @@ jobs:
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "wysiwyg=$wysiwyg" >> "$GITHUB_OUTPUT"
           echo "safariExt=$safariExt" >> "$GITHUB_OUTPUT"
+          echo "emdashGate=$emdashGate" >> "$GITHUB_OUTPUT"
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
@@ -142,6 +145,31 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+  anglesite-gate:
+    name: JS anglesite-gate (EmDash plugin validate/typecheck/test/build)
+    # The EmDash publish-gate plugin (#2055). Its hooks and policy live in the pinned template
+    # (`Resources/Template/scripts/emdash-gate/`, unit-tested by the Template lane); this lane
+    # holds them to EmDash's real types, validates the manifest, runs them through EmDash's
+    # content pipeline via its runtime test host, and checks the plugin bundles.
+    needs: changes
+    if: needs.changes.outputs.emdashGate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: JS/anglesite-gate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: scripts/node-version.txt
+          cache: npm
+          cache-dependency-path: JS/anglesite-gate/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
 
   wysiwyg-engine:
     name: JS wysiwyg-engine (lint/typecheck/test/e2e)
@@ -1159,6 +1187,7 @@ jobs:
       - changes
       - wysiwyg-engine
       - safari-extension
+      - anglesite-gate
       - help-book-links
       - docs-index
       - workers-tests
