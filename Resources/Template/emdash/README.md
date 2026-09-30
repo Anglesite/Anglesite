@@ -20,7 +20,8 @@ and 4):
   EmDash `articles` collection with the template's h-entry markup.
 - `src/middleware.ts`: wires in the render backstop (`scripts/emdash-gate/render-backstop.ts`,
   #2055 slice 4). Every page rendered on request is checked for secrets, restricted-audience
-  content and admin routes before it is served, and withheld with a `503` if it fails.
+  content and admin routes before it is served, and withheld with a `503` if it fails. The
+  whole page is read before it is sent, so these pages aren't streamed.
 - `src/worker.ts`: the Worker entry. It adds EmDash's cron handler, which publishes scheduled
   articles when they come due.
 - `seed/seed.json`: the EmDash schema a new site starts with. It maps the `articles` collection

@@ -68,7 +68,9 @@ npm run build:ci
 grep -rqs '"anglesite-gate"' dist/server || { echo "anglesite-gate is not registered in the server bundle" >&2; exit 1; }
 grep -rqs 'decidePublish' dist/server || { echo "anglesite-gate's policy is not in the server bundle" >&2; exit 1; }
 # The render backstop is in the server bundle (the manifest lists every gate source it holds).
+# (`gateModules` is BuildManifest's field in scripts/anglesite-build-manifest.ts.)
 node -e 'const m = JSON.parse(require("fs").readFileSync("dist/anglesite-build.json", "utf8"));
+  if (typeof m.gateModules !== "object" || m.gateModules === null) { console.error("the build manifest has no gateModules"); process.exit(1); }
   if (!m.gateModules["scripts/emdash-gate/render-backstop.ts"]) { console.error("the render backstop is not in the server bundle"); process.exit(1); }'
 # The deploy gate must refuse this same build once the gate is gone from it, and for that reason:
 # any other failure (a crash, a bad import) would also exit non-zero, so the report is checked.

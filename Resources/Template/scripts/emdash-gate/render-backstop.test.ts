@@ -40,14 +40,45 @@ test("a clean page passes through with its status, headers and body", async () =
 });
 
 test("a failing page is withheld as an uncacheable 503 and reported, without saying why to the reader", async () => {
-  const reports: Array<{ event: string; path: string; categories: string[] }> = [];
+  const reports: Array<{ event: string; path: string; categories: string[]; messages: string[] }> = [];
   const out = await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p><a href="/keystatic/">x</a>`), (r) => reports.push(r));
   assert.equal(out.status, 503);
   assert.equal(out.headers.get("cache-control"), "no-store");
   assert.equal(out.headers.get("x-cache-hint"), null);
   const body = await out.text();
   assert.doesNotMatch(body, /AKIA|keystatic/);
-  assert.deepEqual(reports, [{ event: WITHHELD_LOG_EVENT, path: "/articles/leak/", categories: ["exposed-token", "keystatic-route"] }]);
+  assert.deepEqual(reports.map(({ event, path, categories }) => ({ event, path, categories })), [
+    { event: WITHHELD_LOG_EVENT, path: "/articles/leak/", categories: ["exposed-token", "keystatic-route"] },
+  ]);
+  // The report says what was found, never the secret itself.
+  assert.deepEqual(reports[0].messages, ["Keystatic admin route found in production output", "Possible AWS key exposed"]);
+  assert.doesNotMatch(JSON.stringify(reports), /AKIA/);
+});
+
+test("a response with no body (304 revalidation, HEAD) passes through untouched", async () => {
+  const notModified = new Response(null, { status: 304, headers: { "content-type": "text/html", etag: '"v1"' } });
+  assert.equal(await applyRenderBackstop("/articles/vote/", notModified), notModified);
+  const noContent = new Response(null, { status: 204, headers: { "content-type": "text/html" } });
+  assert.equal(await applyRenderBackstop("/articles/vote/", noContent), noContent);
+  const head = new Response(null, { status: 200, headers: { "content-type": "text/html", "content-length": "1234" } });
+  assert.equal(await applyRenderBackstop("/articles/vote/", head), head);
+});
+
+test("a passing page is re-sent without the upstream's now-stale length", async () => {
+  const out = await applyRenderBackstop("/articles/vote/", page("<h1>ok</h1>", { "content-type": "text/html", "content-length": "9999" }));
+  assert.equal(out.status, 200);
+  assert.equal(out.headers.get("content-length"), null);
+  assert.match(await out.text(), /<h1>ok<\/h1>/);
+});
+
+test("an encoded page can't be read as text, so it is withheld (fails closed)", async () => {
+  const reports: Array<{ categories: string[] }> = [];
+  const gz = page("\u001f\u008b...", { "content-type": "text/html", "content-encoding": "gzip" });
+  const out = await applyRenderBackstop("/articles/x/", gz, (r) => reports.push(r));
+  assert.equal(out.status, 503);
+  assert.deepEqual(reports.map((r) => r.categories), [["render-backstop-failed"]]);
+  const identity = page("<p>fine</p>", { "content-type": "text/html", "content-encoding": "identity" });
+  assert.equal((await applyRenderBackstop("/articles/y/", identity)).status, 200);
 });
 
 test("a page that can't be read is withheld (fails closed)", async () => {
