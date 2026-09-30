@@ -98,6 +98,24 @@ struct SafariVerificationModelTests {
     }
 
     @MainActor
+    @Test("run(previewURL:) surfaces a toolListUnavailable PassError with the bridge's detail")
+    func runToolListUnavailable() async throws {
+        let stub = StubPass(result: .failure(SafariVerificationPass.PassError.toolListUnavailable("timed out after 30s")))
+        let model = SafariVerificationModel(pass: stub, portProvider: { 9222 })
+        let url = try #require(URL(string: "http://localhost:4321/"))
+
+        model.run(previewURL: url)
+        while model.isRunning { await Task.yield() }
+
+        guard case .failed(let reason) = model.phase else {
+            Issue.record("expected .failed, got \(model.phase)")
+            return
+        }
+        #expect(reason.contains("what it can do") && reason.contains("timed out after 30s"))
+        #expect(!reason.contains("preview page"))
+    }
+
+    @MainActor
     @Test("run(previewURL:) surfaces a navigateToolUnavailable PassError with a readable reason")
     func runNavigateToolUnavailable() async throws {
         let stub = StubPass(result: .failure(SafariVerificationPass.PassError.navigateToolUnavailable))
