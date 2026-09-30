@@ -7,7 +7,8 @@
 # Mirrors SiteScaffolder for an EmDash site: scaffold.sh copies the template, the starter entries
 # are removed (EmDashScaffold.removeStarterContent), the template's astro.config.ts is renamed and
 # the overlay is copied on top (EmDashScaffold.applyTemplateOverlay). Then `npm ci` against the
-# overlay's lockfile and the site's own `npm run build`.
+# overlay's lockfile and the site's own `npm run build:ci`: the build, then the pre-deploy gate in
+# --strict mode, whose server-rendered checks (#2055 slice 2) must pass on a clean EmDash site.
 #
 # Usage: scripts/check-emdash-overlay.sh [work-dir]   (default: a fresh temp dir, removed on exit)
 
@@ -57,7 +58,7 @@ rsync -a \
 cd "$SITE"
 git init -q
 npm ci --no-audit --no-fund
-npm run build
+npm run build:ci
 
 # The article routes render on request, so they must not be prerendered files.
 [[ ! -e dist/client/articles/index.html ]] || { echo "the article index was prerendered" >&2; exit 1; }
@@ -66,4 +67,11 @@ npm run build
 # scripts/emdash-gate/, not a stale copy) are always in the server bundle.
 grep -rqs '"anglesite-gate"' dist/server || { echo "anglesite-gate is not registered in the server bundle" >&2; exit 1; }
 grep -rqs 'decidePublish' dist/server || { echo "anglesite-gate's policy is not in the server bundle" >&2; exit 1; }
+# The deploy gate must refuse this same build once the gate is gone from it.
+[[ -f dist/anglesite-build.json ]] || { echo "no build manifest at dist/anglesite-build.json" >&2; exit 1; }
+echo '{"version":1,"gateModules":{},"vendoredClientChunks":[]}' > dist/anglesite-build.json
+if npx tsx scripts/pre-deploy-check.ts --json --strict; then
+    echo "the pre-deploy gate passed a server build without the publish gate" >&2
+    exit 1
+fi
 echo "✓ EmDash overlay site built"

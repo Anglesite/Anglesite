@@ -16,6 +16,9 @@
  *   It runs in-process from its pinned source (`scripts/emdash-gate/`), so the code the D5 hash
  *   pin covers is exactly the code that runs. EmDash still enforces its declared capabilities.
  *
+ * - `anglesite-build-manifest` (pinned, under `scripts/`), which records the gate sources the
+ *   server bundle was built from. The deploy gate refuses a server build without it.
+ *
  * Keystatic edits git-backed content, which an EmDash site has none of, so it is left out.
  */
 import { fileURLToPath } from "node:url";
@@ -25,6 +28,7 @@ import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
 import emdash from "emdash/astro";
 import { d1, r2 } from "@emdash-cms/cloudflare";
+import anglesiteBuildManifest from "./scripts/anglesite-build-manifest.ts";
 import templateConfig from "./astro.anglesite.config.ts";
 
 const anglesite: AstroUserConfig = templateConfig;
@@ -65,6 +69,7 @@ const config: AstroUserConfig = {
       storage: r2({ binding: EMDASH_BINDINGS.media }),
       plugins: [anglesiteGate],
     }),
+    anglesiteBuildManifest(),
   ],
 };
 
