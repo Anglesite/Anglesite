@@ -101,6 +101,15 @@ struct EmDashOverlayTemplateTests {
         #expect(Set(excludes.map { String($0.dropFirst()) }) == EmDashScaffold.overlaySkippedNames)
     }
 
+    @Test("the overlay wires the pinned render backstop into every server-rendered page")
+    func middlewareWiresRenderBackstop() throws {
+        let middleware = try String(contentsOf: Self.overlay.appendingPathComponent("src/middleware.ts"), encoding: .utf8)
+        #expect(middleware.contains(#"from "../scripts/emdash-gate/render-backstop.ts""#))
+        #expect(middleware.contains("applyRenderBackstop(context.url.pathname, response)"))
+        #expect(FileManager.default.fileExists(
+            atPath: Self.template.appendingPathComponent("scripts/emdash-gate/render-backstop.ts").path))
+    }
+
     @Test("the overlay's config builds on the renamed template config and registers the gate")
     func configRegistersGate() throws {
         let config = try String(contentsOf: Self.overlay.appendingPathComponent("astro.config.ts"), encoding: .utf8)

@@ -7,8 +7,8 @@
  * needs two facts it can't read back out of the output by itself:
  *
  * - **Which gate sources went into the server bundle, and what they were.** The publish gate
- *   (`anglesite-gate`) must be compiled from the site's own pinned copies of
- *   `scripts/gate-checks.ts` and `scripts/emdash-gate/`. This records every such module the
+ *   (`anglesite-gate`) and the render backstop must be compiled from the site's own pinned
+ *   copies of `scripts/gate-checks.ts` and `scripts/emdash-gate/`. This records every such module the
  *   server bundle contains, with the SHA-256 of the file as it was built.
  * - **Whether the gate is registered.** EmDash compiles the site's `plugins: []` into its generated
  *   `virtual:emdash/plugins` module; the gate is registered only when that module's compiled code
@@ -38,6 +38,8 @@ export const REQUIRED_GATE_MODULES = [
   "scripts/gate-checks.ts",
   "scripts/emdash-gate/policy.ts",
   "scripts/emdash-gate/plugin.ts",
+  // The render backstop (#2055 slice 4), wired in by the overlay's src/middleware.ts.
+  "scripts/emdash-gate/render-backstop.ts",
 ] as const;
 
 export interface BuildManifest {

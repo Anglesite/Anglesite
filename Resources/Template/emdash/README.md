@@ -18,6 +18,9 @@ and 4):
 - `src/live.config.ts`: EmDash's live content collection.
 - `src/pages/articles/`: the article index and article pages, rendered on request from the
   EmDash `articles` collection with the template's h-entry markup.
+- `src/middleware.ts`: wires in the render backstop (`scripts/emdash-gate/render-backstop.ts`,
+  #2055 slice 4). Every page rendered on request is checked for secrets, restricted-audience
+  content and admin routes before it is served, and withheld with a `503` if it fails.
 - `src/worker.ts`: the Worker entry. It adds EmDash's cron handler, which publishes scheduled
   articles when they come due.
 - `seed/seed.json`: the EmDash schema a new site starts with. It maps the `articles` collection

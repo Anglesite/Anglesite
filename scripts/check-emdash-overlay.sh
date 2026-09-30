@@ -67,6 +67,9 @@ npm run build:ci
 # scripts/emdash-gate/, not a stale copy) are always in the server bundle.
 grep -rqs '"anglesite-gate"' dist/server || { echo "anglesite-gate is not registered in the server bundle" >&2; exit 1; }
 grep -rqs 'decidePublish' dist/server || { echo "anglesite-gate's policy is not in the server bundle" >&2; exit 1; }
+# The render backstop is in the server bundle (the manifest lists every gate source it holds).
+node -e 'const m = JSON.parse(require("fs").readFileSync("dist/anglesite-build.json", "utf8"));
+  if (!m.gateModules["scripts/emdash-gate/render-backstop.ts"]) { console.error("the render backstop is not in the server bundle"); process.exit(1); }'
 # The deploy gate must refuse this same build once the gate is gone from it, and for that reason:
 # any other failure (a crash, a bad import) would also exit non-zero, so the report is checked.
 [[ -f dist/anglesite-build.json ]] || { echo "no build manifest at dist/anglesite-build.json" >&2; exit 1; }
@@ -77,8 +80,10 @@ report=$(npx tsx scripts/pre-deploy-check.ts --json --strict || true)
 echo "$report"
 REPORT="$report" node -e 'const r = JSON.parse(process.env.REPORT);
   const missing = r.failures.filter((f) => f.category === "publish-gate-missing").length;
-  if (r.ok !== false || missing !== 4) {
-    console.error(`expected the gate to be refused with 4 publish-gate-missing failures, got ok=${r.ok}, ${missing}`);
+  // One per REQUIRED_GATE_MODULES source (gate checks, policy, plugin, render backstop), plus
+  // the missing registration.
+  if (r.ok !== false || missing !== 5) {
+    console.error(`expected the gate to be refused with 5 publish-gate-missing failures, got ok=${r.ok}, ${missing}`);
     process.exit(1);
   }'
 echo "✓ the pre-deploy gate refuses the build without the publish gate"
