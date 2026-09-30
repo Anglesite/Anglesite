@@ -37,6 +37,12 @@ struct NewSiteWizard: View {
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text("Choose a Template").font(.title2.bold())
+                if model.draft.siteKind == .emdash {
+                    // Consequences for the owner's site, not mechanics (decision D1, #2050).
+                    Text("Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here. Publishing an EmDash website from Anglesite isn't available yet.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if model.filteredThemes.isEmpty {
                     emptyCategoryState
                 } else {
@@ -152,13 +158,38 @@ struct NewSiteWizard: View {
         }
     }
 
+    /// Who writes for the site (#2050): chosen once, at creation — the kind is recorded in the
+    /// package and can't be changed later, so it's asked here rather than in Website Settings.
+    private var siteKindPicker: some View {
+        Picker("Writers:", selection: $model.draft.siteKind) {
+            ForEach(NewSiteWizardModel.siteKindChoices, id: \.self) { kind in
+                Text(Self.siteKindLabel(kind)).tag(kind)
+            }
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help("Who writes this website's articles. This can't be changed after the website is created.")
+        // `.help` isn't reliably announced by VoiceOver, so the can't-change caveat goes here too.
+        .accessibilityHint("Who writes this website's articles. This can't be changed after the website is created.")
+    }
+
+    private static func siteKindLabel(_ kind: AnglesitePackage.SiteKind) -> String {
+        switch kind {
+        // The caveat sits in the item itself, so it's read before the choice is made.
+        case .emdash: return String(localized: "A team, in EmDash (can't publish yet)")
+        case .anglesite, .unrecognized: return String(localized: "Me, in Anglesite")
+        }
+    }
+
     @ViewBuilder private var footer: some View {
         HStack {
-            Spacer()
+            if model.step != .chooser { Spacer() }
             // No Cancel once building starts: the scaffold pipeline isn't cancellable and
             // always reaches .done or .failed (failure shows Close below), so cancelling
             // mid-build would leak the in-flight work and the MAS security scope.
             if model.step == .chooser {
+                siteKindPicker
+                Spacer()
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Button("Create") { create() }

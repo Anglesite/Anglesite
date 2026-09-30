@@ -97,7 +97,8 @@ public actor SiteScaffolder {
         emit(.creatingFolder)
         let package: AnglesitePackage
         do {
-            (package, _) = try AnglesitePackage.createSkeleton(at: packageURL, displayName: draft.name, fileManager: fileManager)
+            (package, _) = try AnglesitePackage.createSkeleton(
+                at: packageURL, displayName: draft.name, kind: draft.siteKind, fileManager: fileManager)
         } catch { return emit(.failed(step: "creatingFolder", message: humanize(error))) }
         let siteDir = package.sourceURL   // everything below runs in Source/
 
@@ -122,7 +123,8 @@ public actor SiteScaffolder {
         let configDir = package.configURL
         do {
             let templatePackageText = try String(
-                contentsOf: templateURL.appendingPathComponent("package.json"), encoding: .utf8)
+                contentsOf: EmDashScaffold.packageTemplateDirectory(templateURL: templateURL, kind: draft.siteKind)
+                    .appendingPathComponent("package.json"), encoding: .utf8)
             let templateDeps = try PackageJSONDependencies.extract(from: templatePackageText)
             try DependencyBaseline.save(templateDeps, to: configDir)
         } catch {
@@ -133,6 +135,25 @@ public actor SiteScaffolder {
             let existingConfig = (try? String(contentsOf: siteConfigURL, encoding: .utf8)) ?? ""
             let updatedConfig = SiteConfigFile.upsert([("ANGLESITE_VERSION", currentAppVersion)], into: existingConfig)
             try? updatedConfig.write(to: siteConfigURL, atomically: true, encoding: .utf8)
+        }
+
+        // 2a. An EmDash site's articles live in EmDash (#2050, decision 2), so the template's
+        // starter entries never enter its repo, and the site is server-rendered against EmDash
+        // (decision 4), so the template's EmDash overlay goes on top. Fatal: a leftover starter
+        // post would be published from git on a site whose content is supposed to come only from
+        // EmDash, and without the overlay the site can't show EmDash's articles at all. The
+        // half-built package is removed too: its marker already says EmDash, a kind that can't be
+        // changed, so it could never become a usable site.
+        if draft.siteKind == .emdash {
+            do {
+                try EmDashScaffold.removeStarterContent(siteDirectory: siteDir, fileManager: fileManager)
+                try EmDashScaffold.applyTemplateOverlay(
+                    templateURL: templateURL, siteDirectory: siteDir, fileManager: fileManager)
+            }
+            catch {
+                try? fileManager.removeItem(at: package.url)
+                return emit(.failed(step: "copyingTemplate", message: humanize(error)))
+            }
         }
 
         // 2b. git init in Source/ (non-fatal — coordinates with #68).

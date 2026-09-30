@@ -259,6 +259,25 @@ final class SiteWindowModel {
     /// and deploying it in the same window session enables the menu item live, without requiring
     /// the owner to close and reopen the site.
     private(set) var isHostedCommunity = false
+    /// Which editing surfaces this site offers (#2050): an EmDash site hides the typed-content
+    /// editors (New Post / Link Post / collection entries, the typed inspector form, Publish and
+    /// Move to Drafts) and offers Website ▸ Open EmDash instead. Read from the package marker in
+    /// `loadAndStart()` *before* ``site`` is set, so `SiteWindow`'s `NewContentActions` are right
+    /// from their first build; `SiteWindow` also rebuilds them on any later change.
+    /// Cached rather than computed for the same synchronous-`.disabled(...)` reason as
+    /// ``isHostedCommunity``. `ContentCreationWorkflow` re-checks on every write, so this gate is
+    /// UX, not the enforcement point.
+    private(set) var editingSurfaces = SiteEditingSurfaces(kind: .anglesite)
+    /// The EmDash admin Website ▸ Open EmDash opens — `SiteSettings.emdashAdminURL`, accepted only
+    /// as `https` on an EmDash site (``SiteEditingSurfaces/emdashAdminURL(settings:)``). `nil`
+    /// until provisioning or connecting EmDash writes it. Refreshed alongside
+    /// ``isHostedCommunity``, so a deploy that provisions EmDash enables the item live.
+    private(set) var emdashAdminURL: URL?
+    /// Why Publish Site is unavailable for this site, or `nil` when it isn't (#2050) —
+    /// `SiteEditingSurfaces.staticDeployRefusal`, the same decision `DeployCommand` makes, read
+    /// from the package marker in `loadAndStart()` with no recents fallback, so the menu and the
+    /// deploy itself always agree.
+    private(set) var staticDeployRefusal: String?
     var harden = HardenModel()
     var aiSearch = AISearchModel()
     var domainConfigAudit = DomainConfigAuditModel()
@@ -580,10 +599,22 @@ final class SiteWindowModel {
         guard let site else { return }
         let settings = try? await SiteConfigStore(configDirectory: site.configDirectory).load()
         isHostedCommunity = settings?.communityActorURL != nil
+        emdashAdminURL = settings.flatMap { editingSurfaces.emdashAdminURL(settings: $0) }
         // The second Moderation… gate (#2066) lives on the model that owns the queue, so the view
         // and this menu item read one flag; the same deploy that provisions the inbox flips it.
         await moderation.refreshCanReviewComments()
         await offerScreeningModelIfNeeded(hasInbox: !(settings?.provisionedWorkerResources?.d1DatabaseID ?? "").isEmpty)
+    }
+
+    /// Reads the site kind from the package marker off the main actor (a plist read under the
+    /// package's security scope), falling back to the recents entry's kind if the marker can't
+    /// be read.
+    private static func loadEditingSurfaces(for site: SiteStore.Site) async -> SiteEditingSurfaces {
+        let sourceDirectory = site.sourceDirectory
+        let fallback = site.kind
+        return await Task.detached(priority: .userInitiated) {
+            SiteEditingSurfaces.forSourceDirectory(sourceDirectory, unreadableMarkerFallback: fallback)
+        }.value
     }
 
     /// The one-time offer to download the screening model (#2068): shown once per Mac, the
@@ -888,6 +919,16 @@ final class SiteWindowModel {
     /// site with neither never gets an item that opens an always-empty pane.
     var canOpenModeration: Bool { isHostedCommunity || moderation.canReviewComments }
 
+    /// Website ▸ Open EmDash (#2050): shown on an EmDash site, enabled once its admin URL is known.
+    var showsOpenEmDash: Bool { editingSurfaces.externalContentEditor == .emdash }
+    var canOpenEmDash: Bool { emdashAdminURL != nil }
+
+    /// Opens this site's EmDash admin in the owner's browser, where writers and editors work.
+    func openEmDash() {
+        guard let emdashAdminURL else { return }
+        NSWorkspace.shared.open(emdashAdminURL)
+    }
+
     /// Presents the Review Copy sheet (#465). Reconstructs a `ProjectConventionsStore` from the
     /// site's `configDirectory` — the same expression `ProjectConventionsModel.init` uses for
     /// `styleGuide` at `loadAndStart` (~line 1068) — rather than reaching into that model's
@@ -1172,7 +1213,7 @@ final class SiteWindowModel {
         deploy.isRunning || backup.isRunning || audit.isRunning
     }
 
-    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
+    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy && staticDeployRefusal == nil }
     var canRunBackup: Bool { site?.isValid == true && !siteOperationRunning }
     var canRunAudit: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
     var canRunHarden: Bool { site?.isValid == true && !harden.isRunning }
@@ -1957,7 +1998,8 @@ final class SiteWindowModel {
         }
         let url = source.appendingPathComponent(relPath)
         let file = FileRef(url: url, group: group, name: displayName)
-        if let descriptor = ContentTypeResolver.descriptor(forRelativePath: relPath) {
+        // An EmDash site's posts are edited in EmDash (#2050), so its typed form never opens here.
+        if editingSurfaces.typedContent, let descriptor = ContentTypeResolver.descriptor(forRelativePath: relPath) {
             return .typed(TypedEntryEditorModel(
                 file: file, descriptor: descriptor, route: route, sourceDirectory: source,
                 configDirectory: site?.configDirectory, siteID: site?.id))
@@ -2694,6 +2736,11 @@ final class SiteWindowModel {
             dismissSiteWindow()
             return
         }
+        editingSurfaces = await Self.loadEditingSurfaces(for: resolved)
+        let sourceDirectory = resolved.sourceDirectory
+        staticDeployRefusal = await Task.detached(priority: .userInitiated) {
+            SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: sourceDirectory)
+        }.value
         site = resolved
         await refreshIsHostedCommunity()
         // Reset alongside `annotationProvider` below: a restored `WindowGroup` can replay a
@@ -2749,10 +2796,12 @@ final class SiteWindowModel {
         // check doesn't re-run on every open; they surface as "kept as it is" under Details.
         var appliedDependencyOffers: DependencySyncOffers?
         if let templateURL = TemplateRuntime.bundledURL(), let runningVersion = AppVersion.current() {
+            // An EmDash site's dependencies track the template's EmDash overlay (#2050).
             let offers = DependencySyncChecker.check(
                 sourceDirectory: resolved.sourceDirectory,
                 configDirectory: resolved.configDirectory,
-                templateDirectory: templateURL,
+                templateDirectory: EmDashScaffold.packageTemplateDirectory(
+                    templateURL: templateURL, kind: editingSurfaces.kind),
                 runningAppVersion: runningVersion
             )
             dependencySyncOffers = offers
@@ -2869,6 +2918,7 @@ final class SiteWindowModel {
         // this creation and stop the freshly-made navigator instead.
         navigator?.stop()
         let navModel = SiteNavigatorModel(graph: contentGraph)
+        navModel.typedContentEnabled = editingSurfaces.typedContent
         // Rename is the one structural operation this model doesn't own (it's the navigator's
         // inline edit, also reached from File ▸ Rename…), so the navigator registers its own ⌘Z
         // record through this hook rather than duplicating the coordinator (#675).

@@ -8,12 +8,16 @@ private struct FocusedNewContentActionsKey: FocusedValueKey { typealias Value = 
 private struct FocusedNavigatorSelectionActionsKey: FocusedValueKey { typealias Value = NavigatorSelectionActions }
 private struct FocusedSiteSearchActionsKey: FocusedValueKey { typealias Value = SiteSearchActions }
 
+/// The focused site window's create actions. The typed-content ones (`newCollection`, `newPost`,
+/// `newLinkPost`) are `nil` on a site whose posts live elsewhere — an EmDash site (#2050,
+/// `SiteEditingSurfaces.typedContent`) — so their menu items disable without the menus knowing
+/// about site kinds, the same optional-closure shape as `NavigatorSelectionActions`.
 struct NewContentActions {
     let newPage: @MainActor () -> Void
-    let newCollection: @MainActor () -> Void
-    let newPost: @MainActor () -> Void
+    let newCollection: (@MainActor () -> Void)?
+    let newPost: (@MainActor () -> Void)?
     let newComponent: @MainActor () -> Void
-    let newLinkPost: @MainActor () -> Void
+    let newLinkPost: (@MainActor () -> Void)?
 }
 
 /// Duplicate/Publish/Unpublish acting on whichever selection currently owns keyboard focus — the
@@ -92,10 +96,10 @@ struct NewContentCommands: Commands {
             // (#1860) — the windowless capture path (drag/paste a URL into the launcher, or
             // the AddLinkPostIntent) still works without a site window focused.
             Button("New Link Post…") {
-                newContentActions?.newLinkPost()
+                newContentActions?.newLinkPost?()
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
-            .disabled(newContentActions == nil)
+            .disabled(newContentActions?.newLinkPost == nil)
 
             Button("Open Site…") {
                 Task { await openSiteFromMenu() }

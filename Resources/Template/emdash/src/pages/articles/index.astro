@@ -1,0 +1,52 @@
+---
+// The article index on an EmDash site (#2050), rendered on request from EmDash's `articles`
+// collection with the same h-feed markup as the template's `CollectionIndex`. Only published
+// entries are returned to anonymous readers; the cache hint lets Workers Cache hold the page
+// until EmDash purges it on the next publish or unpublish (ADR decision 4). Older articles are
+// reached page by page through EmDash's keyset cursor (`?cursor=`), linked as `rel="next"`.
+import { getEmDashCollection } from "emdash";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { articleView, ARTICLES_PER_PAGE, type EmDashArticleData } from "../../lib/emdash-articles.ts";
+
+export const prerender = false;
+
+const cursor = Astro.url.searchParams.get("cursor") || undefined;
+const { entries, nextCursor, cacheHint } = await getEmDashCollection("articles", {
+  orderBy: { published_at: "desc" },
+  limit: ARTICLES_PER_PAGE,
+  cursor,
+});
+if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+const items = entries
+  .map((e) => articleView(e.data as unknown as EmDashArticleData))
+  .filter((v) => v !== null);
+const day = (d: Date) =>
+  d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+---
+
+<BaseLayout title="Articles" description="Read the latest articles.">
+  <div class="h-feed">
+    <h1 class="p-name">Articles</h1>
+    {
+      items.length === 0 ? (
+        <p>No articles yet.</p>
+      ) : (
+        <ul>
+          {items.map((item) => (
+            <li class="h-entry">
+              <a class="p-name u-url" href={`/articles/${item.slug}/`}>{item.title ?? item.slug}</a>{" "}
+              {item.publishDate && (
+                <time class="dt-published" datetime={item.publishDate.toISOString()}>{day(item.publishDate)}</time>
+              )}
+              {item.image && <img class="u-photo" src={item.image} alt={item.imageAlt} />}
+              {item.summary && <p class="p-summary">{item.summary}</p>}
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    {nextCursor && (
+      <p><a rel="next" href={`/articles/?cursor=${encodeURIComponent(nextCursor)}`}>Older articles</a></p>
+    )}
+  </div>
+</BaseLayout>

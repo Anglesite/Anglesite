@@ -300,6 +300,9 @@
     "A BCP 47 language tag, e.g. \"en\", \"fr-CA\", \"es\". Screen readers and search engines use this to pronounce and index your content correctly." : {
 
     },
+    "A team, in EmDash (can't publish yet)" : {
+
+    },
     "A TXT record already exists for %@ with different content. Update it in Website → Manage Domain, then try again." : {
 
     },
@@ -2030,6 +2033,9 @@
     "Effects…" : {
 
     },
+    "EmDash isn't set up for this site yet." : {
+
+    },
     "Email Setup…" : {
 
     },
@@ -2756,6 +2762,9 @@
     "MCP port" : {
 
     },
+    "Me, in Anglesite" : {
+
+    },
     "MTA-STS" : {
 
     },
@@ -3186,6 +3195,9 @@
 
     },
     "Open Dashboard" : {
+
+    },
+    "Open EmDash" : {
 
     },
     "Open File" : {
@@ -5094,6 +5106,9 @@
     "Who does this site speak to?" : {
 
     },
+    "Who writes this website's articles. This can't be changed after the website is created." : {
+
+    },
     "Will activate on next publish." : {
 
     },
@@ -5125,6 +5140,12 @@
 
     },
     "Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it." : {
+
+    },
+    "Write, edit and publish this site's posts in EmDash." : {
+
+    },
+    "Writers:" : {
 
     },
     "Writing" : {
@@ -5170,6 +5191,9 @@
 
     },
     "Your website was created, but something above needs attention before it can preview. You can open it anyway and fix it from the website window." : {
+
+    },
+    "Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here. Publishing an EmDash website from Anglesite isn't available yet." : {
 
     },
     "Zone" : {
