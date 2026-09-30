@@ -251,7 +251,7 @@ owner-facing consent copy that is explicit about what leaves their account.
 | 1 | `[observability.issues]` in composition + the developer setting (no filing yet; the owner can already see Issues in the dashboard) | Anglesite |
 | 2 | *(built, not deployed)* `Workers/issues-relay`, allowlist of `*.dwk.io` only. It covers authorized registration, webhook verification, attribution to `@dwk/*` only (no template routing), redaction, fingerprinting, and filing through a GitHub App to `davidwkeith/workers`. Payload parsing is confined to `src/extract.ts` and accepts any frame encoding, so slice 0's findings only ever touch that file. | Anglesite |
 | 3 | *(shipped)* App registration, renewal and revocation after every publish. The automation is a guided one-time dashboard step (§8 Q1 has no API). | Anglesite |
-| 4 | Label-triggered agent routine on `davidwkeith/workers` (`source:anglesite-issues`) | workers |
+| 4 | *(in review: [davidwkeith/workers#530](https://github.com/davidwkeith/workers/pull/530))* A `claude-code-action` workflow runs on relay-authored `source:anglesite-issues` issues. It reproduces the error with a failing test, then either opens a fix PR for review or comments a diagnosis (`agent:needs-human`, or a recommended `config` label). | workers |
 | 5 | Privacy review → consent copy → widen beyond `*.dwk.io` | Anglesite |
 
 ## 8. Open questions
