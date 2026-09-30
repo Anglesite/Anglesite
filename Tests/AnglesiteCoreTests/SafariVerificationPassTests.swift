@@ -183,6 +183,22 @@ struct SafariVerificationPassTests {
         guard case .available = report.screenshot else { Issue.record("expected screenshot available"); return }
     }
 
+    @Test("tools/list failing throws PassError.toolListUnavailable, never navigateToolUnavailable") func toolListFailingThrows() async throws {
+        SafariVerificationPassStubURLProtocol.reset()
+        // initialize + the initialized notification succeed; tools/list itself answers 500.
+        enqueueHandshake(tools: ["navigate_to_url"])
+        SafariVerificationPassStubURLProtocol.queue.removeLast()
+        SafariVerificationPassStubURLProtocol.queue.append(.init(status: 500, headers: [:], body: Data()))
+
+        let (pass, _) = makePass()
+        do {
+            _ = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
+            Issue.record("expected PassError.toolListUnavailable to be thrown")
+        } catch SafariVerificationPass.PassError.toolListUnavailable(let detail) {
+            #expect(!detail.isEmpty)
+        }
+    }
+
     @Test("navigate tool missing from tools/list throws PassError.navigateToolUnavailable") func navigateToolMissingThrows() async throws {
         SafariVerificationPassStubURLProtocol.reset()
         enqueueHandshake(tools: ["browser_console_messages"])

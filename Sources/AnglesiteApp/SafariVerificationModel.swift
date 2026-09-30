@@ -107,6 +107,8 @@ final class SafariVerificationModel {
 
     private static func message(for error: SafariVerificationPass.PassError) -> String {
         switch error {
+        case .toolListUnavailable(let detail):
+            return "Couldn't ask the connected Safari session what it can do: \(detail)"
         case .navigateToolUnavailable:
             return "The connected Safari session doesn't support opening the preview page."
         case .navigateFailed(let detail):
