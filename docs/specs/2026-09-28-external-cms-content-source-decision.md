@@ -77,6 +77,18 @@ form of option B.
    (`/.well-known/*`, `robots.txt`, `rsl.xml`, static pages) stay **prerendered**, so they remain
    files the deploy gate can scan. Corrections and retractions take effect when the cache is
    purged on publish or unpublish.
+
+   The template's EmDash overlay ([`Resources/Template/emdash/`](../../Resources/Template/emdash/))
+   is how a new EmDash site gets this. `EmDashScaffold.applyTemplateOverlay` renames the
+   template's `astro.config.ts` to `astro.anglesite.config.ts` and copies the overlay on top. The
+   overlay's config adds the Cloudflare adapter and the EmDash integration (D1 `DB`, R2 `MEDIA`)
+   and keeps Astro's default static output, so only routes that opt out render on request: the
+   article index and article pages, rendered from EmDash's `articles` collection with the
+   template's h-entry markup, and EmDash's own admin and API. `seed/seed.json` maps that
+   collection's fields onto Anglesite's `articles` type. The overlay brings its own
+   `package.json` and lockfile (the extra packages are approved for EmDash sites only), and
+   dependency sync tracks it for EmDash sites. The Worker config stays out of `Source/`:
+   provisioning writes it into `Config/`.
 5. **Portability comes from EmDash, not a git mirror.** EmDash is MIT-licensed and open source,
    and its content lives in the owner's own D1/R2. Leaving EmDash means reading that store
    through EmDash's API or a database dump via the Portable Text rung (#2051), into a new
@@ -145,7 +157,12 @@ code change, and layer 1 refuses to deploy one. Its manifest requests only
 it the draft being published
 ([EmDash plugin capabilities](https://github.com/emdash-cms/emdash/blob/main/skills/creating-plugins/SKILL.md),
 [hooks](https://github.com/emdash-cms/emdash/blob/main/skills/creating-plugins/references/hooks.md)).
-It is a sandboxed EmDash plugin like any other. It never registers `content:beforeUnpublish`: a
+On an EmDash site Anglesite scaffolds, it is registered in `plugins: []` from its pinned
+source (`scripts/emdash-gate/plugin.ts`) rather than in `sandboxed: []`. A sandboxed entry must
+be a prebuilt bundle, which would put an unpinned build step between the code the D5 hash pin
+covers and the code that runs. EmDash still limits it to the capabilities it declares. The
+packaged bundle (`JS/anglesite-gate/`) is for registering it on installs Anglesite doesn't
+scaffold. It never registers `content:beforeUnpublish`: a
 correction, retraction or takedown must never be blocked by the gate.
 
 ## Rationale for server rendering

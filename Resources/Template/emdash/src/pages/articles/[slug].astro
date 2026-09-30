@@ -1,0 +1,72 @@
+---
+// One article on an EmDash site (#2050), rendered on request from EmDash with the template's
+// h-entry markup and schema.org JSON-LD, like `layouts/Hentry.astro` does for a git-backed
+// article. The body is EmDash's Portable Text, rendered by EmDash's own component. Its image
+// stays in EmDash's R2 and is referenced by URL (ADR decision 3).
+import { getEmDashEntry, decodeSlug } from "emdash";
+import { PortableText } from "emdash/ui";
+import { Schema } from "astro-seo-schema";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import LicenseLink from "../../components/LicenseLink.astro";
+import Interactions from "../../components/Interactions.astro";
+import { articleView, type EmDashArticleData } from "../../lib/emdash-articles.ts";
+import { entrySchema } from "../../lib/schema.ts";
+import { ownerName } from "../../lib/profile.ts";
+import { licenseFor } from "../../lib/licensing-data.ts";
+import { tagSlug } from "../../lib/tags.ts";
+
+export const prerender = false;
+
+const slug = decodeSlug(Astro.params.slug);
+const { entry, cacheHint } = slug ? await getEmDashEntry("articles", slug) : { entry: null, cacheHint: undefined };
+const view = entry ? articleView(entry.data as unknown as EmDashArticleData) : null;
+if (!entry || !view) {
+  return new Response(null, { status: 404 });
+}
+if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
+
+const permalink = `/articles/${view.slug}/`;
+const canonical = new URL(permalink, Astro.site ?? Astro.url).href;
+const license = licenseFor("articles");
+const jsonLd = entrySchema("articles", {
+  title: view.title,
+  summary: view.summary,
+  publishDate: view.publishDate,
+  updated: view.updated,
+  image: view.image,
+  tags: view.tags,
+}, { url: canonical, site: Astro.site, authorName: view.authors[0] ?? ownerName(), license: license?.url });
+const iso = view.publishDate?.toISOString();
+const human = view.publishDate?.toLocaleDateString("en-US", {
+  year: "numeric", month: "long", day: "numeric", timeZone: "UTC",
+});
+---
+
+<BaseLayout
+  title={view.title ?? "Article"}
+  description={view.summary}
+  license={license}
+  documentPath={permalink}
+  image={view.image}
+>
+  {jsonLd && <Schema slot="head" item={jsonLd} />}
+  <article class="h-entry">
+    {view.title && <h1 class="p-name">{view.title}</h1>}
+    {view.authors.length > 0 && (
+      <p class="byline">By {view.authors.map((name, i) => <>{i > 0 && ", "}<span class="p-author h-card">{name}</span></>)}</p>
+    )}
+    {view.image && <img class="u-photo" src={view.image} alt={view.imageAlt} />}
+    {view.summary && <p class="p-summary">{view.summary}</p>}
+    <div class="e-content"><PortableText value={(entry.data as { content?: unknown }).content ?? []} /></div>
+    <a class="u-url" href={permalink}>
+      {iso && <time class="dt-published" datetime={iso}>{human}</time>}
+    </a>
+    {view.tags.length > 0 && (
+      <ul class="tags">
+        {view.tags.map((t) => <li><a class="p-category" href={`/tags/${tagSlug(t)}/`}>{t}</a></li>)}
+      </ul>
+    )}
+    <LicenseLink license={license} />
+    <Interactions canonical={canonical} />
+  </article>
+</BaseLayout>

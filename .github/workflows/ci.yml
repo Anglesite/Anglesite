@@ -240,6 +240,12 @@ jobs:
       # contract or breaks astro build fails this lane.
       - run: npm run check:packs
       - run: npm run build:packs
+      # #2050: an EmDash site is the template plus its emdash/ overlay, server-rendered. Build
+      # one the way SiteScaffolder does, so a template or overlay change that breaks it fails
+      # here rather than in an owner's first build.
+      - name: Build an EmDash site from the overlay
+        working-directory: ${{ github.workspace }}
+        run: scripts/check-emdash-overlay.sh
 
   workers-tests:
     name: Workers (vitest)

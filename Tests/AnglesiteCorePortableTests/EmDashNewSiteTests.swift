@@ -113,14 +113,25 @@ struct EmDashNewSiteTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let template = root.appendingPathComponent("Template", isDirectory: true)
         try FileManager.default.createDirectory(at: template.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        try Data(#"{"dependencies":{"astro":"^7.0.0"}}"#.utf8).write(to: template.appendingPathComponent("package.json"))
+        let overlay = template.appendingPathComponent("emdash/src/pages/articles", isDirectory: true)
+        try FileManager.default.createDirectory(at: overlay, withIntermediateDirectories: true)
+        try Data("// overlay config\n".utf8).write(to: template.appendingPathComponent("emdash/astro.config.ts"))
+        try Data("# about the overlay\n".utf8).write(to: template.appendingPathComponent("emdash/README.md"))
+        try Data(#"{"dependencies":{"astro":"7.3.4","emdash":"1.0.1"}}"#.utf8)
+            .write(to: template.appendingPathComponent("emdash/package.json"))
+        try Data("---\n---\n".utf8).write(to: overlay.appendingPathComponent("index.astro"))
 
-        // Stands in for scaffold.sh: drops one starter post into the new Source/.
+        // Stands in for scaffold.sh: copies a config and a README, and drops one starter post
+        // into the new Source/.
         let scaffolder = SiteScaffolder(
             sitesRoot: root,
             templateURL: template,
             catalog: ThemeCatalog(themes: []),
             run: { _, args, _ in
                 let source = URL(fileURLWithPath: args.last ?? "")
+                try Data("// template config\n".utf8).write(to: source.appendingPathComponent("astro.config.ts"))
+                try Data("# the site\n".utf8).write(to: source.appendingPathComponent("README.md"))
                 let blog = source.appendingPathComponent("src/content/blog", isDirectory: true)
                 try FileManager.default.createDirectory(at: blog, withIntermediateDirectories: true)
                 try Data("---\ntitle: Welcome\n---\n".utf8).write(to: blog.appendingPathComponent("welcome.md"))
@@ -146,6 +157,49 @@ struct EmDashNewSiteTests {
         #expect(marker.kind == kind)
         let starter = package.sourceURL.appendingPathComponent("src/content/blog/welcome.md")
         #expect(FileManager.default.fileExists(atPath: starter.path) == (kind == .anglesite))
+
+        // An EmDash site gets the overlay on top, building on the template's renamed config; its
+        // dependency baseline is the overlay's. An Anglesite site gets neither.
+        let source = package.sourceURL
+        let read = { (path: String) in try? String(contentsOf: source.appendingPathComponent(path), encoding: .utf8) }
+        let baseline = DependencyBaseline.load(from: package.configURL)
+        #expect(read("README.md") == "# the site\n")
+        if kind == .emdash {
+            #expect(read("astro.config.ts") == "// overlay config\n")
+            #expect(read(EmDashScaffold.templateConfigFileName) == "// template config\n")
+            #expect(read("src/pages/articles/index.astro") == "---\n---\n")
+            #expect(baseline?["emdash"] == "1.0.1")
+        } else {
+            #expect(read("astro.config.ts") == "// template config\n")
+            #expect(read(EmDashScaffold.templateConfigFileName) == nil)
+            #expect(read("src/pages/articles/index.astro") == nil)
+            #expect(baseline?["emdash"] == nil)
+            #expect(baseline?["astro"] == "^7.0.0")
+        }
+    }
+
+    @Test("dependency sync tracks the overlay's package.json for an EmDash site only")
+    func packageTemplateDirectory() {
+        let template = URL(fileURLWithPath: "/T", isDirectory: true)
+        #expect(EmDashScaffold.packageTemplateDirectory(templateURL: template, kind: .emdash).path == "/T/emdash")
+        #expect(EmDashScaffold.packageTemplateDirectory(templateURL: template, kind: .anglesite).path == "/T")
+        #expect(EmDashScaffold.packageTemplateDirectory(templateURL: template, kind: .unrecognized("x")).path == "/T")
+    }
+
+    @Test("applying the overlay needs the overlay and the template's config")
+    func overlayPreconditions() throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let template = root.appendingPathComponent("Template", isDirectory: true)
+        let site = root.appendingPathComponent("Source", isDirectory: true)
+        try FileManager.default.createDirectory(at: site, withIntermediateDirectories: true)
+        #expect(throws: EmDashScaffold.OverlayError.overlayNotFound(template.appendingPathComponent("emdash").path)) {
+            try EmDashScaffold.applyTemplateOverlay(templateURL: template, siteDirectory: site)
+        }
+        try FileManager.default.createDirectory(at: template.appendingPathComponent("emdash"), withIntermediateDirectories: true)
+        #expect(throws: EmDashScaffold.OverlayError.templateConfigMissing(site.appendingPathComponent("astro.config.ts").path)) {
+            try EmDashScaffold.applyTemplateOverlay(templateURL: template, siteDirectory: site)
+        }
     }
 
     @Test("the static deploy refuses an EmDash site before doing anything")

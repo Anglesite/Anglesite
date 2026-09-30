@@ -2774,10 +2774,12 @@ final class SiteWindowModel {
         // check doesn't re-run on every open; they surface as "kept as it is" under Details.
         var appliedDependencyOffers: DependencySyncOffers?
         if let templateURL = TemplateRuntime.bundledURL(), let runningVersion = AppVersion.current() {
+            // An EmDash site's dependencies track the template's EmDash overlay (#2050).
             let offers = DependencySyncChecker.check(
                 sourceDirectory: resolved.sourceDirectory,
                 configDirectory: resolved.configDirectory,
-                templateDirectory: templateURL,
+                templateDirectory: EmDashScaffold.packageTemplateDirectory(
+                    templateURL: templateURL, kind: editingSurfaces.kind),
                 runningAppVersion: runningVersion
             )
             dependencySyncOffers = offers
