@@ -51,8 +51,8 @@ places, and each gets a different destination:
 | Top in-app frame resolves to | Destination |
 |---|---|
 | `node_modules/@dwk/<pkg>/…` | `davidwkeith/workers`, labelled `pkg:<pkg>` |
-| template code (`worker/worker.ts`, `src/…`) | **not filed in v1**. Routing to `Anglesite/Anglesite` comes in a later slice, after v1 proves the pipeline. |
-| site-owner code, or unattributable | **not filed**; shown to the owner in the app only |
+| template code (the composed Worker's `worker/…` sources) | **not filed in v1**. Routing to `Anglesite/Anglesite` comes in a later slice, after v1 proves the pipeline. |
+| site-owner code (any other in-app path), or unattributable | **not filed**; shown to the owner in the app only |
 
 Attribution depends on source-mapped stack traces. Issues source-maps when the upload includes
 maps, so composition must keep `upload_source_maps = true`; confirm this during slice 1.
@@ -94,8 +94,28 @@ issue, where the repo already controls it: a label-triggered routine, or the #12
 The relay is a new first-party Worker under `Workers/issues-relay/`, next to `ControlWorker`,
 served at `issues.anglesite.dwk.io` (D7). It keeps state in:
 
-- **D1:** site registrations and per-site secret hashes.
-- **KV:** a fingerprint → GitHub issue number cache.
+- **KV `SITES`:** one record per registered site: the hash of its secret and the catalog commit it
+  last registered with. The KV TTL *is* the 30-day expiry, so no sweeper job is needed.
+  *(Slice 2 chose KV over the D1 originally sketched here: the data is small key-value records
+  with a TTL, and it needs no queries.)*
+- **KV `STATE`:** per-fingerprint filing state (issue number, last comment day, suppression), the
+  per-site replay snapshots, and the rate-limit counters.
+
+**Fingerprinting is cross-site.** Cloudflare groups occurrences per Worker, which here means per
+site, so its id can't de-duplicate one package bug hit on N sites. The relay keys GitHub issues
+on a hash of the package, the exception class, and the top three package frames' file and
+function. Line numbers are left out because they shift between package versions. Cloudflare's own
+id, when present, is used only for per-site replay protection.
+
+**Filing behaviour.**
+- A new fingerprint opens an issue with the labels `source:anglesite-issues` and `pkg:<name>`,
+  subject to the daily cap.
+- An open issue gets at most one "reported again" comment per day.
+- A fingerprint whose issue a maintainer closed with the `config` label is suppressed for good.
+- A fingerprint whose issue was closed any other way (fixed) and then recurs opens a new issue
+  that links back as a regression.
+- If KV state is lost, the relay recovers the issue from a hidden
+  `<!-- anglesite-issues fingerprint=… -->` marker in the issue body.
 
 It files as a **GitHub App** installed only on `davidwkeith/workers` and `Anglesite/Anglesite`,
 with Issues read/write and nothing else. A PAT would tie filing to one person and to broader
@@ -128,6 +148,20 @@ scopes.
   leaves nothing active behind: the dangling automation just gets `401`s. The owner can also
   revoke a site from Settings, which calls `DELETE /sites/{uuid}` with the site's own secret.
 
+### Deploying the relay
+
+The maintainer does this once. The app never deploys the relay.
+
+1. Create a GitHub App with **Issues: read and write** and no other permissions, and with its
+   webhook turned off. Install it on `davidwkeith/workers` only.
+2. Convert the App's key to PKCS#8 with
+   `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app.pkcs8.pem`.
+3. Set the secrets. From `Workers/issues-relay`, run `npx wrangler secret put` once each for
+   `REGISTRATION_TOKEN` (`openssl rand -hex 32`), `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and
+   `GITHUB_APP_PRIVATE_KEY`.
+4. Run `npx wrangler deploy`. This provisions both KV namespaces and the
+   `issues.anglesite.dwk.io` custom domain.
+
 ## 5. Privacy and redaction
 
 `davidwkeith/workers` is public, and `docs/release.md` declares **no collected data types** in the
@@ -138,10 +172,12 @@ drops everything else:
 - **Kept:**
   - the exception class (e.g. `TypeError`)
   - the stack frames under `@dwk/*` and the template, as path:line:col with no source lines
-  - the package id and version (from the catalog pin in the payload)
+  - the package name, and the catalog commit the site sent when it registered. The payload carries
+    no version, and the commit pins every package version.
   - the Worker compatibility date
   - the occurrence count, and the first-seen and last-seen times
-  - the Cloudflare issue fingerprint
+  - the relay's cross-site fingerprint, in a hidden marker. Cloudflare's own id isn't published,
+    since it is per site.
 - **Dropped:**
   - the exception **message**. Masking URLs, emails and hex runs is a denylist over free text, and
     names, order ids and other identifiers would slip through. Messages stay out until the privacy
@@ -150,8 +186,8 @@ drops everything else:
   - logs, and trace attributes
   - the site hostname and the account id (the relay keys on an opaque site UUID)
 
-Owners who want the full context open it in their own Cloudflare dashboard. The issue body links
-there through `WorkerDashboardLinks`. Only the owner's own account can resolve that link.
+Owners who want the full context open it in their own Cloudflare dashboard. The public issue
+carries **no** link there: building one needs the account id, which the relay never receives.
 
 Before opt-in widens beyond `*.dwk.io`, a privacy review must update the manifest and add
 owner-facing consent copy that is explicit about what leaves their account.
@@ -163,8 +199,9 @@ owner-facing consent copy that is explicit about what leaves their account.
    Developer Tools section only while developer tools are on
    (`DeveloperToolsVisibility.showsWorkerIssuesSetting`). Deploy reads
    `AppSettings.tracksWorkerIssues`, which requires both settings. Hiding developer tools therefore
-   switches Issues off on the next publish but keeps the stored choice. Slice 2 changes the copy to
-   say that errors go to the Workers' authors. A per-site override in the Workers tab can come
+   switches Issues off on the next publish but keeps the stored choice. Slice 3, the slice that
+   actually starts sending reports, changes the copy to say that errors go to the Workers'
+   authors. A per-site override in the Workers tab can come
    later if needed.
 2. **Composition** *(slice 1, shipped)*. Add a parameter `issuesEnabled: Bool` to `generateWranglerToml`,
    threaded through `SocialWorkerProvisionCommand`/`SocialWorkerProvisionTarget` from both
@@ -197,7 +234,7 @@ owner-facing consent copy that is explicit about what leaves their account.
 |---|---|---|
 | 0 | **Spike, blocks slice 2:** capture a real generic-webhook payload with `Workers/issues-spike` and confirm it carries the stack and fingerprint (§8 Q2). Runbook and findings are in [`../../specs/2026-09-30-workers-issues-payload-spike-notes.md`](../../specs/2026-09-30-workers-issues-payload-spike-notes.md). | Anglesite (throwaway) |
 | 1 | `[observability.issues]` in composition + the developer setting (no filing yet; the owner can already see Issues in the dashboard) | Anglesite |
-| 2 | `Workers/issues-relay`, allowlist of `*.dwk.io` only. It covers authorized registration, webhook verification, attribution to `@dwk/*` only (no template routing), redaction, fingerprinting, and filing through a GitHub App to `davidwkeith/workers`. | Anglesite |
+| 2 | *(built, not deployed)* `Workers/issues-relay`, allowlist of `*.dwk.io` only. It covers authorized registration, webhook verification, attribution to `@dwk/*` only (no template routing), redaction, fingerprinting, and filing through a GitHub App to `davidwkeith/workers`. Payload parsing is confined to `src/extract.ts` and accepts any frame encoding, so slice 0's findings only ever touch that file. | Anglesite |
 | 3 | App registration + automation provisioning (or a documented one-time dashboard step if §8 Q1 has no API) | Anglesite |
 | 4 | Label-triggered agent routine on `davidwkeith/workers` (`source:anglesite-issues`) | workers |
 | 5 | Privacy review → consent copy → widen beyond `*.dwk.io` | Anglesite |

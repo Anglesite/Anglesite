@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Workers Issues relay (#2095 slice 2) — design:
+  // docs/superpowers/specs/2026-09-30-worker-issues-autofix-design.md §4–§5.
+  // Deployed by the app maintainer. Receives Workers Issues automation webhooks from registered
+  // Anglesite sites and files attributed, redacted issues on the catalog repo via a GitHub App.
+  "name": "anglesite-issues-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-15",
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "issues.anglesite.dwk.io", "custom_domain": true }],
+
+  // Both auto-provisioned on first deploy. SITES holds one entry per registered site (hash of its
+  // webhook secret; the KV TTL is the 30-day registration expiry). STATE holds per-fingerprint
+  // filing state and the rate-limit counters.
+  "kv_namespaces": [{ "binding": "SITES" }, { "binding": "STATE" }],
+
+  "vars": {
+    // The repo @dwk/* package issues are filed on (WorkerCatalogPin.repository).
+    "TARGET_REPO": "davidwkeith/workers",
+    // Comma-separated hostname suffixes a site may register under (§4 allowlist).
+    "ALLOWED_HOST_SUFFIXES": "dwk.io",
+    // Global cap on *new* GitHub issues per UTC day (§8 Q4).
+    "DAILY_NEW_ISSUE_CAP": "10",
+    // Per-site cap on accepted deliveries per UTC day (§8 Q4).
+    "DAILY_SITE_DELIVERY_CAP": "50"
+  }
+  // Secrets (`npx wrangler secret put <NAME>`):
+  //   REGISTRATION_TOKEN      pre-shared token the app presents on POST /sites (*.dwk.io rollout)
+  //   GITHUB_APP_ID           the filing GitHub App's id
+  //   GITHUB_INSTALLATION_ID  its installation on the TARGET_REPO owner
+  //   GITHUB_APP_PRIVATE_KEY  its private key as PKCS#8 PEM — GitHub hands out PKCS#1, convert with
+  //                           `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app.pkcs8.pem`
+}
