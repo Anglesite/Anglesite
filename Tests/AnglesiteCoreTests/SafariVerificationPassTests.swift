@@ -75,6 +75,19 @@ struct SafariVerificationPassTests {
     /// Queues the `initialize` → `notifications/initialized` → `tools/list` handshake, advertising
     /// exactly `tools` as the server's catalog.
     private func enqueueHandshake(tools: [String]) {
+        enqueueInitializeHandshake()
+        let toolsBody = try! JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": 2,
+            "result": ["tools": tools.map { ["name": $0] }],
+        ])
+        SafariVerificationPassStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "application/json"], body: toolsBody
+        ))
+    }
+
+    /// Just `initialize` → `notifications/initialized`, so a test can queue its own `tools/list`
+    /// reply (or a failure) next.
+    private func enqueueInitializeHandshake() {
         let initBody = try! JSONSerialization.data(withJSONObject: [
             "jsonrpc": "2.0", "id": 1,
             "result": ["protocolVersion": "2024-11-05", "serverInfo": ["name": "Safari"]],
@@ -83,13 +96,6 @@ struct SafariVerificationPassTests {
             status: 200, headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"], body: initBody
         ))
         SafariVerificationPassStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
-        let toolsBody = try! JSONSerialization.data(withJSONObject: [
-            "jsonrpc": "2.0", "id": 2,
-            "result": ["tools": tools.map { ["name": $0] }],
-        ])
-        SafariVerificationPassStubURLProtocol.queue.append(.init(
-            status: 200, headers: ["Content-Type": "application/json"], body: toolsBody
-        ))
     }
 
     private func toolCallResponse(content: [[String: Any]], isError: Bool = false) -> SafariVerificationPassStubURLProtocol.Response {
@@ -181,6 +187,30 @@ struct SafariVerificationPassTests {
         #expect(reason.contains("no network tool"))
         guard case .available = report.pageContent else { Issue.record("expected pageContent available"); return }
         guard case .available = report.screenshot else { Issue.record("expected screenshot available"); return }
+    }
+
+    @Test("tools/list failing throws PassError.toolListUnavailable, never navigateToolUnavailable",
+          arguments: [
+            // An HTTP failure, and a 200 whose body has no `tools` array (ClientError.invalidResponse):
+            // the two failure shapes the stub can produce. The stub can't delay a reply, so the
+            // timeout that motivated the case is covered by the same catch, not exercised here.
+            SafariVerificationPassStubURLProtocol.Response(status: 500, headers: [:], body: Data()),
+            SafariVerificationPassStubURLProtocol.Response(
+                status: 200, headers: ["Content-Type": "application/json"],
+                body: try! JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 2, "result": [:]])),
+          ])
+    func toolListFailingThrows(reply: SafariVerificationPassStubURLProtocol.Response) async throws {
+        SafariVerificationPassStubURLProtocol.reset()
+        enqueueInitializeHandshake()
+        SafariVerificationPassStubURLProtocol.queue.append(reply)
+
+        let (pass, _) = makePass()
+        do {
+            _ = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
+            Issue.record("expected PassError.toolListUnavailable to be thrown")
+        } catch SafariVerificationPass.PassError.toolListUnavailable(let detail) {
+            #expect(!detail.isEmpty)
+        }
     }
 
     @Test("navigate tool missing from tools/list throws PassError.navigateToolUnavailable") func navigateToolMissingThrows() async throws {
