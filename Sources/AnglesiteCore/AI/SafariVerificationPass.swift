@@ -27,7 +27,9 @@ public actor SafariVerificationPass {
     public enum PassError: Error, Sendable, Equatable {
         /// `tools/list` didn't answer (timeout, transport error, malformed reply). Kept distinct
         /// from ``navigateToolUnavailable`` so a slow or dead bridge never reads as "this Safari
-        /// can't open pages" — the two call for different fixes (#2086 review).
+        /// can't open pages" — the two call for different fixes (the CI failure on #2083). The
+        /// string is the error's `errorDescription` when it has one, so it can face the owner;
+        /// the raw error goes to the log.
         case toolListUnavailable(String)
         case navigateToolUnavailable
         case navigateFailed(String)
@@ -102,9 +104,12 @@ public actor SafariVerificationPass {
         let tools: [SafariMCPBridgeClient.ToolDescriptor]
         do {
             tools = try await client.listTools()
+        } catch is CancellationError {
+            // A cancelled pass just stops; it is not a bridge failure to report.
+            throw CancellationError()
         } catch {
             await log("tools/list failed — aborting pass: \(error)", stream: .stderr)
-            throw PassError.toolListUnavailable(String(describing: error))
+            throw PassError.toolListUnavailable((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
         let availableNames = Set(tools.map(\.name))
         func resolvedName(for capability: Capability) -> String? {
