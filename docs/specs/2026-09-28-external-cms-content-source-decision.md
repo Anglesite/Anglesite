@@ -112,10 +112,15 @@ form of option B.
 
      `EmDashDeployTarget` (#2103) does this on Publish Site. Before the build it creates
      `<site>-cms` (D1, `DB`), `<site>-cms-media` (R2, `MEDIA`) and `<site>-cms-session` (KV, the
-     adapter's `SESSION`), resuming from `SiteSettings.emdashResources` if a publish stopped
-     partway. It then writes `Config/wrangler.toml` (`EmDashWorkerConfig`: `main` is the overlay's
-     `src/worker.ts`, with a one-minute cron for scheduled publishing) and pushes
-     `EMDASH_ENCRYPTION_KEY`, which is generated once and held in the Keychain. The container
+     adapter's `SESSION`). Each is recorded in `SiteSettings.emdashResources` and looked up by name
+     before it's created, so an interrupted publish adopts what already exists. It then writes
+     `Config/wrangler.toml` (`EmDashWorkerConfig`: `main` is the overlay's `src/worker.ts`, with a
+     one-minute cron for scheduled publishing). It pushes `EMDASH_ENCRYPTION_KEY`, generated once
+     and held in the Keychain, only when the Worker doesn't already hold one, so publishing from a
+     second Mac never replaces the key EmDash's plugin secrets are encrypted with. Provisioning
+     comes before the pre-deploy gate because the build needs the ids. A first publish the gate
+     refuses therefore leaves the empty resources in place; nothing is published, and the next
+     publish reuses them. The container
      stages that config before the build, because the Cloudflare adapter reads it then and copies
      the bindings into `dist/server/wrangler.json`, which `wrangler deploy` follows. After deploy it
      records `emdashAdminURL`, and `emdashD1DatabaseID` is recorded with the database. EmDash

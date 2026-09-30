@@ -63,6 +63,13 @@ public actor EmDashDeployTarget: DeployTarget {
         return authorization
     }
 
+    /// Provisions before the build, because the build copies the resources' ids into the server
+    /// bundle's config. That also means a first publish the pre-deploy gate then refuses has
+    /// already created the site's (empty) database, bucket and session store and pushed its key:
+    /// deliberate. Nothing is published, and the next publish reuses them rather than creating
+    /// more. Each resource is looked up by its name before it's created, so a publish interrupted
+    /// between creating one and recording it, or a lost settings file, adopts what's already there
+    /// instead of failing on "already exists".
     public func prepare(context: DeployTargetContext) async -> DeployCommand.Result? {
         guard WorkerComposition.isValidSiteName(siteName) else {
             return .failed(reason: "invalid Worker name: \(siteName)", exitCode: nil)
@@ -75,24 +82,38 @@ public actor EmDashDeployTarget: DeployTarget {
         do {
             resources = try await store.load().emdashResources ?? .init()
         } catch {
-            // Without the record, every resource would look missing and be created again.
+            // Without the record, every resource would have to be looked up again; a settings file
+            // that can't be read is worth stopping for rather than guessing past.
             return .failed(reason: "couldn't read this site's settings: \(error)", exitCode: nil)
         }
 
         if resources.d1DatabaseID == nil {
             let name = EmDashWorkerConfig.databaseName(siteName: siteName)
-            switch await run(["d1", "create", name], context: context, environment: environment, source: source) {
-            case .failure(let failure):
-                return failure
-            case .success(let output):
-                guard let id = SocialWorkerProvisionCommand.extractResourceID(from: output),
-                      EmDashWorkerConfig.isPlainIdentifier(id) else {
-                    return .failed(reason: "wrangler created D1 database \(name) but no database id was found", exitCode: 0)
-                }
-                resources.d1DatabaseName = name
-                resources.d1DatabaseID = id
-                await save(resources, to: store)
+            let found: String?
+            switch await run(["d1", "list", "--json"], context: context, environment: environment, source: source) {
+            case .failure(let failure): return failure
+            case .success(let output): found = Self.existingID(named: name, nameKey: "name", idKey: "uuid", in: output)
             }
+            let id: String
+            if let found {
+                id = found
+            } else {
+                switch await run(["d1", "create", name], context: context, environment: environment, source: source) {
+                case .failure(let failure):
+                    return failure
+                case .success(let output):
+                    guard let created = SocialWorkerProvisionCommand.extractResourceID(from: output) else {
+                        return .failed(reason: "wrangler created D1 database \(name) but no database id was found", exitCode: 0)
+                    }
+                    id = created
+                }
+            }
+            guard EmDashWorkerConfig.isPlainIdentifier(id) else {
+                return .failed(reason: "wrangler created D1 database \(name) but no database id was found", exitCode: 0)
+            }
+            resources.d1DatabaseName = name
+            resources.d1DatabaseID = id
+            await save(resources, to: store)
         }
 
         if resources.mediaBucketName == nil {
@@ -100,28 +121,46 @@ public actor EmDashDeployTarget: DeployTarget {
             guard WorkerSiteName.isValidR2BucketName(name) else {
                 return .failed(reason: "invalid R2 bucket name: \(name)", exitCode: nil)
             }
-            switch await run(["r2", "bucket", "create", name], context: context, environment: environment, source: source) {
-            case .failure(let failure):
-                return failure
-            case .success:
-                resources.mediaBucketName = name
-                await save(resources, to: store)
+            // Bucket names are per account, so a bucket `info` finds is this site's own.
+            let exists = await context.executor.run(
+                step: .wranglerSubcommand(args: ["r2", "bucket", "info", name, "--json"]),
+                siteDirectory: context.siteDirectory, environment: environment, source: source).exitCode == 0
+            if !exists {
+                switch await run(["r2", "bucket", "create", name], context: context, environment: environment, source: source) {
+                case .failure(let failure): return failure
+                case .success: break
+                }
             }
+            resources.mediaBucketName = name
+            await save(resources, to: store)
         }
 
         if resources.sessionKVNamespaceID == nil {
             let title = EmDashWorkerConfig.sessionNamespaceTitle(siteName: siteName)
-            switch await run(["kv", "namespace", "create", title], context: context, environment: environment, source: source) {
-            case .failure(let failure):
-                return failure
-            case .success(let output):
-                guard let id = SocialWorkerProvisionCommand.extractResourceID(from: output),
-                      EmDashWorkerConfig.isPlainIdentifier(id) else {
-                    return .failed(reason: "wrangler created KV namespace \(title) but no namespace id was found", exitCode: 0)
-                }
-                resources.sessionKVNamespaceID = id
-                await save(resources, to: store)
+            let found: String?
+            switch await run(["kv", "namespace", "list"], context: context, environment: environment, source: source) {
+            case .failure(let failure): return failure
+            case .success(let output): found = Self.existingID(named: title, nameKey: "title", idKey: "id", in: output)
             }
+            let id: String
+            if let found {
+                id = found
+            } else {
+                switch await run(["kv", "namespace", "create", title], context: context, environment: environment, source: source) {
+                case .failure(let failure):
+                    return failure
+                case .success(let output):
+                    guard let created = SocialWorkerProvisionCommand.extractResourceID(from: output) else {
+                        return .failed(reason: "wrangler created KV namespace \(title) but no namespace id was found", exitCode: 0)
+                    }
+                    id = created
+                }
+            }
+            guard EmDashWorkerConfig.isPlainIdentifier(id) else {
+                return .failed(reason: "wrangler created KV namespace \(title) but no namespace id was found", exitCode: 0)
+            }
+            resources.sessionKVNamespaceID = id
+            await save(resources, to: store)
         }
 
         do {
@@ -131,13 +170,40 @@ public actor EmDashDeployTarget: DeployTarget {
             return .failed(reason: "couldn't write the EmDash Worker's configuration: \(error)", exitCode: nil)
         }
 
+        return await pushEncryptionKeyIfMissing(context: context, environment: environment, source: source)
+    }
+
+    /// Pushes `EMDASH_ENCRYPTION_KEY` only when the Worker doesn't already hold it. The key lives
+    /// in this Mac's secret store, so another Mac (or a reset Keychain) has none and would make a
+    /// new one; pushing that would make every plugin secret EmDash encrypted with the old key
+    /// unreadable. So the Worker's own secret list decides: already there, nothing is pushed and
+    /// no key is made here. A Worker that doesn't exist yet (the first publish) gets the key;
+    /// `wrangler secret put` creates it as a draft, non-interactively, for the deploy to replace.
+    /// If the list can't be read, the publish stops rather than risk replacing the key.
+    private func pushEncryptionKeyIfMissing(
+        context: DeployTargetContext, environment: [String: String], source: String
+    ) async -> DeployCommand.Result? {
+        let name = EmDashWorkerConfig.encryptionKeySecretName
+        let listed = await context.executor.run(
+            step: .wranglerSubcommand(args: ["secret", "list", "--format", "json"]),
+            siteDirectory: context.siteDirectory, environment: environment, source: source)
+        if listed.exitCode == 0 {
+            guard let names = Self.jsonArray(in: listed.output)?.compactMap({ $0["name"] as? String }) else {
+                return .failed(reason: "couldn't read the EmDash Worker's secrets: \(listed.output)", exitCode: 0)
+            }
+            if names.contains(name) { return nil }
+        } else if !Self.isWorkerNotFound(listed.output) {
+            return .failed(
+                reason: listed.output.isEmpty ? "couldn't read the EmDash Worker's secrets" : listed.output,
+                exitCode: listed.exitCode)
+        }
+
         let key: String
         do {
             key = try encryptionKeySource(context.siteID)
         } catch {
             return .failed(reason: "couldn't prepare EmDash's encryption key: \(error)", exitCode: nil)
         }
-        let name = EmDashWorkerConfig.encryptionKeySecretName
         do {
             let result = try await secretRunner(context.siteDirectory, name, key, environment, source)
             guard result.exitCode == 0 else {
@@ -148,6 +214,31 @@ public actor EmDashDeployTarget: DeployTarget {
             return .failed(reason: "couldn't push \(name): \(error)", exitCode: nil)
         }
         return nil
+    }
+
+    /// `wrangler secret list`'s refusal for a Worker that hasn't been deployed yet.
+    static func isWorkerNotFound(_ output: String) -> Bool {
+        output.range(of: #"Worker "[^"]*"( \(env: [^)]*\))? not found"#, options: .regularExpression) != nil
+    }
+
+    /// The JSON array in a wrangler command's output, which may carry warnings (`▲ [WARNING] …`)
+    /// around it: the first `[` from which the rest, up to the last `]`, parses as an array.
+    static func jsonArray(in output: String) -> [[String: Any]]? {
+        guard let end = output.lastIndex(of: "]") else { return nil }
+        var index = output.startIndex
+        while let start = output[index..<end].firstIndex(of: "[") {
+            if let data = String(output[start...end]).data(using: .utf8),
+               let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                return array
+            }
+            index = output.index(after: start)
+        }
+        return nil
+    }
+
+    /// The id of the resource called `name` in a wrangler list's JSON output, if one exists.
+    static func existingID(named name: String, nameKey: String, idKey: String, in output: String) -> String? {
+        jsonArray(in: output)?.first { ($0[nameKey] as? String) == name }?[idKey] as? String
     }
 
     /// `wrangler deploy` and its post-publish effects through `CloudflareDeployTarget`, then, on

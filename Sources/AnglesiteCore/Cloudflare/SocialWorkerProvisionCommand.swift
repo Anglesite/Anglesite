@@ -315,6 +315,8 @@ public actor SocialWorkerProvisionCommand {
                 currentRoutes: currentRoutes, wellKnownDynamicClaims: [],
                 onPreflight: onPreflight, onDomainAttach: onDomainAttach,
                 onMarkdownForAgents: onMarkdownForAgents, onProgress: onProgress)
+            // `resources` is the social composition's, passed straight back: an EmDash site has
+            // none (its own are in `SiteSettings.emdashResources`, recorded by the target).
             return Self.result(deployResult, resources: resources)
         }
 

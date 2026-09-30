@@ -54,10 +54,22 @@ struct EmDashDeployTargetTests {
         func delete(account: String) throws { _ = lock.withLock { values.removeValue(forKey: account) } }
     }
 
+    /// A fresh account: nothing exists yet, and the Worker hasn't been deployed.
     private static let created: [String: DeployStepResult] = [
+        "d1 list --json": .init(exitCode: 0, output: #"[{"uuid":"other-db","name":"blog-cms"}]"#),
         "d1 create news-cms": .init(exitCode: 0, output: #"{"uuid":"0f2c1d3e-aaaa-bbbb-cccc-1234567890ab"}"#),
+        "r2 bucket info news-cms-media --json": .init(exitCode: 1, output: "The specified bucket does not exist."),
         "r2 bucket create news-cms-media": .init(exitCode: 0, output: "Created bucket news-cms-media"),
+        "kv namespace list": .init(exitCode: 0, output: "[]"),
         "kv namespace create news-cms-session": .init(exitCode: 0, output: #"{ binding = "news-cms-session", id = "5a5b5c5d5e5f" }"#),
+        "secret list --format json": .init(exitCode: 1, output: "Worker \"news\" not found.\nIf this is a new Worker, run `wrangler deploy` first to create it."),
+    ]
+
+    private static let freshSteps = [
+        "d1 list --json", "d1 create news-cms",
+        "r2 bucket info news-cms-media --json", "r2 bucket create news-cms-media",
+        "kv namespace list", "kv namespace create news-cms-session",
+        "secret list --format json",
     ]
 
     private static func tempDir() throws -> URL {
@@ -89,7 +101,7 @@ struct EmDashDeployTargetTests {
 
         let failure = await Self.target(secrets).prepare(context: context)
         #expect(failure == nil)
-        #expect(executor.steps == ["d1 create news-cms", "r2 bucket create news-cms-media", "kv namespace create news-cms-session"])
+        #expect(executor.steps == Self.freshSteps)
 
         let settings = try await SiteConfigStore(configDirectory: context.configDirectory).load()
         #expect(settings.emdashResources == .init(
@@ -115,7 +127,70 @@ struct EmDashDeployTargetTests {
             $0.emdashResources = .init(d1DatabaseName: "news-cms", d1DatabaseID: "db1")
         }
         #expect(await Self.target(Secrets()).prepare(context: context) == nil)
-        #expect(executor.steps == ["r2 bucket create news-cms-media", "kv namespace create news-cms-session"])
+        #expect(executor.steps == Array(Self.freshSteps.dropFirst(2)))
+    }
+
+    @Test("resources already on the account (an interrupted publish, lost settings) are adopted, not created again")
+    func adoptsExisting() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var outputs = Self.created
+        outputs["d1 list --json"] = .init(exitCode: 0, output: """
+            ▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+            [{"uuid":"other-db","name":"blog-cms"},{"uuid":"db-existing","name":"news-cms"}]
+            """)
+        outputs["r2 bucket info news-cms-media --json"] = .init(exitCode: 0, output: #"{"name":"news-cms-media"}"#)
+        outputs["kv namespace list"] = .init(exitCode: 0, output: #"[{"id":"kv-existing","title":"news-cms-session"}]"#)
+        let executor = FakeExecutor(outputs)
+        let context = Self.context(dir, executor: executor)
+
+        #expect(await Self.target(Secrets()).prepare(context: context) == nil)
+        #expect(!executor.steps.contains { $0.contains(" create ") })
+        let resources = try await SiteConfigStore(configDirectory: context.configDirectory).load().emdashResources
+        #expect(resources == .init(
+            d1DatabaseName: "news-cms", d1DatabaseID: "db-existing",
+            mediaBucketName: "news-cms-media", sessionKVNamespaceID: "kv-existing"))
+    }
+
+    @Test("a Worker that already holds the encryption key keeps it: nothing is pushed and no key is made")
+    func keepsWorkersKey() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var outputs = Self.created
+        outputs["secret list --format json"] = .init(exitCode: 0, output: #"[{"name":"EMDASH_ENCRYPTION_KEY","type":"secret_text"}]"#)
+        let secrets = Secrets()
+        let target = EmDashDeployTarget(
+            cloudflareTarget: CloudflareDeployTarget(tokenSource: { "tok" }), siteName: "news",
+            encryptionKeySource: { _ in
+                Issue.record("a key must not be read or made when the Worker already has one")
+                return "new-key"
+            },
+            secretRunner: secrets.runner)
+        #expect(await target.prepare(context: Self.context(dir, executor: FakeExecutor(outputs))) == nil)
+        #expect(secrets.pushed.isEmpty)
+    }
+
+    @Test("a Worker without the key gets it; one whose secrets can't be read stops the publish")
+    func keyPushRules() async throws {
+        let dir = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var outputs = Self.created
+        outputs["secret list --format json"] = .init(exitCode: 0, output: "[]")
+        let secrets = Secrets()
+        #expect(await Self.target(secrets).prepare(context: Self.context(dir, executor: FakeExecutor(outputs))) == nil)
+        #expect(secrets.pushed.map(\.name) == ["EMDASH_ENCRYPTION_KEY"])
+
+        let other = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: other) }
+        outputs["secret list --format json"] = .init(exitCode: 1, output: "Authentication error [code: 10000]")
+        let blocked = Secrets()
+        let failure = await Self.target(blocked).prepare(context: Self.context(other, executor: FakeExecutor(outputs)))
+        #expect(failure == .failed(reason: "Authentication error [code: 10000]", exitCode: 1))
+        #expect(blocked.pushed.isEmpty)
+
+        #expect(EmDashDeployTarget.isWorkerNotFound(#"Worker "news" not found."#))
+        #expect(EmDashDeployTarget.isWorkerNotFound(#"Worker "news" (env: production) not found."#))
+        #expect(!EmDashDeployTarget.isWorkerNotFound("Authentication error"))
     }
 
     @Test("a failed step stops the publish and keeps what was already created")
