@@ -80,6 +80,20 @@ public actor SafariVerificationPass {
         port: Int = SafariMCPBridgeDetector.defaultPort,
         connectTimeout: TimeInterval = NetworkTimeouts.safariMCPBridgeProbe
     ) async throws -> SafariVerificationReport {
+        try await run(
+            previewURL: previewURL, port: port, connectTimeout: connectTimeout,
+            listToolsTimeout: NetworkTimeouts.mcpToolsListRequest)
+    }
+
+    /// ``run(previewURL:port:connectTimeout:)`` with the `tools/list` request's bound injectable
+    /// too, for the same reason as `connectTimeout`: a stubbed reply that's already queued can
+    /// still miss the 5-second production bound under CI scheduling contention.
+    public func run(
+        previewURL: URL,
+        port: Int,
+        connectTimeout: TimeInterval,
+        listToolsTimeout: TimeInterval
+    ) async throws -> SafariVerificationReport {
         let endpoint = URL(string: "http://127.0.0.1:\(port)/mcp") ?? URL(string: "http://127.0.0.1/mcp")!
         let client = SafariMCPBridgeClient(endpoint: endpoint, urlSession: urlSession, logCenter: logCenter)
         do {
@@ -89,7 +103,7 @@ public actor SafariVerificationPass {
             throw error
         }
         do {
-            let report = try await runPass(client: client, previewURL: previewURL)
+            let report = try await runPass(client: client, previewURL: previewURL, listToolsTimeout: listToolsTimeout)
             await client.close()
             return report
         } catch {
@@ -100,10 +114,12 @@ public actor SafariVerificationPass {
 
     // MARK: - Pass
 
-    private func runPass(client: SafariMCPBridgeClient, previewURL: URL) async throws -> SafariVerificationReport {
+    private func runPass(
+        client: SafariMCPBridgeClient, previewURL: URL, listToolsTimeout: TimeInterval
+    ) async throws -> SafariVerificationReport {
         let tools: [SafariMCPBridgeClient.ToolDescriptor]
         do {
-            tools = try await client.listTools()
+            tools = try await client.listTools(timeout: listToolsTimeout)
         } catch is CancellationError {
             // A cancelled pass just stops; it is not a bridge failure to report.
             throw CancellationError()
