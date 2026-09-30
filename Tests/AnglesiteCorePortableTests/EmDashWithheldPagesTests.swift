@@ -80,6 +80,46 @@ struct EmDashWithheldPagesTests {
         #expect(deletes.map(\.params) == [["/articles/fixed/"]])
     }
 
+    @Test("a recorded path that would resolve to another host is never probed or cleared")
+    func offSitePathsAreNotProbed() async throws {
+        let site = URL(string: "https://news.example")!
+        #expect(EmDashWithheldPages.probeURL(path: "//evil.example/x", siteURL: site) == nil)
+        #expect(EmDashWithheldPages.probeURL(path: "https://evil.example/x", siteURL: site) == nil)
+        #expect(EmDashWithheldPages.probeURL(path: "x", siteURL: site) == nil)
+        #expect(EmDashWithheldPages.probeURL(path: "/a/b/", siteURL: site)?.absoluteString == "https://news.example/a/b/")
+
+        let rows = #"{"success":true,"errors":[],"result":[{"success":true,"results":[{"path":"//evil.example/x","categories":"[\"exposed-token\"]","messages":"[]","first_seen":"2026-09-30T18:00:00Z","last_seen":"2026-09-30T18:00:00Z","count":1}]}]}"#
+        let stub = StubD1 { sql in (200, sql.hasPrefix("SELECT") ? rows : Self.okJSON) }
+        let probed = LockedURLs()
+        let pages = await EmDashWithheldPages.load(
+            client: Self.client(stub), siteURL: site, isServing: { url in probed.append(url); return true })
+        #expect(pages?.map(\.path) == ["//evil.example/x"])
+        #expect(probed.all.isEmpty)
+        #expect(!stub.statements.contains { $0.sql.hasPrefix("DELETE") })
+    }
+
+    @Test("a page answering 200, or gone as 404/410, is resolved; a 503 or no answer is not")
+    func resolvedStatuses() {
+        #expect(EmDashWithheldPages.isResolved(status: 200))
+        #expect(EmDashWithheldPages.isResolved(status: 404))
+        #expect(EmDashWithheldPages.isResolved(status: 410))
+        #expect(!EmDashWithheldPages.isResolved(status: 503))
+        #expect(!EmDashWithheldPages.isResolved(status: 500))
+        #expect(!EmDashWithheldPages.isResolved(status: nil))
+    }
+
+    @Test("a hidden notice comes back for a new page or a new reason, not for the same list")
+    func noticeKeyTracksReasons() {
+        let adminLink = WithheldPage(path: "/a/", reasons: [.adminLink], firstSeen: nil, lastSeen: nil)
+        let secret = WithheldPage(path: "/a/", reasons: [.secret], firstSeen: nil, lastSeen: nil)
+        let other = WithheldPage(path: "/b/", reasons: [.adminLink], firstSeen: nil, lastSeen: nil)
+        let refreshed = WithheldPage(path: "/a/", reasons: [.adminLink], firstSeen: nil, lastSeen: Date())
+        let hidden = EmDashWithheldPages.noticeKey([adminLink])
+        #expect(EmDashWithheldPages.noticeKey([refreshed]) == hidden)
+        #expect(EmDashWithheldPages.noticeKey([secret]) != hidden)
+        #expect(EmDashWithheldPages.noticeKey([adminLink, other]) != hidden)
+    }
+
     @Test("without a known site URL nothing is cleared, and every recorded page is shown")
     func noSiteURLKeepsAll() async {
         let stub = StubD1 { _ in (200, Self.rowsJSON) }

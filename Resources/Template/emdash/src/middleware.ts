@@ -18,5 +18,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const response = await next();
   if (context.isPrerendered) return response;
   const db = (env as { DB?: D1Like }).DB;
-  return applyRenderBackstop(context.url.pathname, response, d1WithheldReporter(db));
+  // The adapter's ExecutionContext: a withheld page's D1 record is written after the 503 is sent.
+  const cfContext = (context.locals as { cfContext?: { waitUntil(promise: Promise<unknown>): void } }).cfContext;
+  return applyRenderBackstop(
+    context.url.pathname,
+    response,
+    d1WithheldReporter(db),
+    cfContext ? (promise) => cfContext.waitUntil(promise) : undefined,
+  );
 });

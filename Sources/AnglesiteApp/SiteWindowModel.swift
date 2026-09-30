@@ -277,10 +277,11 @@ final class SiteWindowModel {
     /// from the site's D1 database. Empty on an Anglesite site, or when the site isn't set up to
     /// be read (no database id or token yet). Refreshed alongside ``isHostedCommunity``.
     private(set) var withheldPages: [WithheldPage] = []
-    /// The owner hid the withheld-pages banner. It comes back when the list changes.
+    /// The owner hid the withheld-pages banner. It comes back when a page or a page's reasons
+    /// change (``EmDashWithheldPages/noticeKey(_:)``).
     private var withheldPagesDismissedFor: [String]?
     var showsWithheldPagesNotice: Bool {
-        !withheldPages.isEmpty && withheldPagesDismissedFor != withheldPages.map(\.path)
+        !withheldPages.isEmpty && withheldPagesDismissedFor != EmDashWithheldPages.noticeKey(withheldPages)
     }
     /// Why Publish Site is unavailable for this site, or `nil` when it isn't (#2050) —
     /// `SiteEditingSurfaces.staticDeployRefusal`, the same decision `DeployCommand` makes, read
@@ -632,9 +633,9 @@ final class SiteWindowModel {
         if let pages { withheldPages = pages }
     }
 
-    /// Hides the withheld-pages banner until the set of withheld pages changes.
+    /// Hides the withheld-pages banner until the withheld pages or their reasons change.
     func dismissWithheldPagesNotice() {
-        withheldPagesDismissedFor = withheldPages.map(\.path)
+        withheldPagesDismissedFor = EmDashWithheldPages.noticeKey(withheldPages)
     }
 
     /// Reads the site kind from the package marker off the main actor (a plist read under the

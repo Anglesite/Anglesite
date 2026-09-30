@@ -185,11 +185,13 @@ a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
   `anglesite.render-backstop.withheld` line per withheld page, naming the path, the check
   categories and their messages; the messages say what was found but never quote it. The site's
   D1 database (EmDash's `DB`) gets one row per withheld path in `anglesite_withheld_pages`
-  (#2097). It is written only when a page is withheld, and refreshed at most every five minutes.
+  (#2097). It is written only when a page is withheld, and refreshed at most every five minutes,
+  after the 503 has been sent (`waitUntil`), so a slow database never delays the reader.
   The app reads that table (`EmDashWithheldPages`, via `SiteSettings.emdashD1DatabaseID`) and
   shows a banner in the site window: which pages, why in owner terms, and Open EmDash. When a
-  listed page answers `200` again, the app clears its row, so a fixed article's notice goes away
-  on its own. This matters because a false positive (a token-shaped string in an article about
+  listed page answers `200` again, or is gone (`404`/`410`, deleted or unpublished), the app
+  clears its row, so the notice goes away on its own. It only probes a path on the site's own
+  host. This matters because a false positive (a token-shaped string in an article about
   security, say) takes a page down with a 503 the writer can't see.
 - Checking a page means reading all of it first, so server-rendered pages are no longer
   streamed as they render. That is deliberate: nothing reaches a reader or a cache before the

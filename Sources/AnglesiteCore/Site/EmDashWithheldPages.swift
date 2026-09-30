@@ -177,15 +177,16 @@ public struct WithheldPagesD1Client: Sendable {
 
 /// Loads an EmDash site's withheld pages for the site window (#2097).
 public enum EmDashWithheldPages {
-    /// Whether a page is showing to readers again. The default fetches it and checks for a `200`.
+    /// Whether a page is no longer withheld. The default fetches it (see ``isServing``).
     public typealias ServingProbe = @Sendable (URL) async -> Bool
 
     /// The withheld pages still withheld, or `nil` when the site isn't set up for this: not an
     /// EmDash site with a known database (`SiteSettings.emdashD1DatabaseID`), no Cloudflare token,
     /// or the account lookup failed.
     ///
-    /// A page that the site now serves (`isServing`, against `.site-config`'s `SITE_URL`) is
-    /// cleared from the table and left out, so a fixed page's notice goes away on its own. If the
+    /// A page that the site now serves, or that is gone (`isServing`, against `.site-config`'s
+    /// `SITE_URL`), is cleared from the table and left out, so a fixed or deleted page's notice
+    /// goes away on its own. If the
     /// site URL isn't known, nothing is cleared: every recorded page is still shown.
     public static func loadIfConfigured(
         sourceDirectory: URL,
@@ -212,7 +213,7 @@ public enum EmDashWithheldPages {
         guard let siteURL else { return pages }
         var stillWithheld: [WithheldPage] = []
         for page in pages {
-            if let url = URL(string: page.path, relativeTo: siteURL)?.absoluteURL, await isServing(url) {
+            if let url = probeURL(path: page.path, siteURL: siteURL), await isServing(url) {
                 // Best-effort: if the delete fails, the row comes back next time and is re-checked.
                 try? await client.clear(path: page.path)
             } else {
@@ -220,6 +221,24 @@ public enum EmDashWithheldPages {
             }
         }
         return stillWithheld
+    }
+
+    /// What the owner saw when they hid the withheld-pages notice: each page with its reasons. The
+    /// notice comes back when this changes, so a new page, or a new reason on a page already
+    /// listed (a secret where there was an admin link), is shown again.
+    public static func noticeKey(_ pages: [WithheldPage]) -> [String] {
+        pages.map { page in ([page.path] + page.reasons.map(\.rawValue)).joined(separator: "\n") }
+    }
+
+    /// The URL to probe for a recorded path, or `nil` if the path could resolve anywhere but the
+    /// site itself. The path is the request's pathname, so it can start with `//`, which a URL
+    /// resolves as another host; a `200` from that host must never clear a page still withheld.
+    static func probeURL(path: String, siteURL: URL) -> URL? {
+        guard path.hasPrefix("/"), !path.hasPrefix("//"),
+              let url = URL(string: path, relativeTo: siteURL)?.absoluteURL,
+              url.scheme == siteURL.scheme, url.host == siteURL.host, url.port == siteURL.port
+        else { return nil }
+        return url
     }
 
     /// The site's public URL, from `.site-config`'s `SITE_URL` (https only).
@@ -231,14 +250,21 @@ public enum EmDashWithheldPages {
         return url
     }
 
-    /// Fetches the page and reports whether it answered `200`. The backstop's withheld response is
-    /// a `503`, and any failure to fetch counts as not serving.
+    /// Fetches the page and reports whether it's no longer withheld: it answered `200`, or it's
+    /// gone (`404`, `410`) because the owner deleted or unpublished it, leaving nothing to fix. The
+    /// backstop's withheld response is a `503`; that, any other status, and any failure to fetch
+    /// keep the page listed.
     public static let isServing: ServingProbe = { url in
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 15
         guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
-        return (response as? HTTPURLResponse)?.statusCode == 200
+        return isResolved(status: (response as? HTTPURLResponse)?.statusCode)
+    }
+
+    /// Whether a probe's status means the page is no longer withheld (see ``isServing``).
+    static func isResolved(status: Int?) -> Bool {
+        [200, 404, 410].contains(status ?? 0)
     }
 }

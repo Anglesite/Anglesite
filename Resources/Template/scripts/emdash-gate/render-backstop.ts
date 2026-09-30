@@ -80,7 +80,7 @@ const logWithheld: WithheldReporter = (report) => console.error(JSON.stringify(r
  * The table in the site's D1 database (EmDash's `DB`) that lists withheld pages for the app
  * (#2097). One row per path. Written only when a page is withheld, never on a clean render, so a
  * healthy page costs no database write. The app clears a row once it has confirmed the page
- * renders again.
+ * renders again, or is gone.
  */
 export const WITHHELD_TABLE = "anglesite_withheld_pages";
 
@@ -135,11 +135,16 @@ export function d1WithheldReporter(db: D1Like | undefined, now: () => Date = () 
 /**
  * Checks one rendered response. Returns it unchanged when it isn't a public HTML page, a copy of
  * it when the page passes, or `withheldResponse()` when it fails or can't be checked.
+ *
+ * `waitUntil` is the Worker's `ExecutionContext.waitUntil`. With it, a withheld page's report
+ * (a D1 write) runs after the 503 is sent instead of delaying it; without it, the report is
+ * awaited first.
  */
 export async function applyRenderBackstop(
   pathname: string,
   response: Response,
   report: WithheldReporter = logWithheld,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
   if (!shouldCheck(pathname, response.headers.get("content-type"))) return response;
   // No body to check: a 304 revalidation or a HEAD request carries none, and must not be given one.
@@ -168,7 +173,16 @@ export async function applyRenderBackstop(
       categories: [...new Set(issues.map((i) => i.category))].sort(),
       messages: [...new Set(issues.map((i) => i.message))].sort(),
     };
-    await (async () => report(withheld))().catch(() => undefined);
+    const reported = (async () => report(withheld))().catch(() => undefined);
+    if (waitUntil) {
+      try {
+        waitUntil(reported);
+      } catch {
+        await reported;
+      }
+    } else {
+      await reported;
+    }
     return withheldResponse();
   }
   // The body was read as text and is re-sent as text, so any length the upstream set no longer

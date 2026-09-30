@@ -159,3 +159,34 @@ test("a database or reporter failure never lets a withheld page through", async 
   assert.equal((await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p>`), d1WithheldReporter(undefined))).status, 503);
 });
 
+
+test("with waitUntil, the withheld 503 is sent without waiting on the report", async () => {
+  let release!: () => void;
+  const slow = new Promise<void>((resolve) => { release = resolve; });
+  const deferred: Promise<unknown>[] = [];
+  let reported = false;
+  const response = await applyRenderBackstop(
+    "/articles/leak/",
+    page(`<p>${AWS_KEY}</p>`),
+    async () => { await slow; reported = true; },
+    (promise) => { deferred.push(promise); },
+  );
+  assert.equal(response.status, 503);
+  assert.equal(reported, false);
+  assert.equal(deferred.length, 1);
+  release();
+  await deferred[0];
+  assert.equal(reported, true);
+});
+
+test("a waitUntil that throws falls back to awaiting the report, and the page is still withheld", async () => {
+  let reported = false;
+  const response = await applyRenderBackstop(
+    "/articles/leak/",
+    page(`<p>${AWS_KEY}</p>`),
+    () => { reported = true; },
+    () => { throw new Error("no context"); },
+  );
+  assert.equal(response.status, 503);
+  assert.equal(reported, true);
+});
