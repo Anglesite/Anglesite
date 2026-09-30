@@ -79,8 +79,8 @@ const JSON_MODE = process.argv.includes("--json");
 const STRICT_MODE = process.argv.includes("--strict");
 const SOURCE_MODE = process.argv.includes("--source");
 const DIST_DIR = join(process.cwd(), "dist");
-// A server-rendered build (#2055 slice 2): the Worker's entry marks it, and the public files the
-// static checks read live one level down.
+// A server-rendered build (#2055 slice 2): dist/server/ (the Worker, entry.mjs) and dist/client/
+// (the public files the static checks read) instead of one static dist/.
 const SERVER_DIR = join(DIST_DIR, "server");
 const SERVER_ENTRY = join(SERVER_DIR, "entry.mjs");
 const CLIENT_DIR = join(DIST_DIR, "client");
@@ -1156,16 +1156,13 @@ export function checkPublicPII(content: string, rel: string, vendored: boolean):
  * - Every `REQUIRED_GATE_MODULES` source must be in the server bundle, built from exactly the
  *   file the site has now. `currentHashes` holds the SHA-256 of each on disk (null: missing). The
  *   app's D5 hash pin holds those files to the app's own copies.
- * - The bundle must register the plugin under its id (`bundleRegistersGate`).
+ * - The manifest must record `gateRegistered: true`: the build saw EmDash's generated plugin list
+ *   register the `anglesite-gate` descriptor, not merely a bundled plugin module.
  */
-export function checkServerBuild(
-  manifestRaw: string | null,
-  currentHashes: Record<string, string | null>,
-  bundleRegistersGate: boolean,
-): Issue[] {
+export function checkServerBuild(manifestRaw: string | null, currentHashes: Record<string, string | null>): Issue[] {
   const file = BUILD_MANIFEST_PATH;
   const issues: Issue[] = [];
-  let manifest: { version?: unknown; gateModules?: unknown } | null = null;
+  let manifest: { version?: unknown; gateModules?: unknown; gateRegistered?: unknown } | null = null;
   if (manifestRaw !== null) {
     try {
       manifest = JSON.parse(manifestRaw);
@@ -1210,13 +1207,13 @@ export function checkServerBuild(
       });
     }
   }
-  if (!bundleRegistersGate) {
+  if (manifest?.gateRegistered !== true) {
     issues.push({
       severity: "error",
       category: "publish-gate-missing",
       message: "The server bundle doesn't register the anglesite-gate plugin, so articles could be published without the safety check.",
-      file: "dist/server",
-      remediation: "Register anglesite-gate in astro.config.ts and rebuild.",
+      file,
+      remediation: "Register anglesite-gate in astro.config.ts's EmDash plugins and rebuild.",
     });
   }
   return issues;
@@ -1229,20 +1226,21 @@ async function readOrNull(path: string): Promise<string | null> {
 /** The server bundle's share of the scan: secrets in every module, and the publish gate. */
 async function scanServerBuild(): Promise<Issue[]> {
   const issues: Issue[] = [];
-  let registersGate = false;
-  for await (const file of walk(SERVER_DIR)) {
+  const serverFiles = await stat(SERVER_DIR).then(() => walk(SERVER_DIR), () => null);
+  for await (const file of serverFiles ?? []) {
     if (!/\.(m?js|json)$/i.test(file)) continue;
-    const content = await readFile(file, "utf-8");
-    issues.push(...checkSecrets(content, relative(process.cwd(), file)));
-    if (!registersGate && content.includes('"anglesite-gate"')) registersGate = true;
+    issues.push(...checkSecrets(await readFile(file, "utf-8"), relative(process.cwd(), file)));
   }
   const currentHashes: Record<string, string | null> = {};
   for (const path of REQUIRED_GATE_MODULES) {
-    const content = await readOrNull(join(process.cwd(), path));
-    currentHashes[path] = content === null ? null : sha256(content);
+    // Raw bytes, as the build manifest hashes them.
+    const bytes = await readFile(join(process.cwd(), path)).catch((e: NodeJS.ErrnoException) =>
+      e.code === "ENOENT" ? null : Promise.reject(e),
+    );
+    currentHashes[path] = bytes === null ? null : sha256(bytes);
   }
   const manifestRaw = await readOrNull(join(process.cwd(), BUILD_MANIFEST_PATH));
-  issues.push(...checkServerBuild(manifestRaw, currentHashes, registersGate));
+  issues.push(...checkServerBuild(manifestRaw, currentHashes));
   return issues;
 }
 
@@ -1294,8 +1292,24 @@ async function scan(): Promise<Issue[]> {
   }
 
   // Server-rendered: the static checks read the public files in dist/client/, and report them
-  // under the dist/… paths they're served at, so every check below applies unchanged.
-  const serverRendered = await stat(SERVER_ENTRY).then(() => true, () => false);
+  // under the dist/… paths they're served at, so every check below applies unchanged. Any file
+  // only a server build writes marks the layout, so a renamed or missing Worker entry can't drop
+  // the build back to static mode (and past the publish-gate checks); it is a failure of its own.
+  // Bare dist/server/ or dist/client/ directories don't count: a static site's own /server/ page
+  // builds to dist/server/index.html.
+  const exists = (path: string) => stat(path).then(() => true, () => false);
+  const serverRendered = (
+    await Promise.all([SERVER_ENTRY, join(SERVER_DIR, "wrangler.json"), join(process.cwd(), BUILD_MANIFEST_PATH)].map(exists))
+  ).some(Boolean);
+  if (serverRendered && !(await exists(SERVER_ENTRY))) {
+    issues.push({
+      severity: "error",
+      category: "server-build-incomplete",
+      message: "The build is server-rendered but has no Worker entry at dist/server/entry.mjs.",
+      file: "dist/server/entry.mjs",
+      remediation: "Rebuild the site; if the adapter now names its entry differently, update pre-deploy-check.ts.",
+    });
+  }
   const publicDir = serverRendered ? CLIENT_DIR : DIST_DIR;
   const publicRel = (file: string) => (serverRendered ? join("dist", relative(publicDir, file)) : relative(process.cwd(), file));
   const vendored = serverRendered

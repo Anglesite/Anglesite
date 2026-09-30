@@ -1161,15 +1161,16 @@ test("scanSourceTree without a contentDir option never flags restricted content 
 // #2055 slice 2 — the deploy layer on a server-rendered (EmDash) build.
 
 const GATE_HASHES = Object.fromEntries(REQUIRED_GATE_MODULES.map((p) => [p, sha256(`source of ${p}`)]));
-const manifestFor = (gateModules: Record<string, string>) => JSON.stringify({ version: 1, gateModules, vendoredClientChunks: [] });
+const manifestFor = (gateModules: Record<string, string>, gateRegistered = true) =>
+  JSON.stringify({ version: 1, gateModules, gateRegistered, vendoredClientChunks: [] });
 
 test("checkServerBuild: a bundle built from the current gate sources, registering the plugin, passes", () => {
-  assert.deepEqual(checkServerBuild(manifestFor(GATE_HASHES), GATE_HASHES, true), []);
+  assert.deepEqual(checkServerBuild(manifestFor(GATE_HASHES), GATE_HASHES), []);
 });
 
 test("checkServerBuild: no manifest, or an unreadable one, refuses the deploy", () => {
   for (const raw of [null, "not json", JSON.stringify({ version: 2, gateModules: {} }), JSON.stringify({ version: 1 })]) {
-    const issues = checkServerBuild(raw, GATE_HASHES, true);
+    const issues = checkServerBuild(raw, GATE_HASHES);
     assert.equal(issues.length, 1, String(raw));
     assert.equal(issues[0].severity, "error");
     assert.equal(issues[0].category, "publish-gate-missing");
@@ -1178,20 +1179,22 @@ test("checkServerBuild: no manifest, or an unreadable one, refuses the deploy", 
 
 test("checkServerBuild: every gate source missing from the bundle is named", () => {
   const { ["scripts/emdash-gate/policy.ts"]: _dropped, ...partial } = GATE_HASHES;
-  const issues = checkServerBuild(manifestFor(partial), GATE_HASHES, true);
+  const issues = checkServerBuild(manifestFor(partial), GATE_HASHES);
   assert.deepEqual(issues.map((i) => [i.category, i.message.includes("scripts/emdash-gate/policy.ts")]), [["publish-gate-missing", true]]);
 });
 
 test("checkServerBuild: a gate source changed (or deleted) since the build is a mismatch", () => {
   const changed = { ...GATE_HASHES, "scripts/gate-checks.ts": sha256("edited") };
-  assert.deepEqual(checkServerBuild(manifestFor(GATE_HASHES), changed, true).map((i) => i.category), ["publish-gate-mismatch"]);
+  assert.deepEqual(checkServerBuild(manifestFor(GATE_HASHES), changed).map((i) => i.category), ["publish-gate-mismatch"]);
   const deleted = { ...GATE_HASHES, "scripts/gate-checks.ts": null };
-  assert.deepEqual(checkServerBuild(manifestFor(GATE_HASHES), deleted, true).map((i) => i.category), ["publish-gate-mismatch"]);
+  assert.deepEqual(checkServerBuild(manifestFor(GATE_HASHES), deleted).map((i) => i.category), ["publish-gate-mismatch"]);
 });
 
-test("checkServerBuild: a bundle that never registers anglesite-gate is refused", () => {
-  const issues = checkServerBuild(manifestFor(GATE_HASHES), GATE_HASHES, false);
-  assert.deepEqual(issues.map((i) => [i.category, i.file]), [["publish-gate-missing", "dist/server"]]);
+test("checkServerBuild: a bundle that never registers anglesite-gate is refused, even with its modules bundled", () => {
+  for (const manifest of [manifestFor(GATE_HASHES, false), JSON.stringify({ version: 1, gateModules: GATE_HASHES })]) {
+    const issues = checkServerBuild(manifest, GATE_HASHES);
+    assert.deepEqual(issues.map((i) => [i.category, i.message.includes("register")]), [["publish-gate-missing", true]]);
+  }
 });
 
 test("checkPublicPII: a vendored chunk skips only the email and phone patterns", () => {
@@ -1206,18 +1209,21 @@ const SCRIPT = fileURLToPath(new URL("./pre-deploy-check.ts", import.meta.url));
 const TSX = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
 
 /** Runs the real script against a server-rendered build laid out in a temp site. */
-async function runOnServerBuild(opts: { vendored: string[]; registerGate: boolean; tamper?: boolean }) {
+async function runOnServerBuild(opts: { vendored: string[]; registerGate: boolean; tamper?: boolean; noEntry?: boolean }) {
   const site = await mkdtemp(join(tmpdir(), "pdc-ssr-"));
   try {
     const files: Record<string, string> = {
-      "dist/server/entry.mjs": opts.registerGate ? 'const d = { id: "anglesite-gate" };' : "export default {};",
+      "dist/server/chunks/worker.mjs": "export default {};",
       "dist/client/_headers": "/*\n  Content-Security-Policy: default-src 'self'\n",
       "dist/client/robots.txt": "User-agent: *\n",
       "dist/client/index.html": "<!doctype html><html><body><p>Hello</p></body></html>",
       "dist/client/_astro/admin.js": 'placeholder:"you@company.com",n=4155550123',
     };
     for (const path of REQUIRED_GATE_MODULES) files[path] = `source of ${path}`;
-    files["dist/anglesite-build.json"] = JSON.stringify({ version: 1, gateModules: GATE_HASHES, vendoredClientChunks: opts.vendored });
+    if (!opts.noEntry) files["dist/server/entry.mjs"] = "export default {};";
+    files["dist/anglesite-build.json"] = JSON.stringify({
+      version: 1, gateModules: GATE_HASHES, gateRegistered: opts.registerGate, vendoredClientChunks: opts.vendored,
+    });
     for (const [path, content] of Object.entries(files)) {
       await mkdir(join(site, path, ".."), { recursive: true });
       await writeFile(join(site, path), content);
@@ -1251,5 +1257,32 @@ test("server-rendered build: an unregistered or changed gate refuses the deploy"
   assert.deepEqual(unregistered.failures.map((f) => f.category), ["publish-gate-missing"]);
   const tampered = await runOnServerBuild({ vendored: ["_astro/admin.js"], registerGate: true, tamper: true });
   assert.deepEqual(tampered.failures.map((f) => f.category), ["publish-gate-mismatch"]);
+});
+
+test("static build: a site's own /server/ and /client/ pages don't make it a server-rendered build", async () => {
+  const site = await mkdtemp(join(tmpdir(), "pdc-static-"));
+  try {
+    const files: Record<string, string> = {
+      "dist/_headers": "/*\n  Content-Security-Policy: default-src 'self'\n",
+      "dist/robots.txt": "User-agent: *\n",
+      "dist/server/index.html": "<!doctype html><html><body><p>Our servers</p></body></html>",
+      "dist/client/index.html": "<!doctype html><html><body><p>Clients</p></body></html>",
+    };
+    for (const [path, content] of Object.entries(files)) {
+      await mkdir(join(site, path, ".."), { recursive: true });
+      await writeFile(join(site, path), content);
+    }
+    const run = await execFileAsync(TSX, [SCRIPT, "--json"], { cwd: site }).catch((e) => e);
+    const report = JSON.parse(run.stdout);
+    assert.deepEqual(report.failures, []);
+  } finally {
+    await rm(site, { recursive: true, force: true });
+  }
+});
+
+test("server-rendered build: a missing Worker entry fails instead of falling back to static checks", async () => {
+  const report = await runOnServerBuild({ vendored: ["_astro/admin.js"], registerGate: false, noEntry: true });
+  // Both the missing entry and the unregistered gate are reported: the server checks still ran.
+  assert.deepEqual(report.failures.map((f) => f.category).sort(), ["publish-gate-missing", "server-build-incomplete"]);
 });
 
