@@ -186,6 +186,35 @@ struct EmDashNewSiteTests {
         #expect(EmDashScaffold.packageTemplateDirectory(templateURL: template, kind: .unrecognized("x")).path == "/T")
     }
 
+    @Test("the overlay's skips apply at its top level only, and a symbolic link is refused")
+    func overlayCopyRules() throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        let template = root.appendingPathComponent("Template", isDirectory: true)
+        let overlay = template.appendingPathComponent("emdash", isDirectory: true)
+        let site = root.appendingPathComponent("Source", isDirectory: true)
+        try fm.createDirectory(at: overlay.appendingPathComponent("dist"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: overlay.appendingPathComponent("src/dist"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: site, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: overlay.appendingPathComponent("dist/stale.js"))
+        try Data("x".utf8).write(to: overlay.appendingPathComponent("src/dist/kept.ts"))
+        try Data("x".utf8).write(to: overlay.appendingPathComponent("src/README.md"))
+        try Data("// t".utf8).write(to: site.appendingPathComponent("astro.config.ts"))
+
+        try EmDashScaffold.applyTemplateOverlay(templateURL: template, siteDirectory: site)
+        #expect(!fm.fileExists(atPath: site.appendingPathComponent("dist").path))
+        #expect(fm.fileExists(atPath: site.appendingPathComponent("src/dist/kept.ts").path))
+        #expect(fm.fileExists(atPath: site.appendingPathComponent("src/README.md").path))
+
+        let link = overlay.appendingPathComponent("src/linked.ts")
+        try fm.createSymbolicLink(at: link, withDestinationURL: overlay.appendingPathComponent("src/dist/kept.ts"))
+        try Data("// t".utf8).write(to: site.appendingPathComponent("astro.config.ts"))
+        #expect(throws: EmDashScaffold.OverlayError.symbolicLinkInOverlay(link.path)) {
+            try EmDashScaffold.applyTemplateOverlay(templateURL: template, siteDirectory: site)
+        }
+    }
+
     @Test("applying the overlay needs the overlay and the template's config")
     func overlayPreconditions() throws {
         let root = try Self.tempDir()

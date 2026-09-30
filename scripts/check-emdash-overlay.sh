@@ -36,14 +36,22 @@ for collection in "$SITE"/src/content/*/; do
     : > "$collection/.gitkeep"
 done
 
+# EmDashScaffold refuses an overlay containing a symbolic link; so does this check.
+if [[ -n "$(find "$OVERLAY" -type l -not -path '*/node_modules/*' -print -quit)" ]]; then
+    echo "the EmDash overlay contains a symbolic link" >&2
+    exit 1
+fi
+
 mv "$SITE/astro.config.ts" "$SITE/astro.anglesite.config.ts"
+# Must match EmDashScaffold.overlaySkippedNames (top level only, hence the leading slash);
+# EmDashOverlayTemplateTests fails if they drift apart.
 rsync -a \
     --exclude='/README.md' \
-    --exclude='node_modules/' \
-    --exclude='dist/' \
-    --exclude='.astro/' \
-    --exclude='.wrangler/' \
-    --exclude='.DS_Store' \
+    --exclude='/node_modules' \
+    --exclude='/dist' \
+    --exclude='/.astro' \
+    --exclude='/.wrangler' \
+    --exclude='/.DS_Store' \
     "$OVERLAY/" "$SITE/"
 
 cd "$SITE"
@@ -54,6 +62,8 @@ npm run build
 # The article routes render on request, so they must not be prerendered files.
 [[ ! -e dist/client/articles/index.html ]] || { echo "the article index was prerendered" >&2; exit 1; }
 [[ -f dist/server/entry.mjs ]] || { echo "no server bundle at dist/server/entry.mjs" >&2; exit 1; }
-# anglesite-gate is registered in code, so it is always in the server bundle.
-grep -rqs '"anglesite-gate"' dist/server || { echo "anglesite-gate is not in the server bundle" >&2; exit 1; }
+# anglesite-gate is registered in code, so its id and its policy code (loaded from the site's own
+# scripts/emdash-gate/, not a stale copy) are always in the server bundle.
+grep -rqs '"anglesite-gate"' dist/server || { echo "anglesite-gate is not registered in the server bundle" >&2; exit 1; }
+grep -rqs 'decidePublish' dist/server || { echo "anglesite-gate's policy is not in the server bundle" >&2; exit 1; }
 echo "✓ EmDash overlay site built"

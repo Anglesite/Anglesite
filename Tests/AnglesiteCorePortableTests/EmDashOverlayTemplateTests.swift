@@ -86,6 +86,21 @@ struct EmDashOverlayTemplateTests {
         #expect((tsconfig["exclude"] as? [String])?.contains(EmDashScaffold.overlayDirectoryName) == true)
     }
 
+    @Test("CI's overlay build skips exactly what the app's scaffold skips")
+    func checkScriptMatchesScaffold() throws {
+        let script = try String(contentsOf: Self.template.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("scripts/check-emdash-overlay.sh"), encoding: .utf8)
+        let overlayCopy = try #require(script.components(separatedBy: #"mv "$SITE/astro.config.ts""#).last)
+        let excludes = overlayCopy.components(separatedBy: "\n")
+            .compactMap { line -> String? in
+                guard let start = line.range(of: "--exclude='"), let end = line[start.upperBound...].firstIndex(of: "'")
+                else { return nil }
+                return String(line[start.upperBound..<end])
+            }
+        #expect(excludes.allSatisfy { $0.hasPrefix("/") }, "top-level only, like the app: \(excludes)")
+        #expect(Set(excludes.map { String($0.dropFirst()) }) == EmDashScaffold.overlaySkippedNames)
+    }
+
     @Test("the overlay's config builds on the renamed template config and registers the gate")
     func configRegistersGate() throws {
         let config = try String(contentsOf: Self.overlay.appendingPathComponent("astro.config.ts"), encoding: .utf8)

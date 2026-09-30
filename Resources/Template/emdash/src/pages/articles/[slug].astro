@@ -9,7 +9,7 @@ import { Schema } from "astro-seo-schema";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import LicenseLink from "../../components/LicenseLink.astro";
 import Interactions from "../../components/Interactions.astro";
-import { articleView, type EmDashArticleData } from "../../lib/emdash-articles.ts";
+import { articleView, unmappedFields, type EmDashArticleData } from "../../lib/emdash-articles.ts";
 import { entrySchema } from "../../lib/schema.ts";
 import { ownerName } from "../../lib/profile.ts";
 import { licenseFor } from "../../lib/licensing-data.ts";
@@ -19,9 +19,16 @@ export const prerender = false;
 
 const slug = decodeSlug(Astro.params.slug);
 const { entry, cacheHint } = slug ? await getEmDashEntry("articles", slug) : { entry: null, cacheHint: undefined };
-const view = entry ? articleView(entry.data as unknown as EmDashArticleData) : null;
-if (!entry || !view) {
+const data = entry ? (entry.data as unknown as EmDashArticleData) : null;
+const view = data ? articleView(data) : null;
+if (!entry || !data || !view) {
   return new Response(null, { status: 404 });
+}
+// A field added in EmDash's admin that this page doesn't render would otherwise vanish without
+// a trace. Say so in the Worker's log, where the site's other runtime problems are reported.
+const unmapped = unmappedFields(data);
+if (unmapped.length > 0) {
+  console.warn(`[anglesite] /articles/${view.slug}/ doesn't show these EmDash fields: ${unmapped.join(", ")}`);
 }
 if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
 
