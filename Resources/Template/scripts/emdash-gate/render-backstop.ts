@@ -10,7 +10,8 @@
  * content, blocked admin routes), which keeps the per-render cost small.
  *
  * A failing page is withheld: the reader gets a plain 503 that no cache may store, and the page
- * and the reasons are logged for the owner. It fails closed: if the check itself throws, or the
+ * and the reasons are logged, and recorded in the site's D1 database for the app to show the owner
+ * (#2097). It fails closed: if the check itself throws, or the
  * body arrives content-encoded so its text can't be read, the page is withheld too.
  *
  * Checking a page means reading all of it first, so a server-rendered page is no longer streamed
@@ -70,9 +71,66 @@ export function withheldResponse(): Response {
  * messages ("Possible AWS key exposed"), which name what was found but never quote it, so the
  * log never holds the secret the page was withheld for.
  */
-export type WithheldReporter = (report: { event: string; path: string; categories: string[]; messages: string[] }) => void;
+export type WithheldReport = { event: string; path: string; categories: string[]; messages: string[] };
+export type WithheldReporter = (report: WithheldReport) => void | Promise<void>;
 
 const logWithheld: WithheldReporter = (report) => console.error(JSON.stringify(report));
+
+/**
+ * The table in the site's D1 database (EmDash's `DB`) that lists withheld pages for the app
+ * (#2097). One row per path. Written only when a page is withheld, never on a clean render, so a
+ * healthy page costs no database write. The app clears a row once it has confirmed the page
+ * renders again.
+ */
+export const WITHHELD_TABLE = "anglesite_withheld_pages";
+
+/** A withheld page's row is refreshed at most this often, so a busy failing page isn't a write per request. */
+export const WITHHELD_REFRESH_SECONDS = 300;
+
+/** The two statements that record one withheld page: create the table if needed, then upsert its row. */
+export function withheldRecordStatements(report: WithheldReport, now: Date): Array<{ sql: string; params: Array<string | number> }> {
+  const at = now.toISOString();
+  const refreshBefore = new Date(now.getTime() - WITHHELD_REFRESH_SECONDS * 1000).toISOString();
+  return [
+    {
+      sql:
+        `CREATE TABLE IF NOT EXISTS ${WITHHELD_TABLE} (path TEXT PRIMARY KEY, categories TEXT NOT NULL, ` +
+        "messages TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1)",
+      params: [],
+    },
+    {
+      sql:
+        `INSERT INTO ${WITHHELD_TABLE} (path, categories, messages, first_seen, last_seen, count) VALUES (?, ?, ?, ?, ?, 1) ` +
+        "ON CONFLICT(path) DO UPDATE SET categories = excluded.categories, messages = excluded.messages, " +
+        `last_seen = excluded.last_seen, count = ${WITHHELD_TABLE}.count + 1 WHERE ${WITHHELD_TABLE}.last_seen < ?`,
+      params: [report.path, JSON.stringify(report.categories), JSON.stringify(report.messages), at, at, refreshBefore],
+    },
+  ];
+}
+
+/** The slice of Cloudflare's `D1Database` the recorder uses, declared here to stay dependency-free. */
+export interface D1Like {
+  prepare(sql: string): { bind(...values: Array<string | number>): { run(): Promise<unknown> } };
+}
+
+/**
+ * A reporter that logs the withheld page and records it in the site's D1 database for the app. A
+ * database failure is logged and swallowed: the page is withheld either way, and the log line
+ * still reaches the owner's Worker logs.
+ */
+export function d1WithheldReporter(db: D1Like | undefined, now: () => Date = () => new Date()): WithheldReporter {
+  return async (report) => {
+    logWithheld(report);
+    if (!db) return;
+    try {
+      for (const { sql, params } of withheldRecordStatements(report, now())) {
+        await db.prepare(sql).bind(...params).run();
+      }
+    } catch (error) {
+      console.error(JSON.stringify({ event: "anglesite.render-backstop.record-failed", path: report.path, error: String(error) }));
+    }
+  };
+}
 
 /**
  * Checks one rendered response. Returns it unchanged when it isn't a public HTML page, a copy of
@@ -103,12 +161,14 @@ export async function applyRenderBackstop(
     }
   }
   if (issues.length > 0) {
-    report({
+    // Reporting never changes the outcome: the page is withheld whether or not the report lands.
+    const withheld: WithheldReport = {
       event: WITHHELD_LOG_EVENT,
       path: pathname,
       categories: [...new Set(issues.map((i) => i.category))].sort(),
       messages: [...new Set(issues.map((i) => i.message))].sort(),
-    });
+    };
+    await (async () => report(withheld))().catch(() => undefined);
     return withheldResponse();
   }
   // The body was read as text and is re-sent as text, so any length the upstream set no longer

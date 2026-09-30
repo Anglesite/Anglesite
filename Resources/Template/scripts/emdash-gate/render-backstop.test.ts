@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyRenderBackstop, renderIssues, shouldCheck, WITHHELD_LOG_EVENT } from "./render-backstop";
+import { applyRenderBackstop, d1WithheldReporter, renderIssues, shouldCheck, WITHHELD_LOG_EVENT, WITHHELD_REFRESH_SECONDS, WITHHELD_TABLE, withheldRecordStatements, type D1Like } from "./render-backstop";
 
 const page = (body: string, headers: Record<string, string> = { "content-type": "text/html; charset=utf-8" }) =>
   new Response(`<!doctype html><html><body>${body}</body></html>`, { status: 200, headers: { "x-cache-hint": "articles", ...headers } });
@@ -32,7 +32,7 @@ test("only error-severity checks run: secrets, restricted content, blocked admin
 
 test("a clean page passes through with its status, headers and body", async () => {
   const reports: unknown[] = [];
-  const out = await applyRenderBackstop("/articles/vote/", page("<h1>Council vote</h1>"), (r) => reports.push(r));
+  const out = await applyRenderBackstop("/articles/vote/", page("<h1>Council vote</h1>"), (r) => { reports.push(r); });
   assert.equal(out.status, 200);
   assert.equal(out.headers.get("x-cache-hint"), "articles");
   assert.match(await out.text(), /Council vote/);
@@ -41,7 +41,7 @@ test("a clean page passes through with its status, headers and body", async () =
 
 test("a failing page is withheld as an uncacheable 503 and reported, without saying why to the reader", async () => {
   const reports: Array<{ event: string; path: string; categories: string[]; messages: string[] }> = [];
-  const out = await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p><a href="/keystatic/">x</a>`), (r) => reports.push(r));
+  const out = await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p><a href="/keystatic/">x</a>`), (r) => { reports.push(r); });
   assert.equal(out.status, 503);
   assert.equal(out.headers.get("cache-control"), "no-store");
   assert.equal(out.headers.get("x-cache-hint"), null);
@@ -74,7 +74,7 @@ test("a passing page is re-sent without the upstream's now-stale length", async 
 test("an encoded page can't be read as text, so it is withheld (fails closed)", async () => {
   const reports: Array<{ categories: string[] }> = [];
   const gz = page("\u001f\u008b...", { "content-type": "text/html", "content-encoding": "gzip" });
-  const out = await applyRenderBackstop("/articles/x/", gz, (r) => reports.push(r));
+  const out = await applyRenderBackstop("/articles/x/", gz, (r) => { reports.push(r); });
   assert.equal(out.status, 503);
   assert.deepEqual(reports.map((r) => r.categories), [["render-backstop-failed"]]);
   const identity = page("<p>fine</p>", { "content-type": "text/html", "content-encoding": "identity" });
@@ -86,7 +86,7 @@ test("a page that can't be read is withheld (fails closed)", async () => {
     headers: { "content-type": "text/html" },
   });
   const reports: Array<{ categories: string[] }> = [];
-  const out = await applyRenderBackstop("/articles/x/", broken, (r) => reports.push(r));
+  const out = await applyRenderBackstop("/articles/x/", broken, (r) => { reports.push(r); });
   assert.equal(out.status, 503);
   assert.deepEqual(reports.map((r) => r.categories), [["render-backstop-failed"]]);
 });
@@ -97,3 +97,65 @@ test("non-HTML and admin responses are returned untouched, unread", async () => 
   const admin = page(`<p>${AWS_KEY}</p>`);
   assert.equal(await applyRenderBackstop("/_emdash/admin", admin), admin);
 });
+
+// #2097: withheld pages are recorded in the site's D1 database for the app.
+
+const REPORT = { event: WITHHELD_LOG_EVENT, path: "/articles/leak/", categories: ["exposed-token"], messages: ["Possible AWS key exposed"] };
+
+test("recording a withheld page creates the table and upserts one row per path, at most once per refresh window", () => {
+  const now = new Date("2026-09-30T18:00:00.000Z");
+  const [create, upsert] = withheldRecordStatements(REPORT, now);
+  assert.match(create.sql, new RegExp(`^CREATE TABLE IF NOT EXISTS ${WITHHELD_TABLE} \\(path TEXT PRIMARY KEY`));
+  assert.deepEqual(create.params, []);
+  assert.match(upsert.sql, /ON CONFLICT\(path\) DO UPDATE/);
+  assert.match(upsert.sql, /WHERE anglesite_withheld_pages\.last_seen < \?$/);
+  const refreshBefore = new Date(now.getTime() - WITHHELD_REFRESH_SECONDS * 1000).toISOString();
+  assert.deepEqual(upsert.params, [
+    "/articles/leak/", '["exposed-token"]', '["Possible AWS key exposed"]', now.toISOString(), now.toISOString(), refreshBefore,
+  ]);
+});
+
+/** A fake D1 that records what was run, optionally failing. */
+function fakeD1(fail = false): D1Like & { runs: Array<{ sql: string; params: Array<string | number> }> } {
+  const runs: Array<{ sql: string; params: Array<string | number> }> = [];
+  return {
+    runs,
+    prepare: (sql) => ({
+      bind: (...params) => ({
+        run: async () => {
+          if (fail) throw new Error("D1 unavailable");
+          runs.push({ sql, params });
+        },
+      }),
+    }),
+  };
+}
+
+test("the D1 reporter records a withheld page, and the page is withheld", async () => {
+  const db = fakeD1();
+  const out = await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p>`), d1WithheldReporter(db));
+  assert.equal(out.status, 503);
+  assert.equal(db.runs.length, 2);
+  assert.equal(db.runs[1].params[0], "/articles/leak/");
+  // The recorded row never holds the secret either.
+  assert.doesNotMatch(JSON.stringify(db.runs), /AKIA/);
+});
+
+test("a clean page writes nothing to the database", async () => {
+  const db = fakeD1();
+  const out = await applyRenderBackstop("/articles/ok/", page("<p>fine</p>"), d1WithheldReporter(db));
+  assert.equal(out.status, 200);
+  assert.deepEqual(db.runs, []);
+});
+
+test("a database or reporter failure never lets a withheld page through", async () => {
+  const out = await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p>`), d1WithheldReporter(fakeD1(true)));
+  assert.equal(out.status, 503);
+  const throwing = await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p>`), () => {
+    throw new Error("reporter broke");
+  });
+  assert.equal(throwing.status, 503);
+  // No database binding (a site not yet provisioned): still withheld, still logged.
+  assert.equal((await applyRenderBackstop("/articles/leak/", page(`<p>${AWS_KEY}</p>`), d1WithheldReporter(undefined))).status, 503);
+});
+

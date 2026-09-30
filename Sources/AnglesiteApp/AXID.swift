@@ -40,6 +40,9 @@ enum AXID {
     /// reported (rather than blocked on a sheet).
     static let siteUpdateNoticeBanner = "siteUpdateNotice.banner"
 
+    /// The EmDash-site banner saying pages are being held back from readers (#2097).
+    static let withheldPagesBanner = "withheldPages.banner"
+
     // MARK: Main-pane takeover header (#714 v2 slice 2)
 
     /// The title group `MainPaneTakeoverHeader` renders for every takeover (Editor/Settings,
@@ -117,6 +120,7 @@ enum AXID {
         launcherList,
         sheetHeader,
         siteUpdateNoticeBanner,
+        withheldPagesBanner,
         mainPaneTakeoverHeader, mainPaneTakeoverDone,
         settingsTabs, settingsWorkersLogs, settingsWorkersAnalytics,
         debugSourceFilter, debugStreamFilter, debugSearchField,

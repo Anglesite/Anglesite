@@ -216,6 +216,9 @@
     "%lld" : {
 
     },
+    "%lld articles aren't showing to readers because they need a fix." : {
+
+    },
     "%lld change%@ applied successfully." : {
       "localizations" : {
         "en" : {
@@ -355,6 +358,9 @@
 
     },
     "Also check links to other sites during audits" : {
+
+    },
+    "An article isn't showing to readers because it needs a fix." : {
 
     },
     "Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later." : {
@@ -2541,6 +2547,18 @@
 
     },
     "Is this site ready for AI agents?" : {
+
+    },
+    "It contains something that looks like a password or access key." : {
+
+    },
+    "It couldn't be checked, so it's being held back to be safe." : {
+
+    },
+    "It links to a page for editing the site." : {
+
+    },
+    "It shows something meant only for your contacts." : {
 
     },
     "Join" : {

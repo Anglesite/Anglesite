@@ -181,13 +181,16 @@ a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
   Prerendered pages are skipped too: the deploy layer already scanned them as files.
 - The deploy layer lists the backstop in `REQUIRED_GATE_MODULES`, so a server build without it
   is refused.
-- The owner is alerted through the Worker's log: one `anglesite.render-backstop.withheld` line
-  per withheld page, naming the path, the check categories and their messages. The messages say
-  what was found but never quote it. Surfacing those lines in the app is #2097, and it must land
-  before EmDash sites can publish. A false positive (a token-shaped string in an article about
-  security, say) takes a page down with a 503 the writer can't see, so the owner has to be able
-  to find out which page and why. Until provisioning lands, `DeployCommand` refuses to deploy
-  EmDash sites anyway.
+- The owner is alerted in two places. The Worker's log gets one
+  `anglesite.render-backstop.withheld` line per withheld page, naming the path, the check
+  categories and their messages; the messages say what was found but never quote it. The site's
+  D1 database (EmDash's `DB`) gets one row per withheld path in `anglesite_withheld_pages`
+  (#2097). It is written only when a page is withheld, and refreshed at most every five minutes.
+  The app reads that table (`EmDashWithheldPages`, via `SiteSettings.emdashD1DatabaseID`) and
+  shows a banner in the site window: which pages, why in owner terms, and Open EmDash. When a
+  listed page answers `200` again, the app clears its row, so a fixed article's notice goes away
+  on its own. This matters because a false positive (a token-shaped string in an article about
+  security, say) takes a page down with a 503 the writer can't see.
 - Checking a page means reading all of it first, so server-rendered pages are no longer
   streamed as they render. That is deliberate: nothing reaches a reader or a cache before the
   whole page has been checked.

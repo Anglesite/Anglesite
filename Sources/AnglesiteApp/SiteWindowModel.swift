@@ -273,6 +273,15 @@ final class SiteWindowModel {
     /// until provisioning or connecting EmDash writes it. Refreshed alongside
     /// ``isHostedCommunity``, so a deploy that provisions EmDash enables the item live.
     private(set) var emdashAdminURL: URL?
+    /// Pages on an EmDash site the render backstop is holding back from readers (#2097), read
+    /// from the site's D1 database. Empty on an Anglesite site, or when the site isn't set up to
+    /// be read (no database id or token yet). Refreshed alongside ``isHostedCommunity``.
+    private(set) var withheldPages: [WithheldPage] = []
+    /// The owner hid the withheld-pages banner. It comes back when the list changes.
+    private var withheldPagesDismissedFor: [String]?
+    var showsWithheldPagesNotice: Bool {
+        !withheldPages.isEmpty && withheldPagesDismissedFor != withheldPages.map(\.path)
+    }
     /// Why Publish Site is unavailable for this site, or `nil` when it isn't (#2050) —
     /// `SiteEditingSurfaces.staticDeployRefusal`, the same decision `DeployCommand` makes, read
     /// from the package marker in `loadAndStart()` with no recents fallback, so the menu and the
@@ -604,6 +613,28 @@ final class SiteWindowModel {
         // and this menu item read one flag; the same deploy that provisions the inbox flips it.
         await moderation.refreshCanReviewComments()
         await offerScreeningModelIfNeeded(hasInbox: !(settings?.provisionedWorkerResources?.d1DatabaseID ?? "").isEmpty)
+        await refreshWithheldPages()
+    }
+
+    /// Re-reads the render backstop's withheld pages for an EmDash site (#2097). Pages the site
+    /// serves again are cleared by the loader, so a fixed article's notice goes away on its own.
+    /// A read that can't happen (no database or token, offline) leaves the last list in place.
+    private func refreshWithheldPages() async {
+        guard let site, editingSurfaces.externalContentEditor == .emdash else {
+            withheldPages = []
+            return
+        }
+        let sourceDirectory = site.sourceDirectory
+        let configDirectory = site.configDirectory
+        let pages = await Task.detached(priority: .utility) {
+            await EmDashWithheldPages.loadIfConfigured(sourceDirectory: sourceDirectory, configDirectory: configDirectory)
+        }.value
+        if let pages { withheldPages = pages }
+    }
+
+    /// Hides the withheld-pages banner until the set of withheld pages changes.
+    func dismissWithheldPagesNotice() {
+        withheldPagesDismissedFor = withheldPages.map(\.path)
     }
 
     /// Reads the site kind from the package marker off the main actor (a plist read under the
