@@ -18,6 +18,7 @@ test("gate sources are found by site-relative path, query strings dropped", () =
     "/site/scripts/gate-checks.ts",
     "/site/scripts/emdash-gate/policy.ts?v=1",
     "/site/scripts/emdash-gate/plugin.ts",
+    "/site/scripts/emdash-gate/render-backstop.ts",
     "/site/scripts/config.ts",
     "/site/node_modules/emdash/scripts/gate-checks.ts",
     "\0virtual:emdash/plugins",

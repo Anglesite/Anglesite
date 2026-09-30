@@ -168,6 +168,33 @@ server-rendered build it does the following:
   modules are built from the site's config and seed, so a chunk containing one is never treated
   as vendored.
 
+**Layer 3 on an EmDash site (#2055 slice 4).** The pinned
+`scripts/emdash-gate/render-backstop.ts` checks every page the Worker renders on request, before
+a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
+- It runs the error-severity checks from the shared module: secrets, restricted-audience
+  content and blocked admin routes. PII stays a publish-time and deploy-time check, so a
+  reporter's published contact line doesn't take a page down.
+- A failing page is replaced by a plain `503` with `Cache-Control: no-store` that says nothing
+  about why. If the page can't be read or checked, it is withheld too, so the backstop fails
+  closed.
+- EmDash's own authenticated routes (`/_emdash/…`) and non-HTML responses are skipped.
+  Prerendered pages are skipped too: the deploy layer already scanned them as files.
+- The deploy layer lists the backstop in `REQUIRED_GATE_MODULES`, so a server build without it
+  is refused.
+- The owner is alerted through the Worker's log: one `anglesite.render-backstop.withheld` line
+  per withheld page, naming the path, the check categories and their messages. The messages say
+  what was found but never quote it. Surfacing those lines in the app is #2097, and it must land
+  before EmDash sites can publish. A false positive (a token-shaped string in an article about
+  security, say) takes a page down with a 503 the writer can't see, so the owner has to be able
+  to find out which page and why. Until provisioning lands, `DeployCommand` refuses to deploy
+  EmDash sites anyway.
+- Checking a page means reading all of it first, so server-rendered pages are no longer
+  streamed as they render. That is deliberate: nothing reaches a reader or a cache before the
+  whole page has been checked.
+- A response with no body (a `304` revalidation, a `HEAD` request) passes through unchanged.
+  A content-encoded body can't be read as the page's text, so it is withheld. Astro renders
+  uncompressed; Cloudflare compresses later, at the edge.
+
 Why three layers:
 - **Publish** is the real gate. It stops the problem before a reader can see it, and it tells the
   writer, not the owner, what to fix.
