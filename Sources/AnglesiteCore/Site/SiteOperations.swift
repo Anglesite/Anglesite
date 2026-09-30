@@ -223,6 +223,16 @@ public struct SiteOperations: Sendable {
             // Best-effort persistence; the provisioning result is still returned below.
         }
 
+        // #2095 slice 3: mirrors DeployModel.runDeploy. This headless path never prompts, so the
+        // keychain is read without user interaction.
+        if case .succeeded(let deployedURL, _, _) = provisionResult {
+            await WorkerIssuesReconciler.reconcileAfterPublish(
+                siteID: site.id, configDirectory: site.configDirectory,
+                siteURL: DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL,
+                configStore: configStore,
+                secrets: PlatformSecretStore.make().withoutUserInteraction)
+        }
+
         return provisionResult.asDeployCommandResult
     }
 

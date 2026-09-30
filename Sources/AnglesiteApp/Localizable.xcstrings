@@ -766,7 +766,7 @@
     "Ask the assistant…" : {
 
     },
-    "Asks Cloudflare to group repeated errors from your site's Workers so you can see what broke and when, in your Cloudflare dashboard. Takes effect the next time you publish, and only on sites with Workers turned on." : {
+    "Asks Cloudflare to group repeated errors from your site's Workers, and sends errors that come from a Worker's own code to its authors so they can fix them. Only the kind of error and where in the Worker's code it happened are sent — never the error text, your visitors' requests, or your site's address. Takes effect the next time you publish, and only on sites with Workers turned on." : {
 
     },
     "Assert nothing" : {
@@ -1440,6 +1440,9 @@
     "Copy Actor URL" : {
 
     },
+    "Copy Address" : {
+
+    },
     "Copy Animation" : {
 
     },
@@ -1450,6 +1453,9 @@
 
     },
     "Copy Rewrite" : {
+
+    },
+    "Copy Secret" : {
 
     },
     "Copy Snippet" : {
@@ -1991,6 +1997,9 @@
     "Duplicate & Modify" : {
 
     },
+    "Error reports are in early testing and need an access code from the Anglesite team." : {
+
+    },
     "ESI Fragments" : {
 
     },
@@ -2495,6 +2504,9 @@
     "Importing…" : {
 
     },
+    "In Cloudflare, open this site's Issues page, choose Automations ▸ Add automation, set it to run after 1 occurrence, and pick Generic Webhook as the destination. Paste the address and secret below, then turn it on." : {
+
+    },
     "In the dashboard: open this instance's Settings, locate \"NLWeb Worker\", and enable it." : {
 
     },
@@ -2544,6 +2556,9 @@
 
     },
     "Is this site ready for AI agents?" : {
+
+    },
+    "Issues" : {
 
     },
     "Join" : {
@@ -3155,6 +3170,9 @@
     "On" : {
 
     },
+    "One more step to start sending error reports" : {
+
+    },
     "One per line, most preferred first. An email address, or an https:// page where reports are accepted." : {
 
     },
@@ -3183,6 +3201,9 @@
 
     },
     "Open Both…" : {
+
+    },
+    "Open Cloudflare" : {
 
     },
     "Open Cloudflare API tokens" : {

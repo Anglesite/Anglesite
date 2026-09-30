@@ -49,6 +49,8 @@ struct AXIDTests {
         #expect(AXID.settingsTabs == "settings.tabs")
         #expect(AXID.settingsWorkersLogs == "settings.workers.logs")
         #expect(AXID.settingsWorkersAnalytics == "settings.workers.analytics")
+        #expect(AXID.settingsWorkersIssues == "settings.workers.issues")
+        #expect(AXID.settingsWorkersIssuesSetup == "settings.workers.issuesSetup")
         #expect(AXID.settingsWorkerIssuesToggle == "settings.developerTools.workerIssues")
         #expect(AXID.settingsSafariMCPBridgePort == "settings.safariMCPBridge.port")
         #expect(AXID.settingsSafariMCPBridgeStatus == "settings.safariMCPBridge.status")

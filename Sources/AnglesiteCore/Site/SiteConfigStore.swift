@@ -167,6 +167,11 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// `markdownForAgentsDisabled` precedent. `true` writes dropped images byte-for-byte.
     public var imageOptimisationDisabled: Bool?
 
+    /// The site's Workers Issues relay registration (#2095 slice 3), refreshed after every publish
+    /// by `WorkerIssuesReconciler`. `nil` when the feature is off or the site never registered.
+    /// Provisioned infrastructure state, hence `Config/`; the webhook secret is secret-store only.
+    public var workerIssuesRelay: WorkerIssuesRelayState?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -195,7 +200,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         sourceBundleBucket: String? = nil,
         emdashAdminURL: URL? = nil,
         externalLinkCheckEnabled: Bool? = nil,
-        imageOptimisationDisabled: Bool? = nil
+        imageOptimisationDisabled: Bool? = nil,
+        workerIssuesRelay: WorkerIssuesRelayState? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -222,6 +228,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.emdashAdminURL = emdashAdminURL
         self.externalLinkCheckEnabled = externalLinkCheckEnabled
         self.imageOptimisationDisabled = imageOptimisationDisabled
+        self.workerIssuesRelay = workerIssuesRelay
     }
 }
 

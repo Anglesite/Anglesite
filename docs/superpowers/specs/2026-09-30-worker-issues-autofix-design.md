@@ -210,16 +210,31 @@ owner-facing consent copy that is explicit about what leaves their account.
    `enabled = true`. It defaults to `false`, so existing `WorkerCompositionTests` stay
    byte-identical; add cases for the on state. Local `wrangler dev`
    (`ContainerizationControl`) always passes `false`.
-3. **Registration.** At deploy time with the setting on, `DeployCoordinator`:
-   - registers or renews the site with the relay: `POST /sites` with the site UUID, authorized as
-     in §4 ▸ "Registration and webhook authentication". The relay returns a per-site webhook
-     secret.
-   - stores the secret in the Keychain;
-   - ensures the Cloudflare automation exists.
-
-   Turning the setting off makes a best-effort attempt to delete the automation and deregister the
-   site. If that fails, for example because the token is revoked or expired, the relay-side 30-day
-   expiry cleans up.
+3. **Registration** *(slice 3, shipped)*. After every successful publish, both deploy paths
+   (`DeployModel` and the headless `SiteOperations`) call
+   `WorkerIssuesReconciler.reconcileAfterPublish`. It reads `Config/wrangler.toml` to learn what the
+   publish actually deployed.
+   - **Issues on:** registers or renews the site with `WorkerIssuesRelayClient`, which calls
+     `POST /sites`.
+     - The request carries the pre-shared token (the owner enters it in Settings ▸ Advanced ▸
+       Developer Tools), the site's public hostname, and `WorkerCatalogPin.commit`.
+     - The per-site secret is kept in the secret store; renewal presents it so it isn't rotated.
+     - `Config/settings.plist` records the hook URL, the expiry, and whether the automation step
+       is done (`WorkerIssuesRelayState`).
+   - **Issues off:** makes a best-effort `DELETE /sites/:uuid` and forgets the secret. If the relay
+     is unreachable, its 30-day expiry cleans up.
+   - **Never fails the publish.** Every outcome becomes one Debug-pane line with no secrets.
+     Headless publishes read the keychain without prompting.
+   - **Automation (§8 Q1): a guided dashboard step.** Cloudflare still documents no API for
+     creating automations. While the owner hasn't confirmed the step for the current secret, the
+     site's Workers tab shows a one-time guide: **Open Cloudflare** (the new
+     `WorkerDashboardLinks.issuesURL`), **Copy Address**, **Copy Secret**, then **Done**. A rotated
+     secret resets it. The step is acceptable for the `*.dwk.io` rollout but not for owners (D1),
+     so replacing it with API provisioning gates slice 5.
+4. **Token.** No Cloudflare API calls are needed while automations are a dashboard step, so the
+   token template is unchanged. When an automations API appears, add its permission group to
+   `AnglesiteTokenTemplate` (key verified live, like `ai_search`), and have
+   `CloudflareCapabilityProber` show *"Reconnect Cloudflare to turn this on"* when it's missing.
 4. **Token.** Add the Issues and Notifications permission groups to `AnglesiteTokenTemplate`
    (keys to be verified live, like `ai_search`). `CloudflareCapabilityProber` degrades gracefully:
    when the token lacks them, the setting shows *"Reconnect Cloudflare to turn this on."*
@@ -235,7 +250,7 @@ owner-facing consent copy that is explicit about what leaves their account.
 | 0 | **Spike, blocks slice 2:** capture a real generic-webhook payload with `Workers/issues-spike` and confirm it carries the stack and fingerprint (§8 Q2). Runbook and findings are in [`../../specs/2026-09-30-workers-issues-payload-spike-notes.md`](../../specs/2026-09-30-workers-issues-payload-spike-notes.md). | Anglesite (throwaway) |
 | 1 | `[observability.issues]` in composition + the developer setting (no filing yet; the owner can already see Issues in the dashboard) | Anglesite |
 | 2 | *(built, not deployed)* `Workers/issues-relay`, allowlist of `*.dwk.io` only. It covers authorized registration, webhook verification, attribution to `@dwk/*` only (no template routing), redaction, fingerprinting, and filing through a GitHub App to `davidwkeith/workers`. Payload parsing is confined to `src/extract.ts` and accepts any frame encoding, so slice 0's findings only ever touch that file. | Anglesite |
-| 3 | App registration + automation provisioning (or a documented one-time dashboard step if §8 Q1 has no API) | Anglesite |
+| 3 | *(shipped)* App registration, renewal and revocation after every publish. The automation is a guided one-time dashboard step (§8 Q1 has no API). | Anglesite |
 | 4 | Label-triggered agent routine on `davidwkeith/workers` (`source:anglesite-issues`) | workers |
 | 5 | Privacy review → consent copy → widen beyond `*.dwk.io` | Anglesite |
 

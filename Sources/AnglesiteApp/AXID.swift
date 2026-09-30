@@ -57,6 +57,10 @@ enum AXID {
     static let settingsTabs = "settings.tabs"
     /// The Workers tab's Cloudflare-dashboard deep links.
     static let settingsWorkersLogs = "settings.workers.logs"
+    /// The Workers tab's "Issues" dashboard link (#2095), shown while Worker error tracking is on.
+    static let settingsWorkersIssues = "settings.workers.issues"
+    /// The Workers tab's one-time error-report setup guide (#2095 slice 3).
+    static let settingsWorkersIssuesSetup = "settings.workers.issuesSetup"
     static let settingsWorkersAnalytics = "settings.workers.analytics"
     /// A Workers-tab row's activation switch, keyed by the catalog's worker id
     /// (`WorkerDescriptor.id`, e.g. `solid-pod`) — stable and non-localized, unlike the
@@ -122,6 +126,7 @@ enum AXID {
         siteUpdateNoticeBanner,
         mainPaneTakeoverHeader, mainPaneTakeoverDone,
         settingsTabs, settingsWorkersLogs, settingsWorkersAnalytics,
+        settingsWorkersIssues, settingsWorkersIssuesSetup,
         debugSourceFilter, debugStreamFilter, debugSearchField,
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,

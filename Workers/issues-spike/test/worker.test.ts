@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import worker, { secretMatches, type Env } from "../src/worker.js";
+import worker, { type Env } from "../src/worker.js";
+import { secretMatches } from "../src/secret.js";
 import { analyzePayload } from "../src/analyze.js";
 
 const ORIGIN = "https://anglesite-issues-spike.example.workers.dev";

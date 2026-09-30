@@ -1345,6 +1345,14 @@ final class DeployModel {
             )
             websubProvisioned = workers.contains(where: { $0.id == WorkerComposition.websubWorkerID })
                 && resources.websubQueueName != nil
+            // #2095 slice 3: register/renew (or revoke) the site with the Workers Issues relay to
+            // match what this publish deployed. Best-effort — its outcome goes to the Debug pane
+            // and `Config/settings.plist`, never into the publish result.
+            await WorkerIssuesReconciler.reconcileAfterPublish(
+                siteID: siteID, configDirectory: configDirectory, siteURL: communityActorSiteURL,
+                configStore: configStore,
+                secrets: presentation == .foreground ? keychain : keychain.withoutUserInteraction,
+                logCenter: logCenter)
         } else {
             websubProvisioned = false
         }

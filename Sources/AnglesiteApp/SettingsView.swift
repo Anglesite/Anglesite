@@ -510,9 +510,21 @@ private struct AdvancedSettingsView: View {
                 if developerTools.showsWorkerIssuesSetting {
                     Toggle("Track errors in your site's Workers", isOn: $workerIssuesEnabled)
                         .accessibilityIdentifier(AXID.settingsWorkerIssuesToggle)
-                    Text("Asks Cloudflare to group repeated errors from your site's Workers so you can see what broke and when, in your Cloudflare dashboard. Takes effect the next time you publish, and only on sites with Workers turned on.")
+                    Text("Asks Cloudflare to group repeated errors from your site's Workers, and sends errors that come from a Worker's own code to its authors so they can fix them. Only the kind of error and where in the Worker's code it happened are sent — never the error text, your visitors' requests, or your site's address. Takes effect the next time you publish, and only on sites with Workers turned on.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if workerIssuesEnabled {
+                        // #2095 slice 3: the pre-shared relay token for the `*.dwk.io` rollout.
+                        KeychainTokenRow(
+                            title: "Error report access code",
+                            read: { try KeychainStore().read(account: SecretAccounts.workerIssuesRegistrationToken) },
+                            write: { try KeychainStore().write($0, account: SecretAccounts.workerIssuesRegistrationToken) },
+                            clear: { try KeychainStore().delete(account: SecretAccounts.workerIssuesRegistrationToken) }
+                        )
+                        Text("Error reports are in early testing and need an access code from the Anglesite team.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 

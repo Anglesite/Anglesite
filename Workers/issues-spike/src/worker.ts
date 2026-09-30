@@ -9,8 +9,11 @@
 // recorded in the spike notes.
 
 import { analyzePayload } from "./analyze.js";
+import { secretMatches } from "./secret.js";
 import { handleSpikeRequest } from "./vendor/dwk-spike-pkg/index.js";
 
+// Only the default handler is exported: workerd treats every named export of the entry module
+// as an entrypoint. (`Env` is a type and erased at build time.)
 export interface Env {
   CAPTURES: KVNamespace;
   WEBHOOK_SECRET: string;
@@ -75,23 +78,3 @@ export default {
     return new Response("not found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
-
-/**
- * Constant-time secret check (design §4): hash both sides so the comparison runs over equal-length
- * digests, then XOR every byte instead of returning at the first mismatch. A portable stand-in for
- * the Workers-only `crypto.subtle.timingSafeEqual`, so plain-Node vitest exercises the same code.
- * An unset secret never matches.
- */
-export async function secretMatches(presented: string | null, expected: string | undefined): Promise<boolean> {
-  if (!presented || !expected) return false;
-  const encoder = new TextEncoder();
-  const [a, b] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(presented)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-  ]);
-  const left = new Uint8Array(a);
-  const right = new Uint8Array(b);
-  let difference = 0;
-  for (let i = 0; i < left.length; i++) difference |= left[i]! ^ right[i]!;
-  return difference === 0;
-}

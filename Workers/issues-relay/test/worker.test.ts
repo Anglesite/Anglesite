@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createWorker, hostAllowed, type Env } from "../src/worker.js";
+import { createWorker, hostAllowed, type Env } from "../src/app.js";
 import { FakeGitHub, memoryKV, packageDelivery } from "./support.js";
 
 const ORIGIN = "https://issues.anglesite.dwk.io";
