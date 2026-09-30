@@ -374,6 +374,11 @@ jobs:
       - name: Test bump-worker-catalog.sh pin/lock/generated-Swift agreement
         run: scripts/bump-worker-catalog.test.sh
 
+      # No network, no fixtures: renders KevModelAssetPin.swift from scripts/kev/kev-assets.lock.json
+      # and fails if the committed file differs (#2068), the same drift guard as above.
+      - name: Check bump-kev-assets.sh lock/generated-Swift agreement
+        run: scripts/kev/bump-kev-assets.sh --check
+
       # Pure git grep/awk against the real tree — regression test for #1903 (sleep-lint
       # baseline drain, batch 2 of 2), no fixture or external dependency needed.
       - name: Test sleep-lint baseline batch 2 is drained

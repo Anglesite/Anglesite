@@ -1659,6 +1659,14 @@ struct SiteWindow: View {
                 await model.createPage(title: title, route: route, template: template)
             }
         }
+        // One-time screening-model offer (#2068); Not Now is the cancel role so Escape and a
+        // stray Return both decline — a 1 GB download is never the default action.
+        .alert("Screen new comments for spam?", isPresented: $bindableModel.screeningModelOfferPresented) {
+            Button("Download (1 GB)") { KevModelDownloadModel.shared.download() }
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text("Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later.")
+        }
         .sheet(isPresented: $bindableModel.newCollectionPresented) {
             NewCollectionEntrySheet(
                 descriptors: contentTypeRegistry.all.filter { $0.collection != nil }

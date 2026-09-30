@@ -334,6 +334,11 @@ final class SiteWindowModel {
     /// when the delete actually succeeded. Never break an inbound URL a user didn't choose to
     /// abandon (#584).
     var pendingRedirectOfferRoute: String?
+    /// `true` ⟺ the one-time "Screen new comments for spam?" alert (#2068) is showing. Set by
+    /// ``offerScreeningModelIfNeeded()`` the first time this Mac opens or deploys a site with a
+    /// provisioned inbox while a screening-model download is pinned and none is installed;
+    /// `AppSettings.screeningModelOfferShown` makes it once per Mac, whatever the answer.
+    var screeningModelOfferPresented = false
     /// Carries a requested `SettingsTab` across `openFile`'s async model-construction `Task` for
     /// `openWebsiteSettings(landOn:)` (#975 follow-up: the security-reports badge's "View all in
     /// Security Reports" button), the same "record a request, the target consumes and clears it"
@@ -573,10 +578,28 @@ final class SiteWindowModel {
     /// single load isn't enough.
     private func refreshIsHostedCommunity() async {
         guard let site else { return }
-        isHostedCommunity = ((try? await SiteConfigStore(configDirectory: site.configDirectory).load())?.communityActorURL) != nil
+        let settings = try? await SiteConfigStore(configDirectory: site.configDirectory).load()
+        isHostedCommunity = settings?.communityActorURL != nil
         // The second Moderation… gate (#2066) lives on the model that owns the queue, so the view
         // and this menu item read one flag; the same deploy that provisions the inbox flips it.
         await moderation.refreshCanReviewComments()
+        await offerScreeningModelIfNeeded(hasInbox: !(settings?.provisionedWorkerResources?.d1DatabaseID ?? "").isEmpty)
+    }
+
+    /// The one-time offer to download the screening model (#2068): shown once per Mac, the
+    /// first time a site with a provisioned inbox opens or deploys while a download is pinned
+    /// (`KevModelAssetPin.isConfigured`) and no model is installed. Never a silent download —
+    /// the alert's Download button is the only thing that starts one, and Settings ▸ General
+    /// is the way back if the owner picks Not Now.
+    private func offerScreeningModelIfNeeded(hasInbox: Bool) async {
+        guard hasInbox, KevModelAssetPin.isConfigured, !AppSettings.shared.screeningModelOfferShown else { return }
+        // Five `fileExists` probes under Application Support; off the main actor.
+        let installed = await Task.detached { KevModelLocator.installedAssets() != nil }.value
+        // Re-checked after the suspension: two windows opening or deploying together both pass
+        // the guard above, and only the first to get here may show the alert.
+        guard !installed, !AppSettings.shared.screeningModelOfferShown else { return }
+        AppSettings.shared.screeningModelOfferShown = true
+        screeningModelOfferPresented = true
     }
 
     var activeEditorFile: FileRef? {

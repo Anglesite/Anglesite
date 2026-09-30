@@ -354,6 +354,9 @@
     "Also check links to other sites during audits" : {
 
     },
+    "Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later." : {
+
+    },
     "API token" : {
 
     },
@@ -971,6 +974,9 @@
     "By default, Anglesite saves new and imported site packages to the Anglesite folder in iCloud Drive, falling back to `~/Sites/` when iCloud is unavailable. Override this for development or testing." : {
 
     },
+    "Checks new comments on this Mac before they appear on your site and holds anything that looks like spam for you to review under Website › Moderation. The screening model is about 1 GB, stays on your Mac, and never sends your comments anywhere." : {
+
+    },
     "CMS Mode Not Available" : {
 
     },
@@ -1263,6 +1269,9 @@
     "Comment" : {
 
     },
+    "Comment Screening" : {
+
+    },
     "Commentary" : {
 
     },
@@ -1511,6 +1520,9 @@
       }
     },
     "Couldn't dismiss this report: %@" : {
+
+    },
+    "Couldn't download the screening model." : {
 
     },
     "Couldn't enable Markdown for Agents for %@ — often a Cloudflare plan limit (Pro plan or higher). See the debug log for details." : {
@@ -1950,6 +1962,15 @@
 
     },
     "Double-click to open %@ in its own window" : {
+
+    },
+    "Download (1 GB)" : {
+
+    },
+    "Download Screening Model" : {
+
+    },
+    "Downloading…" : {
 
     },
     "Drafts platform-sized posts for this article. Anglesite never posts for you — copy each one out, then record the published URLs below." : {
@@ -3062,6 +3083,9 @@
     "Not Connected" : {
 
     },
+    "Not Now" : {
+
+    },
     "Not Published Yet" : {
 
     },
@@ -3569,6 +3593,12 @@
     "Quarantined copies" : {
 
     },
+    "Ready" : {
+
+    },
+    "Remove Screening Model" : {
+
+    },
     "RSL" : {
 
     },
@@ -3914,6 +3944,9 @@
 
     },
     "Runtime host" : {
+
+    },
+    "Screen new comments for spam?" : {
 
     },
     "SEO" : {
