@@ -31,6 +31,10 @@ public final class AppSettings: @unchecked Sendable {
         public static let debugPaneEnabled   = "anglesite.debugPaneEnabled"
         /// Backs ``AppSettings/developerToolsEnabled`` (#1964).
         public static let developerToolsEnabled = "anglesite.developerToolsEnabled"
+        /// Backs ``AppSettings/workerIssuesEnabled`` (#2095).
+        public static let workerIssuesEnabled = "anglesite.workerIssuesEnabled"
+        /// Backs ``AppSettings/workerIssuesConsentVersion`` (#2095 slice 5).
+        public static let workerIssuesConsentVersion = "anglesite.workerIssuesConsentVersion"
         /// Backs ``AppSettings/botPreferenceSyncUIEnabled``.
         public static let botPreferenceSyncUIEnabled = "anglesite.botPreferenceSyncUIEnabled"
         /// Backs ``AppSettings/esiPreviewUnprocessed``.
@@ -268,6 +272,31 @@ public final class AppSettings: @unchecked Sendable {
     public var developerToolsEnabled: Bool {
         get { defaults.bool(forKey: Key.developerToolsEnabled) }
         set { defaults.set(newValue, forKey: Key.developerToolsEnabled) }
+    }
+
+    /// Opt-in toggle (Settings → Advanced → Developer Tools, #2095) that turns on Cloudflare
+    /// Workers Issues for each site's composed Worker on its next publish. The raw stored choice —
+    /// deploy reads ``tracksWorkerIssues``, which also requires ``developerToolsEnabled``, so
+    /// hiding developer tools switches the feature off without forgetting the owner's choice.
+    public var workerIssuesEnabled: Bool {
+        get { defaults.bool(forKey: Key.workerIssuesEnabled) }
+        set { defaults.set(newValue, forKey: Key.workerIssuesEnabled) }
+    }
+
+    /// The ``WorkerIssuesConsent/currentVersion`` the owner last agreed to when turning on Worker
+    /// error reports (#2095 slice 5). `0` means never.
+    public var workerIssuesConsentVersion: Int {
+        get { defaults.integer(forKey: Key.workerIssuesConsentVersion) }
+        set { defaults.set(newValue, forKey: Key.workerIssuesConsentVersion) }
+    }
+
+    /// Whether a publish should opt the site's Worker into Cloudflare Workers Issues (#2095).
+    /// Requires developer tools on, the owner's opt-in, and their consent to the current
+    /// description of what's sent: ``DeveloperToolsVisibility/tracksWorkerIssues(optedIn:)`` with
+    /// the opt-in counting only under current consent.
+    public var tracksWorkerIssues: Bool {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
+            .tracksWorkerIssues(optedIn: workerIssuesEnabled && WorkerIssuesConsent.isCurrent(workerIssuesConsentVersion))
     }
 
     /// Opt-in toggle (Settings → Advanced) that reveals the "Bot blocklist managed by" control in

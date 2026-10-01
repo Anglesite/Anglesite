@@ -26,6 +26,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-30 | [Developer features: Worker Issues → `@dwk/workers` auto-fix — design](specs/2026-09-30-worker-issues-autofix-design.md) | [#2095](https://github.com/Anglesite/Anglesite/issues/2095) | draft |
 | 2026-09-28 | [System One decision seam + received-interaction spam screen — design](specs/2026-09-28-system-one-decision-seam-design.md) | [#2058](https://github.com/Anglesite/Anglesite/issues/2058), [#2059](https://github.com/Anglesite/Anglesite/issues/2059) | current |
 | 2026-09-28 | [Startup screen tips & tricks — design](specs/2026-09-28-startup-tips-design.md) | — | current |
 | 2026-09-13 | [3D DOM exploder — exploded-layer view of the preview for debugging nested elements — design](specs/2026-09-13-3d-dom-exploder-design.md) | [#1999](https://github.com/Anglesite/Anglesite/issues/1999) | draft |

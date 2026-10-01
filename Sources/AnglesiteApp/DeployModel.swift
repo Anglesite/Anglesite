@@ -1089,7 +1089,12 @@ final class DeployModel {
         }
         // #1659: adds the app-owned RFC 9727 API Catalog claim whenever the social layer is
         // composed at all, before either downstream use below — see `withAPICatalogClaim`.
-        let effectiveRouteClaims = WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers)
+        // #2095 slice 5: the Workers Issues domain-proof route rides the same owner-attributed
+        // claim list, so the `.well-known` collision check sees it.
+        let tracksWorkerIssues = AppSettings.shared.tracksWorkerIssues
+        let effectiveRouteClaims = WorkerComposition.withIssuesProofClaim(
+            WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers),
+            workers: workers, enabled: tracksWorkerIssues)
 
         // ActivityPub handle-rename confirmation (#1239, design doc §"Owner-chosen username"):
         // once an actor has federated, a resolved-handle change from the last-deployed baseline
@@ -1239,6 +1244,12 @@ final class DeployModel {
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
             mcpEnabled: mcpEnabled,
+            // #2095: Settings ▸ Advanced ▸ Developer Tools opt-in. Threaded on every deploy —
+            // wrangler turns Issues back off whenever the config omits the key.
+            issuesEnabled: tracksWorkerIssues,
+            issuesProof: WorkerIssuesProof.valueForPublish(
+                siteID: siteID, enabled: tracksWorkerIssues && !workers.isEmpty,
+                secrets: presentation == .foreground ? keychain : keychain.withoutUserInteraction),
             currentRoutes: currentRoutes,
             onPreflight: { [weak self] outcome in
                 Task { @MainActor in self?.onScanComplete?(outcome) }
@@ -1342,6 +1353,14 @@ final class DeployModel {
             )
             websubProvisioned = workers.contains(where: { $0.id == WorkerComposition.websubWorkerID })
                 && resources.websubQueueName != nil
+            // #2095 slice 3: register/renew (or revoke) the site with the Workers Issues relay to
+            // match what this publish deployed. Best-effort — its outcome goes to the Debug pane
+            // and `Config/settings.plist`, never into the publish result.
+            await WorkerIssuesReconciler.reconcileAfterPublish(
+                siteID: siteID, configDirectory: configDirectory, siteURL: communityActorSiteURL,
+                configStore: configStore,
+                secrets: presentation == .foreground ? keychain : keychain.withoutUserInteraction,
+                logCenter: logCenter)
         } else {
             websubProvisioned = false
         }

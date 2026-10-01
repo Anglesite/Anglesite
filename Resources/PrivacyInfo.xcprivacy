@@ -7,7 +7,26 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<!-- Worker error reports (#2095), off by default and behind Settings ▸ Advanced ▸
+		     Developer Tools plus a consent prompt. A registered site's UUID and catalog commit
+		     are kept by Anglesite's relay for 30 days, and the relay publishes redacted
+		     diagnostics (exception class and package code locations; never error text, request
+		     data or the site's address) to the package's public issue tracker. Declared
+		     conservatively — see docs/specs/2026-10-01-worker-issues-privacy-review.md §5. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<!-- AppSettings (AnglesiteCore/AppSettings.swift) reads/writes UserDefaults.standard
