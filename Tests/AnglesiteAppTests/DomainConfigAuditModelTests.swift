@@ -30,6 +30,19 @@ private actor ControllableReader: CloudflareReading {
     func callCount() -> Int { continuations.count }
 }
 
+/// Records every domain it was asked about and always answers with the same fixed `headers`
+/// (#2007) — the model-level tests only need to see whether the probe fired and what it returned,
+/// not the transport-level behavior `ServedHeadersProbeTests` already covers.
+private final class StubServedHeadersProbe: ServedHeadersProbing, @unchecked Sendable {
+    private(set) var requestedDomains: [String] = []
+    private let headers: [String: String]
+    init(headers: [String: String]) { self.headers = headers }
+    func fetchHeaders(domain: String) async -> [String: String]? {
+        requestedDomains.append(domain)
+        return headers
+    }
+}
+
 /// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
 /// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
 /// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
@@ -213,6 +226,92 @@ struct DomainConfigAuditModelTests {
         }
         #expect(result.appliedCount == 1)
         #expect(writer.addedRecords.first?.content == "did=did:plc:abc")
+    }
+
+    @MainActor
+    @Test("runAudit() flags a security header dist/_headers declares but the live site doesn't serve")
+    func runAuditFlagsMissingServedHeader() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let declared = DomainConfig(domain: .init(hostname: "example.com"))
+        let (site, cleanup) = try tempSite(declaring: declared)
+        defer { cleanup() }
+        try writeHeadersFile(
+            "/*\n  X-Frame-Options: DENY\n  Content-Security-Policy: default-src 'self'\n",
+            into: site.sourceDirectory)
+        let probe = StubServedHeadersProbe(headers: ["X-Frame-Options": "DENY"])
+        let model = DomainConfigAuditModel(
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(),
+            keychain: keychain, servedHeadersProbe: probe)
+        model.configure(site: site)
+
+        model.runAudit()
+        try await waitUntil("the audit to finish") { !model.isRunning }
+
+        guard case .results(let findings, _, _, _) = model.phase else {
+            Issue.record("expected .results, got \(model.phase)")
+            return
+        }
+        #expect(probe.requestedDomains == ["example.com"])
+        let headerFindings = findings.filter { $0.title.contains("Content-Security-Policy") }
+        #expect(headerFindings.count == 1)
+        #expect(headerFindings[0].category == .edge)
+        #expect(headerFindings[0].remediation == .informational)
+    }
+
+    @MainActor
+    @Test("runAudit() skips the served-headers check when dist/_headers doesn't exist")
+    func runAuditSkipsServedHeadersCheckWhenHeadersFileMissing() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let declared = DomainConfig(domain: .init(hostname: "example.com"))
+        let (site, cleanup) = try tempSite(declaring: declared)
+        defer { cleanup() }
+        let probe = StubServedHeadersProbe(headers: [:])
+        let model = DomainConfigAuditModel(
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(),
+            keychain: keychain, servedHeadersProbe: probe)
+        model.configure(site: site)
+
+        model.runAudit()
+        try await waitUntil("the audit to finish") { !model.isRunning }
+
+        guard case .results = model.phase else {
+            Issue.record("expected .results, got \(model.phase)")
+            return
+        }
+        #expect(probe.requestedDomains.isEmpty)
+    }
+
+    @MainActor
+    @Test("runAudit() skips the served-headers check on GitHub Pages")
+    func runAuditSkipsServedHeadersCheckOnGitHubPages() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let declared = DomainConfig(domain: .init(hostname: "example.com"), deployTarget: "githubPages")
+        let (site, cleanup) = try tempSite(declaring: declared)
+        defer { cleanup() }
+        try writeHeadersFile("/*\n  Content-Security-Policy: default-src 'self'\n", into: site.sourceDirectory)
+        let probe = StubServedHeadersProbe(headers: [:])
+        let model = DomainConfigAuditModel(
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(),
+            keychain: keychain, servedHeadersProbe: probe)
+        model.configure(site: site)
+
+        model.runAudit()
+        try await waitUntil("the audit to finish") { !model.isRunning }
+
+        guard case .results = model.phase else {
+            Issue.record("expected .results, got \(model.phase)")
+            return
+        }
+        #expect(probe.requestedDomains.isEmpty)
+    }
+
+    private func writeHeadersFile(_ contents: String, into sourceDirectory: URL) throws {
+        let distDirectory = sourceDirectory.appendingPathComponent("dist")
+        try FileManager.default.createDirectory(at: distDirectory, withIntermediateDirectories: true)
+        try contents.write(to: distDirectory.appendingPathComponent("_headers"), atomically: true, encoding: .utf8)
     }
 
     @MainActor
