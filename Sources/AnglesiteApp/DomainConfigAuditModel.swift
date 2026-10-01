@@ -37,6 +37,7 @@ final class DomainConfigAuditModel {
     private let reader: any CloudflareReading
     private let writer: any CloudflareWriting
     private let keychain: any SecretStore
+    private let resolutionProbe: any DomainResolutionProbing
     private var inFlight: Task<Void, Never>?
 
     private var currentSite: CurrentSite?
@@ -44,11 +45,13 @@ final class DomainConfigAuditModel {
     init(
         reader: any CloudflareReading = HTTPCloudflareClient(),
         writer: any CloudflareWriting = HTTPCloudflareClient(),
-        keychain: any SecretStore = KeychainStore()
+        keychain: any SecretStore = KeychainStore(),
+        resolutionProbe: any DomainResolutionProbing = SystemDomainResolutionProbe()
     ) {
         self.reader = reader
         self.writer = writer
         self.keychain = keychain
+        self.resolutionProbe = resolutionProbe
     }
 
     /// Threaded from `SiteWindowModel.loadAndStart`, mirroring `HardenModel.configure(site:)`.
@@ -160,10 +163,14 @@ final class DomainConfigAuditModel {
                 return
             }
 
+            async let apexResolution = resolutionProbe.resolve(host: domain)
+            async let wwwResolution = resolutionProbe.resolve(host: "www.\(domain)")
+
             let state = try await reader.zoneState(zoneID: zoneID, domain: domain, apiToken: token)
             let records = try await reader.listDNSRecords(zoneID: zoneID, apiToken: token)
             let findings = DomainConfigAudit.evaluate(
                 declared: declared, live: state, liveDNSRecords: records, domain: domain)
+                + DomainResolutionAudit.evaluate(domain: domain, apex: await apexResolution, www: await wwwResolution)
             let planItems = findings.compactMap { finding -> DomainConfigReconcileItem? in
                 guard case .autoApply(let item) = finding.remediation else { return nil }
                 return item
