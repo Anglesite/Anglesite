@@ -78,6 +78,21 @@ form of option B.
    files the deploy gate can scan. Corrections and retractions take effect when the cache is
    purged on publish or unpublish.
 
+   The cache is [Workers Caching](https://developers.cloudflare.com/workers/cache/), and only on
+   accounts on the Workers Paid plan (#2116, owner decision 2026-10-01). It bills every request
+   to the Worker, static files included, so on the Free plan it would only use up the daily
+   request limit sooner. Anglesite can't read an account's plan with the token it holds, so
+   Publish Site asks the owner once, in cost terms (`EmDashWorkersPlanSheetView`), and records
+   the answer in `SiteSettings.emdashWorkersPaidPlan`; the Website inspector's Workers Paid plan
+   toggle changes it later, from the next publish on. A connected install with a `LOADER`
+   (a Paid-plan feature) records it without asking, and a background publish never asks and
+   leaves the cache off. `EmDashWorkerConfig` writes `[cache] enabled` from the answer, and the
+   overlay's `astro.config.ts` gives Astro `cacheCloudflare()` only when that table is `true`,
+   since with a provider EmDash purges on every publish. The article pages set EmDash's tags plus
+   a one-hour max-age, and only for a page that renders, so a 404 is never cached. Astro adds
+   cache headers after middleware returns, so the render backstop opts a page it withholds out of
+   the route cache (`cache.set(false)`). Otherwise the 503 would reach the cache as `public`.
+
    The template's EmDash overlay ([`Resources/Template/emdash/`](../../Resources/Template/emdash/))
    is how a new EmDash site gets this. `EmDashScaffold.applyTemplateOverlay` renames the
    template's `astro.config.ts` to `astro.anglesite.config.ts` and copies the overlay on top. The

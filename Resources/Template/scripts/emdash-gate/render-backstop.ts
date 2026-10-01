@@ -50,6 +50,11 @@ export function renderIssues(html: string, pathname: string): Issue[] {
 /** Statuses whose response can't carry a body (Fetch spec "null body status"). */
 const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 
+/** The part of Astro's per-request route cache (`context.cache`) the backstop uses. */
+export interface RouteCache {
+  set(options: false): void;
+}
+
 /** What a reader gets instead of a withheld page. Says nothing about why. */
 export function withheldResponse(): Response {
   return new Response(
@@ -60,6 +65,9 @@ export function withheldResponse(): Response {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
+        // The targeted fields a CDN reads before `Cache-Control` (RFC 9213), Cloudflare's included.
+        "CDN-Cache-Control": "no-store",
+        "Cloudflare-CDN-Cache-Control": "no-store",
         "Retry-After": "300",
       },
     },
@@ -139,12 +147,18 @@ export function d1WithheldReporter(db: D1Like | undefined, now: () => Date = () 
  * `waitUntil` is the Worker's `ExecutionContext.waitUntil`. With it, a withheld page's report
  * (a D1 write) runs after the 503 is sent instead of delaying it; without it, the report is
  * awaited first.
+ *
+ * `routeCache` is the request's Astro route cache (`context.cache`). A withheld page is opted
+ * out of it (#2116): Astro adds the route's cache headers after middleware returns, so a page
+ * that set a cache hint before it was withheld would otherwise reach Cloudflare's cache as
+ * `public`, and `Cloudflare-CDN-Cache-Control` outranks the 503's own `Cache-Control: no-store`.
  */
 export async function applyRenderBackstop(
   pathname: string,
   response: Response,
   report: WithheldReporter = logWithheld,
   waitUntil?: (promise: Promise<unknown>) => void,
+  routeCache?: RouteCache,
 ): Promise<Response> {
   if (!shouldCheck(pathname, response.headers.get("content-type"))) return response;
   // No body to check: a 304 revalidation or a HEAD request carries none, and must not be given one.
@@ -166,6 +180,11 @@ export async function applyRenderBackstop(
     }
   }
   if (issues.length > 0) {
+    try {
+      routeCache?.set(false);
+    } catch {
+      // The 503 still says no-store to every cache that reads its own headers.
+    }
     // Reporting never changes the outcome: the page is withheld whether or not the report lands.
     const withheld: WithheldReport = {
       event: WITHHELD_LOG_EVENT,

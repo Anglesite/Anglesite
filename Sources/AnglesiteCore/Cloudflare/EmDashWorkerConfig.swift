@@ -85,7 +85,12 @@ public enum EmDashWorkerConfig {
     /// The `wrangler.toml` for the Worker `workerName` bound to `resources`. Every value is
     /// checked to be a plain identifier before it's written, so nothing a resource id or name
     /// carries can change the file's structure.
-    public static func toml(workerName: String, resources: Resources) throws -> String {
+    ///
+    /// `cache` turns on Workers Caching (#2116), for an account on the Workers Paid plan. It's
+    /// always written, `true` or `false`, because the overlay's `astro.config.ts` reads this
+    /// table to decide whether to give Astro its Cloudflare cache provider: with the provider,
+    /// EmDash purges the cache on every publish, which needs a Worker that has one.
+    public static func toml(workerName: String, resources: Resources, cache: Bool = false) throws -> String {
         guard resources.isComplete,
               let databaseName = resources.d1DatabaseName, let databaseID = resources.d1DatabaseID,
               let bucket = resources.mediaBucketName, let session = resources.sessionKVNamespaceID
@@ -103,6 +108,9 @@ public enum EmDashWorkerConfig {
 
         [observability]
         enabled = true
+
+        [cache]
+        enabled = \(cache)
 
         [triggers]
         crons = ["\(cron)"]
