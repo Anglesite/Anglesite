@@ -103,4 +103,23 @@ public protocol DeployTarget: Sendable {
     /// Only called after `authorize` returned `.ready`, the well-known scan passed, the build
     /// succeeded, and `PreDeployCheck` passed.
     func publish(context: DeployTargetContext) async -> DeployCommand.Result
+
+    /// Whether this target publishes a server-rendered EmDash site (#2103) rather than a static
+    /// build. `DeployCommand` refuses a site whose kind doesn't match
+    /// (`SiteEditingSurfaces.deployRefusal(sourceDirectory:serverRendered:fileManager:)`).
+    /// Defaults to `false`.
+    var rendersOnServer: Bool { get }
+
+    /// Pre-build step with the deploy's executor: whatever must exist before the build runs.
+    /// `EmDashDeployTarget` provisions its Worker's D1, R2 and KV and writes `Config/wrangler.toml`
+    /// here, because the Cloudflare adapter reads that config at build time. Called after
+    /// `authorize` and the well-known scan, before the build; a non-`nil` result ends the deploy
+    /// with it. Defaults to doing nothing.
+    func prepare(context: DeployTargetContext) async -> DeployCommand.Result?
+}
+
+extension DeployTarget {
+    public var rendersOnServer: Bool { false }
+
+    public func prepare(context: DeployTargetContext) async -> DeployCommand.Result? { nil }
 }

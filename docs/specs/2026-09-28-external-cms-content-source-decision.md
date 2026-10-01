@@ -61,10 +61,10 @@ form of option B.
 
    New Site asks the question once, as **Writers: Me, in Anglesite / A team, in EmDash**
    (`NewSiteDraft.siteKind`). An EmDash site is scaffolded without the template's starter
-   entries (`EmDashScaffold`), per decision 2. Until the server-rendered template and
-   provisioning land, `DeployCommand` refuses the static deploy for it
-   (`SiteEditingSurfaces.staticDeploy`). A static build would replace the live site with one
-   that has none of its articles.
+   entries (`EmDashScaffold`), per decision 2. It publishes only as its EmDash Worker (decision 7):
+   `DeployCommand` refuses any target whose `rendersOnServer` doesn't match the site's kind
+   (`SiteEditingSurfaces.deployRefusal`), because a static build would replace the live site with
+   one that has none of its articles.
 2. **In an EmDash site, EmDash is canonical for content and media.** The app never copies
    articles or artwork into `Source/`. Git holds only what the site *is* (theme, templates,
    configuration the template reads). By the
@@ -109,6 +109,24 @@ form of option B.
    - **Provisioned.** Anglesite creates EmDash (Worker + D1 + R2) in the owner's account and deploys
      it with the template. The owner never configures it (decision D1). This is the default for a
      new EmDash site.
+
+     `EmDashDeployTarget` (#2103) does this on Publish Site. Before the build it creates
+     `<site>-cms` (D1, `DB`), `<site>-cms-media` (R2, `MEDIA`) and `<site>-cms-session` (KV, the
+     adapter's `SESSION`). Each is recorded in `SiteSettings.emdashResources` and looked up by name
+     before it's created, so an interrupted publish adopts what already exists. It then writes
+     `Config/wrangler.toml` (`EmDashWorkerConfig`: `main` is the overlay's `src/worker.ts`, with a
+     one-minute cron for scheduled publishing). It pushes `EMDASH_ENCRYPTION_KEY`, generated once
+     and held in the Keychain, only when the Worker doesn't already hold one, so publishing from a
+     second Mac never replaces the key EmDash's plugin secrets are encrypted with. Provisioning
+     comes before the pre-deploy gate because the build needs the ids. A first publish the gate
+     refuses therefore leaves the empty resources in place; nothing is published, and the next
+     publish reuses them. The container
+     stages that config before the build, because the Cloudflare adapter reads it then and copies
+     the bindings into `dist/server/wrangler.json`, which `wrangler deploy` follows. After deploy it
+     records `emdashAdminURL`, and `emdashD1DatabaseID` is recorded with the database. EmDash
+     applies its own migrations on first request, and the owner creates the first account at
+     `/_emdash/admin/setup`. Social Workers aren't composed with the EmDash Worker yet
+     (#2052/#2053).
    - **Bring your own.** The owner connects an existing EmDash install that runs in a Cloudflare
      account they control, through the same token onboarding Anglesite already uses for
      deploys. Anglesite then takes over the site's frontend deploy and registers `anglesite-gate`.

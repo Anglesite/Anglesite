@@ -160,6 +160,12 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// Anglesite site. Provisioned infrastructure, hence `Config/`.
     public var emdashD1DatabaseID: String?
 
+    /// The Cloudflare resources a provisioned EmDash site's Worker is bound to (#2103): its D1
+    /// database, R2 media bucket and session KV namespace. Recorded as each is created, so a
+    /// failed publish resumes instead of creating them again; ``emdashD1DatabaseID`` is set from
+    /// it. `nil` until the first publish, and always on an Anglesite site.
+    public var emdashResources: EmDashWorkerConfig.Resources?
+
     /// Owner opt-in to checking off-site links during audits (#2001). `nil`/`false` (the default)
     /// means off: `BrokenLinkAuditRunner` only counts external links, never fetches them — probing
     /// needs the network, is slow, and trips bot challenges, so network-dependent findings stay
@@ -207,6 +213,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         sourceBundleBucket: String? = nil,
         emdashAdminURL: URL? = nil,
         emdashD1DatabaseID: String? = nil,
+        emdashResources: EmDashWorkerConfig.Resources? = nil,
         externalLinkCheckEnabled: Bool? = nil,
         imageOptimisationDisabled: Bool? = nil,
         workerIssuesRelay: WorkerIssuesRelayState? = nil
@@ -235,6 +242,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.sourceBundleBucket = sourceBundleBucket
         self.emdashAdminURL = emdashAdminURL
         self.emdashD1DatabaseID = emdashD1DatabaseID
+        self.emdashResources = emdashResources
         self.externalLinkCheckEnabled = externalLinkCheckEnabled
         self.imageOptimisationDisabled = imageOptimisationDisabled
         self.workerIssuesRelay = workerIssuesRelay
