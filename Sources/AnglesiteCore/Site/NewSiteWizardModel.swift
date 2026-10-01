@@ -71,6 +71,8 @@ public final class NewSiteWizardModel {
     ///   - isNameTaken: Availability check for a candidate display name (e.g. "Untitled 2").
     ///     The caller decides what "taken" means — the launcher checks both the recents
     ///     registry and the sites root on disk. Non-escaping: consulted only here, at init.
+    ///   - emdashSearch: The search behind "Connect One I Already Have" for an EmDash site
+    ///     (#2106). Tests inject one with stubbed sources.
     public init(
         catalog: ThemeCatalog,
         isNameTaken: (String) -> Bool,
