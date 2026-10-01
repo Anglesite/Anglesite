@@ -15,6 +15,10 @@ struct EmDashConnectionTests {
         private let lock = NSLock()
         var responses: [String: (Int, String)]
         var queries: [String: [(fragment: String, rows: String)]]
+        /// Answer D1 queries with this status instead of rows.
+        var queryStatus = 200
+        /// Throw `CancellationError` for Worker settings reads, as a cancelled URLSession task does.
+        var cancelSettings = false
         private(set) var paths: [String] = []
 
         init(responses: [String: (Int, String)], queries: [String: [(fragment: String, rows: String)]] = [:]) {
@@ -26,13 +30,16 @@ struct EmDashConnectionTests {
             { [self] request in
                 let path = request.url!.path.replacingOccurrences(of: "/client/v4", with: "")
                 lock.withLock { paths.append(path) }
+                if cancelSettings && path.hasSuffix("/settings") { throw CancellationError() }
                 var (status, json) = responses[path] ?? (404, #"{"success":false,"errors":[]}"#)
                 if path.hasSuffix("/query") {
                     let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
                     let sql = body?["sql"] as? String ?? ""
                     let database = path.components(separatedBy: "/").dropLast().last ?? ""
                     let rows = queries[database]?.first { sql.contains($0.fragment) }?.rows ?? "[]"
-                    (status, json) = (200, #"{"success":true,"result":[{"success":true,"results":\#(rows)}]}"#)
+                    (status, json) = queryStatus == 200
+                        ? (200, #"{"success":true,"result":[{"success":true,"results":\#(rows)}]}"#)
+                        : (queryStatus, "{}")
                 }
                 return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
             }
@@ -178,6 +185,73 @@ struct EmDashConnectionTests {
         #expect(toml.contains(#"bucket_name = "news-media""#))
         #expect(toml.contains(#"id = "kv-new""#))
         #expect(toml.contains("[[worker_loaders]]\nbinding = \"LOADER\""))
+    }
+
+    @Test("a token that can list Workers but not read D1 is told apart from a refused token")
+    func cannotReadDatabases() async {
+        let api = Self.api()
+        api.queryStatus = 403
+        await #expect(throws: EmDashInstallFinder.FindError.cannotReadDatabases) { try await Self.finder(api).installs() }
+    }
+
+    @Test("cancelling the search stops it instead of reporting no installs")
+    func cancellationPropagates() async {
+        let api = Self.api()
+        api.cancelSettings = true
+        await #expect(throws: CancellationError.self) { try await Self.finder(api).installs() }
+    }
+
+    @Test("a database that can't be named is left out; an unknown plugin source counts as code")
+    func unnamedDatabaseAndUnknownSource() async throws {
+        let api = Self.api()
+        api.queries["db-news"]?[2] = ("SELECT plugin_id", #"[{"plugin_id":"future-thing","source":"bundle"}]"#)
+        #expect(try await Self.finder(api).installs().first?.codePlugins == ["future-thing"])
+
+        api.responses["\(Self.account)/d1/database/db-news"] = (500, "{}")
+        #expect(try await Self.finder(api).installs().isEmpty)
+    }
+
+    private static let install = EmDashInstall(
+        workerName: "news_room", databaseName: "news-db", databaseID: "db-news", mediaBucketName: "news-media",
+        sessionKVNamespaceID: nil, hasWorkerLoader: false, marketplacePlugins: [], codePlugins: [], problem: nil)
+
+    private static func site() throws -> (root: URL, source: URL, config: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("connect-\(UUID().uuidString)")
+        let source = root.appendingPathComponent("Source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data("SITE_NAME=News\nCF_PROJECT_NAME=news\n".utf8).write(to: source.appendingPathComponent(".site-config"))
+        return (root, source, root.appendingPathComponent("Config"))
+    }
+
+    @Test("a site that already has a Worker of its own is never re-pointed at the install")
+    func refusesPublishedSite() async throws {
+        for mark in [
+            { (s: inout SiteSettings) in s.workerDeployed = true },
+            { (s: inout SiteSettings) in s.workerProvisioned = true },
+            { (s: inout SiteSettings) in s.emdashResources = .init(d1DatabaseID: "db-own") },
+        ] {
+            let (root, source, config) = try Self.site()
+            defer { try? FileManager.default.removeItem(at: root) }
+            _ = try await SiteConfigStore(configDirectory: config).update(mark)
+            await #expect(throws: EmDashConnection.ConnectError.alreadyPublished) {
+                try await EmDashConnection.connect(Self.install, sourceDirectory: source, configDirectory: config)
+            }
+            let siteConfig = try String(contentsOf: source.appendingPathComponent(".site-config"), encoding: .utf8)
+            #expect(siteConfig.contains("CF_PROJECT_NAME=news\n"))
+        }
+    }
+
+    @Test("if the settings can't be saved, the Worker name is put back")
+    func rollsBackSiteConfig() async throws {
+        let (root, source, config) = try Self.site()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // A file where the Config directory should be: settings read as defaults, but can't be saved.
+        try Data().write(to: config)
+        await #expect(throws: (any Error).self) {
+            try await EmDashConnection.connect(Self.install, sourceDirectory: source, configDirectory: config)
+        }
+        let siteConfig = try String(contentsOf: source.appendingPathComponent(".site-config"), encoding: .utf8)
+        #expect(siteConfig == "SITE_NAME=News\nCF_PROJECT_NAME=news\n")
     }
 
     @Test("a provisioned site's Worker config has no Worker Loader")
