@@ -1045,6 +1045,36 @@ struct PlistEditorView: View {
         }
     }
 
+    /// One-time guided step (#2095 slice 3): Cloudflare has no documented API for Workers Issues
+    /// automations yet, so the owner creates it in the dashboard with values copied from here.
+    private func workerIssuesSetupGuide(_ relay: WorkerIssuesRelayState) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("One more step to start sending error reports")
+                    .font(.headline)
+                Text("In Cloudflare, open this site's Issues page, choose Automations ▸ Add automation, set it to run after 1 occurrence, and pick Generic Webhook as the destination. Paste the address and secret below, then turn it on.")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button("Open Cloudflare") { NSWorkspace.shared.open(model.workerDashboardIssuesURL) }
+                    Button("Copy Address") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(relay.hookURL.absoluteString, forType: .string)
+                    }
+                    Button("Copy Secret") {
+                        guard let secret = model.workerIssuesWebhookSecret() else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(secret, forType: .string)
+                    }
+                    Spacer()
+                    Button("Done") { Task { await model.confirmWorkerIssuesAutomation() } }
+                }
+            }
+            .padding(4)
+        }
+        .accessibilityIdentifier(AXID.settingsWorkersIssuesSetup)
+    }
+
     private var workersUnavailableTab: some View {
         ContentUnavailableView {
             Label("Workers Unavailable", systemImage: "bolt.slash")
@@ -1073,6 +1103,15 @@ struct PlistEditorView: View {
                 }
                 .disabled(!model.workerDashboardEnabled)
                 .accessibilityIdentifier(AXID.settingsWorkersAnalytics)
+                if AppSettings.shared.tracksWorkerIssues {
+                    Button {
+                        NSWorkspace.shared.open(model.workerDashboardIssuesURL)
+                    } label: {
+                        Label("Issues", systemImage: "exclamationmark.bubble")
+                    }
+                    .disabled(!model.workerDashboardEnabled)
+                    .accessibilityIdentifier(AXID.settingsWorkersIssues)
+                }
                 if model.isLoadingWorkers {
                     ProgressView().controlSize(.small)
                 }
@@ -1081,6 +1120,10 @@ struct PlistEditorView: View {
                 Text("Logs and analytics become available after the first publish that includes a worker.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if model.workerIssuesSetupPending, let relay = model.workerIssuesRelay {
+                workerIssuesSetupGuide(relay)
             }
 
             if let workersError = model.workersError {

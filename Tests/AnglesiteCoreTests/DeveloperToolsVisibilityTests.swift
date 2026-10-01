@@ -10,6 +10,15 @@ import Testing
         let visibility = DeveloperToolsVisibility(settingEnabled: false)
         #expect(!visibility.showsCodeEditors)
         #expect(!visibility.showsSafariBridgeSetup)
+        #expect(!visibility.showsWorkerIssuesSetting)
+    }
+
+    @Test("Worker error tracking needs both developer tools and the owner's opt-in (#2095)")
+    func workerIssuesNeedsBoth() {
+        #expect(!DeveloperToolsVisibility(settingEnabled: false).tracksWorkerIssues(optedIn: false))
+        #expect(!DeveloperToolsVisibility(settingEnabled: false).tracksWorkerIssues(optedIn: true))
+        #expect(!DeveloperToolsVisibility(settingEnabled: true).tracksWorkerIssues(optedIn: false))
+        #expect(DeveloperToolsVisibility(settingEnabled: true).tracksWorkerIssues(optedIn: true))
     }
 
     @Test("the opt-in reveals the code editors and the Safari bridge setup together")
@@ -17,6 +26,7 @@ import Testing
         let visibility = DeveloperToolsVisibility(settingEnabled: true)
         #expect(visibility.showsCodeEditors)
         #expect(visibility.showsSafariBridgeSetup)
+        #expect(visibility.showsWorkerIssuesSetting)
     }
 
     @Test("only the raw text editor requires developer tools")
