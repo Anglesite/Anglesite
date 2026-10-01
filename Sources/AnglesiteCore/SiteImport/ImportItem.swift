@@ -23,6 +23,8 @@ public struct ImportItem: Sendable, Equatable {
         case microformats
         case readability
         case wxr
+        /// EmDash's content export, converted from Portable Text (``EmDashRung``, #2051).
+        case emdash
     }
 
     /// A semantic hint about the item's content type.
@@ -31,6 +33,9 @@ public struct ImportItem: Sendable, Equatable {
         case wpPost
         /// A WordPress page.
         case wpPage
+        /// A standalone page from a source that isn't WordPress (an EmDash `pages` collection,
+        /// #2051) — classified to a page route exactly like ``ImportItem/Hint/wpPage``.
+        case page
         /// A short note or status update.
         case note
         /// An article.
