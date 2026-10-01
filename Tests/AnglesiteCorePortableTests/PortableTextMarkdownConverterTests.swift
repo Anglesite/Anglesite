@@ -102,7 +102,12 @@ struct PortableTextMarkdownConverterTests {
 
     @Test("inline escaping keeps Markdown syntax characters literal")
     func escaping() {
-        #expect(PortableTextMarkdownConverter.escapeInline("a*b_c`d[e]f<g>h\\i") == "a\\*b\\_c\\`d\\[e\\]f\\<g>h\\\\i")
+        #expect(PortableTextMarkdownConverter.escapeInline("a*b_c`d[e]f<g>h\\i~j") == "a\\*b\\_c\\`d\\[e\\]f\\<g>h\\\\i\\~j")
+        #expect(PortableTextMarkdownConverter.escapeLineStart("     deep") == "   deep") // never an indented code block
+        #expect(PortableTextMarkdownConverter.escapeHeadingTail("Title #") == "Title \\#")
+        #expect(PortableTextMarkdownConverter.escapeHeadingTail("Title ##  ") == "Title \\##") // trailing spaces are inert
+        #expect(PortableTextMarkdownConverter.escapeHeadingTail("###") == "\\###")
+        #expect(PortableTextMarkdownConverter.escapeHeadingTail("C# rocks") == "C# rocks")
         #expect(PortableTextMarkdownConverter.escapeLineStart("# heading") == "\\# heading")
         #expect(PortableTextMarkdownConverter.escapeLineStart("- item") == "\\- item")
         #expect(PortableTextMarkdownConverter.escapeLineStart("12. twelve") == "12\\. twelve")
@@ -134,5 +139,71 @@ struct PortableTextMarkdownConverterTests {
     func listItemHardBreak() throws {
         let blocks = try Self.blocks(#"[{"_type":"block","_key":"a","listItem":"bullet","level":1,"children":[{"_type":"span","_key":"s","text":"one\ntwo","marks":[]}]}]"#)
         #expect(PortableTextMarkdownConverter.convert(blocks: blocks).markdown == "- one  \n  two")
+    }
+
+    // MARK: Review hardening (#2051)
+
+    private static func paragraph(_ text: String, style: String = "normal", listItem: String? = nil) -> String {
+        #"{"_type":"block","_key":"k","style":"\#(style)"\#(listItem.map { ",\"listItem\":\"\($0)\",\"level\":1" } ?? ""),"children":[{"_type":"span","_key":"s","text":"\#(text)","marks":[]}]}"#
+    }
+
+    @Test("every line of a paragraph, quote or list item is protected from starting a block")
+    func escapesEveryLineStart() throws {
+        let setext = try Self.blocks("[\(Self.paragraph("Line one\\n==="))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: setext).markdown == "Line one  \n\\===")
+        let list = try Self.blocks("[\(Self.paragraph("x\\n- two"))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: list).markdown == "x  \n\\- two")
+        let bullet = try Self.blocks("[\(Self.paragraph("- foo\\n# bar", listItem: "bullet"))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: bullet).markdown == "- \\- foo  \n  \\# bar")
+        let quote = try Self.blocks("[\(Self.paragraph("Q\\n# x", style: "blockquote"))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: quote).markdown == "> Q\n> \\# x")
+        let heading = try Self.blocks("[\(Self.paragraph("Title #", style: "h2"))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: heading).markdown == "## Title \\#")
+        let strike = try Self.blocks("[\(Self.paragraph("not ~~gone~~"))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: strike).markdown == "not \\~\\~gone\\~\\~")
+    }
+
+    @Test("emphasis closes even when the mark carries edge whitespace, and works mid-word")
+    func emphasisDelimiters() throws {
+        func span(_ text: String, _ marks: [String] = []) -> String {
+            #"{"_type":"span","_key":"s","text":"\#(text)","marks":[\#(marks.map { "\"\($0)\"" }.joined(separator: ","))]}"#
+        }
+        func block(_ spans: [String]) -> String {
+            #"{"_type":"block","_key":"k","style":"normal","children":[\#(spans.joined(separator: ","))]}"#
+        }
+        let edges = try Self.blocks("[\(block([span("bold ", ["strong"]), span("text"), span(" tail", ["em"])]))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: edges).markdown == "**bold** text *tail*")
+        let intraword = try Self.blocks("[\(block([span("a"), span("b", ["em"]), span("c")]))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: intraword).markdown == "a*b*c")
+        let onlySpace = try Self.blocks("[\(block([span("x"), span(" ", ["strong"]), span("y")]))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: onlySpace).markdown == "x y")
+        let code = try Self.blocks("[\(block([span(" x ", ["code"])]))]")
+        #expect(PortableTextMarkdownConverter.convert(blocks: code).markdown == " `x` ")
+    }
+
+    @Test("an inline child that isn't a span keeps its text or its JSON, and is reported")
+    func inlineNonSpanChildren() throws {
+        let blocks = try Self.blocks(#"""
+        [{"_type":"block","_key":"k","style":"normal","children":[
+          {"_type":"span","_key":"a","text":"Hi ","marks":[]},
+          {"_type":"mention","_key":"m","text":"@ada","userId":"u1"},
+          {"_type":"span","_key":"b","text":", see ","marks":[]},
+          {"_type":"inlineImage","_key":"i","alt":"a diagram","asset":{"_ref":"m9"}},
+          {"_type":"footnote","_key":"f","note":[]}
+        ]}]
+        """#)
+        let result = PortableTextMarkdownConverter.convert(blocks: blocks)
+        #expect(result.markdown == #"Hi @ada, see a diagram`{"_key":"f","_type":"footnote","note":[]}`"#)
+        #expect(result.unsupportedBlockTypes == ["mention", "inlineImage", "footnote"])
+    }
+
+    @Test("a pipe inside a table cell's code span is escaped too")
+    func tableCellPipes() throws {
+        let blocks = try Self.blocks(#"""
+        [{"_type":"table","_key":"t","hasHeaderRow":true,"rows":[
+          {"_type":"tableRow","_key":"r","cells":[
+            {"_type":"tableCell","_key":"c","content":[{"_type":"block","_key":"b","children":[{"_type":"span","_key":"s","text":"a | b","marks":["code"]}]}]}]}]}]
+        """#)
+        #expect(PortableTextMarkdownConverter.convert(blocks: blocks).markdown == "| `a \\| b` |\n| --- |")
     }
 }

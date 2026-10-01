@@ -263,7 +263,11 @@ public enum PortableTextMarkdownConverter {
                     marker = "-"
                 }
                 let continuation = "\n" + indent + String(repeating: " ", count: marker.count + 1)
-                let body = text.replacingOccurrences(of: "\n", with: "  " + continuation)
+                // Every line is escaped, not just the first: a continuation line is a block
+                // start too, so "x\n- two" would otherwise open a nested list.
+                let body = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { escapeLineStart(String($0)) }
+                    .joined(separator: "  " + continuation)
                 if !lines.isEmpty, !previousWasListItem { lines.append("") }
                 lines.append("\(indent)\(marker) \(body)")
                 previousWasListItem = true
@@ -274,9 +278,11 @@ public enum PortableTextMarkdownConverter {
             switch style {
             case "h1", "h2", "h3", "h4", "h5", "h6":
                 let level = Int(style.dropFirst()) ?? 1
-                rendered = [String(repeating: "#", count: level) + " " + text.replacingOccurrences(of: "\n", with: " ")]
+                rendered = [String(repeating: "#", count: level) + " "
+                            + escapeHeadingTail(text.replacingOccurrences(of: "\n", with: " "))]
             case "blockquote":
-                rendered = text.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }
+                rendered = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { "> " + escapeLineStart(String($0)) }
             default:
                 // An empty paragraph (EmDash's editor stores one for every blank line the author
                 // typed) adds nothing to Markdown, where block spacing is structural.
@@ -285,7 +291,7 @@ public enum PortableTextMarkdownConverter {
                 // so each line but the last gets Markdown's two-space hard-break suffix.
                 let paragraphLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
                 rendered = paragraphLines.enumerated().map { index, line in
-                    (index == 0 ? escapeLineStart(line) : line) + (index < paragraphLines.count - 1 ? "  " : "")
+                    escapeLineStart(line) + (index < paragraphLines.count - 1 ? "  " : "")
                 }
             }
             append(rendered)
@@ -402,10 +408,14 @@ public enum PortableTextMarkdownConverter {
 
         // MARK: Spans
 
-        private func renderSpans(_ spans: [JSONValue], markDefs: [JSONValue]) -> String {
+        private mutating func renderSpans(_ spans: [JSONValue], markDefs: [JSONValue]) -> String {
             var result = ""
             for case .object(let span) in spans {
-                guard span["_type"]?.stringValue == "span" else { continue }
+                let type = span["_type"]?.stringValue ?? ""
+                guard type == "span" else {
+                    result += inlineFallback(type: type, child: span)
+                    continue
+                }
                 let text = span["text"]?.stringValue ?? ""
                 guard !text.isEmpty else { continue }
                 let marks = (span["marks"]?.arrayValue ?? []).compactMap(\.stringValue)
@@ -414,12 +424,38 @@ public enum PortableTextMarkdownConverter {
             return result
         }
 
+        /// An inline child that isn't a `span` (an inline image, a mention, a footnote from a
+        /// plugin): its `text`/`alt`/`label` if it carries one, else the whole object as an
+        /// inline code span — and its type is reported, like an unknown block's, so the entry
+        /// is flagged rather than silently losing or garbling a word.
+        private mutating func inlineFallback(type: String, child: [String: JSONValue]) -> String {
+            if seenUnsupported.insert(type).inserted { unsupportedBlockTypes.append(type) }
+            for key in ["text", "alt", "label"] {
+                if let text = child[key]?.stringValue, !text.isEmpty { return escapeInline(text) }
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            let json = (try? encoder.encode(JSONValue.object(child))).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+            return codeSpan(json)
+        }
+
         /// Wraps `text` in its marks: `code` innermost (its content is verbatim, never escaped),
         /// then the other decorators, then any `link` outermost so the whole styled run is the
         /// link text. Unknown decorator names and mark definitions of unknown types leave the
         /// text as-is — a custom mark has no Markdown equivalent, and silently keeping the words
         /// beats dropping them.
         private func decorate(_ text: String, marks: [String], markDefs: [JSONValue]) -> String {
+            // ProseMirror routinely stores a mark with the whitespace around a word inside it,
+            // and `**bold **` doesn't close in CommonMark (a closing delimiter can't follow
+            // whitespace), so the edges stay outside every delimiter.
+            let leading = String(text.prefix { $0.isWhitespace })
+            let trailing = String(text.reversed().prefix { $0.isWhitespace }.reversed())
+            let core = String(text.dropFirst(leading.count).dropLast(trailing.count))
+            guard !core.isEmpty else { return escapeInline(text) }
+            return leading + decorateCore(core, marks: marks, markDefs: markDefs) + trailing
+        }
+
+        private func decorateCore(_ text: String, marks: [String], markDefs: [JSONValue]) -> String {
             var result = marks.contains("code") ? codeSpan(text) : escapeInline(text)
 
             var links: [String] = []
@@ -428,7 +464,9 @@ public enum PortableTextMarkdownConverter {
                 case "strong", "bold":
                     result = "**\(result)**"
                 case "em", "italic":
-                    result = "_\(result)_"
+                    // `*`, not `_`: an underscore can't open or close emphasis inside a word,
+                    // so "a" + em("b") + "c" would render its underscores literally.
+                    result = "*\(result)*"
                 case "underline":
                     result = "<u>\(result)</u>"
                 case "strike-through", "strikethrough", "strike":
@@ -476,14 +514,15 @@ public enum PortableTextMarkdownConverter {
     // MARK: Escaping
 
     /// Backslash-escapes the characters that would otherwise start inline Markdown syntax
-    /// mid-text. Scoped to those seven on purpose: escaping every ASCII punctuation character
-    /// CommonMark allows would make ordinary prose unreadable in the file the owner edits.
+    /// mid-text (`~` for GFM strikethrough). Scoped to those eight on purpose: escaping every
+    /// ASCII punctuation character CommonMark allows would make ordinary prose unreadable in the
+    /// file the owner edits.
     static func escapeInline(_ text: String) -> String {
         var result = ""
         result.reserveCapacity(text.count)
         for character in text {
             switch character {
-            case "\\", "*", "_", "`", "[", "]", "<":
+            case "\\", "*", "_", "`", "[", "]", "<", "~":
                 result.append("\\")
                 result.append(character)
             default:
@@ -498,7 +537,8 @@ public enum PortableTextMarkdownConverter {
     static func escapeLineStart(_ line: String) -> String {
         let trimmed = line.drop { $0 == " " }
         guard let first = trimmed.first else { return line }
-        let prefix = String(line.prefix(line.count - trimmed.count))
+        // Four or more leading spaces would make the line an indented code block.
+        let prefix = String(line.prefix(min(3, line.count - trimmed.count)))
         switch first {
         case "#", ">", "+", "-", "=", "|", "~":
             return prefix + "\\" + trimmed
@@ -513,7 +553,15 @@ public enum PortableTextMarkdownConverter {
                 return prefix + digits + "\\" + rest
             }
         }
-        return line
+        return prefix + trimmed
+    }
+
+    /// Backslash-escapes a trailing run of `#` in a heading's text, which Markdown would
+    /// otherwise read as the heading's optional closing sequence and drop.
+    static func escapeHeadingTail(_ text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "(^|[ \\t])(#+)[ \\t]*$") else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "$1\\\\$2")
     }
 
     /// Percent-encodes the characters that would end a Markdown link destination early.

@@ -1,6 +1,6 @@
 # Hello, EmDash
 
-Plain, **bold**, _italic_, _**both**_, `x = a * b`, <u>under</u>, ~~gone~~, H<sub>2</sub>O and [**a bold link**](https://example.com/docs?x=1&y=2).
+Plain, **bold**, *italic*, ***both***, `x = a * b`, <u>under</u>, ~~gone~~, H<sub>2</sub>O and [**a bold link**](https://example.com/docs?x=1&y=2).
 
 \# Not a heading, 2 \* 3 = 6, snake\_case, \[brackets\] and \<angles>.
 

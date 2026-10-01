@@ -48,6 +48,9 @@ public struct EmDashExport: Sendable, Equatable {
         public var titleField: String?
         /// The field slug EmDash sorts the collection by, if it names one.
         public var dateField: String?
+        /// Whether EmDash serves the collection's entries at `urlPattern` (`routable`). A
+        /// non-routable collection's entries have no public URL to redirect from.
+        public var routable: Bool
         /// The schema-builder fields, in `sort_order`.
         public var fields: [Field]
 
@@ -58,14 +61,16 @@ public struct EmDashExport: Sendable, Equatable {
         ///   - urlPattern: EmDash's public URL pattern for an entry.
         ///   - titleField: The field slug EmDash shows as the entry's title.
         ///   - dateField: The field slug EmDash sorts the collection by.
+        ///   - routable: Whether EmDash serves the entries at `urlPattern`.
         ///   - fields: The schema-builder fields, in order.
         public init(slug: String, label: String, urlPattern: String? = nil, titleField: String? = nil,
-                    dateField: String? = nil, fields: [Field]) {
+                    dateField: String? = nil, routable: Bool = true, fields: [Field]) {
             self.slug = slug
             self.label = label
             self.urlPattern = urlPattern
             self.titleField = titleField
             self.dateField = dateField
+            self.routable = routable
             self.fields = fields
         }
     }
@@ -210,6 +215,9 @@ public struct EmDashExport: Sendable, Equatable {
     public var termAssignments: [TermAssignment]
     /// Every media record.
     public var media: [Media]
+    /// Collection slugs that appeared more than once in the dump (a hand-merged backup); only
+    /// the first row of each was read. ``EmDashRung`` reports each as an `ImportProblem`.
+    public var duplicateCollectionSlugs: [String]
 
     /// Creates an export.
     /// - Parameters:
@@ -221,9 +229,11 @@ public struct EmDashExport: Sendable, Equatable {
     ///   - terms: Every taxonomy term.
     ///   - termAssignments: Every term assignment.
     ///   - media: Every media record.
+    ///   - duplicateCollectionSlugs: Collection slugs the dump repeated.
     public init(siteTitle: String? = nil, siteTagline: String? = nil, siteLocale: String? = nil,
                 collections: [Collection], entries: [Entry], terms: [Term] = [],
-                termAssignments: [TermAssignment] = [], media: [Media] = []) {
+                termAssignments: [TermAssignment] = [], media: [Media] = [],
+                duplicateCollectionSlugs: [String] = []) {
         self.siteTitle = siteTitle
         self.siteTagline = siteTagline
         self.siteLocale = siteLocale
@@ -232,6 +242,7 @@ public struct EmDashExport: Sendable, Equatable {
         self.terms = terms
         self.termAssignments = termAssignments
         self.media = media
+        self.duplicateCollectionSlugs = duplicateCollectionSlugs
     }
 }
 
@@ -303,15 +314,24 @@ public enum EmDashSnapshotDocument {
         }
 
         var collections: [EmDashExport.Collection] = []
+        var seenSlugs: Set<String> = []
+        var duplicateSlugs: [String] = []
         for row in rows(tables, "_emdash_collections") {
             guard let slug = string(row, "slug") else { continue }
+            // `slug` is unique in EmDash's own schema; a hand-merged backup can repeat one, and
+            // two collections with one slug would read one `ec_<slug>` table twice.
+            guard seenSlugs.insert(slug).inserted else {
+                if !duplicateSlugs.contains(slug) { duplicateSlugs.append(slug) }
+                continue
+            }
             let fields = (fieldsByCollectionID[string(row, "id") ?? ""] ?? [])
                 .enumerated()
                 .sorted { ($0.element.order, $0.offset) < ($1.element.order, $1.offset) }
                 .map(\.element.field)
             collections.append(EmDashExport.Collection(
                 slug: slug, label: string(row, "label") ?? slug, urlPattern: string(row, "url_pattern"),
-                titleField: string(row, "title_field"), dateField: string(row, "date_field"), fields: fields))
+                titleField: string(row, "title_field"), dateField: string(row, "date_field"),
+                routable: row["routable"] == nil || flag(row, "routable"), fields: fields))
         }
         let sortOrder = rows(tables, "_emdash_collections").enumerated().reduce(into: [String: (Int, Int)]()) { acc, pair in
             if let slug = string(pair.element, "slug") {
@@ -370,7 +390,8 @@ public enum EmDashSnapshotDocument {
             siteTitle: options["site:title"] ?? options["emdash:site_title"],
             siteTagline: options["site:tagline"] ?? options["emdash:site_tagline"],
             siteLocale: options["site:locale"] ?? options["emdash:locale"],
-            collections: collections, entries: entries, terms: terms, termAssignments: assignments, media: media)
+            collections: collections, entries: entries, terms: terms, termAssignments: assignments, media: media,
+            duplicateCollectionSlugs: duplicateSlugs)
     }
 
     /// The `ec_*` columns EmDash manages itself; every other column is an authored field.

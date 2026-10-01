@@ -23,7 +23,10 @@ import Foundation
 /// they don't, and one ``ImportProblem`` per such collection says so, so the owner sees the
 /// guess in the import summary. A collection's `urlPattern` gives each entry its source URL, so
 /// ``RedirectsEmitter`` can keep EmDash's old links (`/articles/hello/`) pointing at the new
-/// path (`/blog/hello/`).
+/// path (`/blog/hello/`). A collection EmDash doesn't route (`routable` off) is still imported,
+/// but its entries were never served at any URL, so they get no redirect; `hidden` only hides a
+/// collection from EmDash's admin navigation and doesn't affect the import. A collection slug
+/// the dump repeats is read once and reported.
 ///
 /// **Fields.** The title comes from the collection's `titleField` (or a `title` field), the
 /// excerpt from `summary`/`excerpt`/`description`, the hero image from the first `image` field,
@@ -59,8 +62,20 @@ public enum EmDashRung {
         let site = SiteContext(siteURL: siteURL, export: export)
         var items: [ImportItem] = []
         var problems: [ImportProblem] = []
+        var seenCollections: Set<String> = []
+
+        func reportDuplicate(_ slug: String) {
+            problems.append(ImportProblem(
+                sourceURL: site.resolve("/\(slug)/"),
+                message: "The export lists the “\(slug)” collection more than once; only the first copy was brought over"))
+        }
+        export.duplicateCollectionSlugs.forEach(reportDuplicate)
 
         for collection in export.collections {
+            guard seenCollections.insert(collection.slug).inserted else {
+                reportDuplicate(collection.slug)
+                continue
+            }
             let shape = CollectionShape(collection: collection)
             if shape.isGuess {
                 let noun = shape.hintsNote ? "notes" : "blog posts"
@@ -71,7 +86,7 @@ public enum EmDashRung {
 
             for entry in export.entries where entry.collection == collection.slug {
                 guard entry.status == "published", !entry.trashed else { continue }
-                let sourceURL = site.entryURL(entry, in: collection)
+                let sourceURL = site.entryURL(entry, in: collection, shape: shape)
                 let built = buildItem(entry: entry, collection: collection, shape: shape, site: site,
                                       sourceURL: sourceURL, htmlConversions: htmlConversions)
                 guard let item = built.item else {
@@ -132,9 +147,9 @@ public enum EmDashRung {
     public static func htmlBlocks(in export: EmDashExport) -> [String] {
         var seen: Set<String> = []
         var result: [String] = []
-        let portableTextFields = Dictionary(uniqueKeysWithValues: export.collections.map {
+        let portableTextFields = Dictionary(export.collections.map {
             ($0.slug, $0.fields.filter { $0.type == "portableText" }.map(\.slug))
-        })
+        }, uniquingKeysWith: { first, _ in first })
         for entry in export.entries where entry.status == "published" && !entry.trashed {
             for slug in portableTextFields[entry.collection] ?? [] {
                 guard let value = entry.data[slug], let blocks = PortableTextMarkdownConverter.blockArray(value) else { continue }
@@ -358,6 +373,21 @@ public enum EmDashRung {
 
         var hintsNote: Bool { kind == .note }
 
+        /// The Anglesite collection ``ContentClassifier`` sends this kind to (`nil` for a page,
+        /// which is served at its own route) — the path a non-routable entry is given as its
+        /// source URL so no redirect is written for it.
+        var servedCollection: String? {
+            switch kind {
+            case .article: return "blog"
+            case .note: return "notes"
+            case .photo: return "photos"
+            case .bookmark: return "bookmarks"
+            case .like: return "likes"
+            case .reply: return "replies"
+            case .page: return nil
+            }
+        }
+
         init(collection: EmDashExport.Collection) {
             let fields = collection.fields
             func first(ofType type: String) -> String? { fields.first { $0.type == type }?.slug }
@@ -435,22 +465,39 @@ public enum EmDashRung {
             mediaByID = Dictionary(export.media.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         }
 
-        func entryURL(_ entry: EmDashExport.Entry, in collection: EmDashExport.Collection) -> String {
+        /// The entry's source URL. A routable collection's comes from its `urlPattern`, which
+        /// is where EmDash served the entry and so where old links point. A non-routable
+        /// collection's entries were never served anywhere, so there's nothing to redirect
+        /// from: they get the path Anglesite will serve them at, which ``RedirectsEmitter``
+        /// then sees as unchanged.
+        func entryURL(_ entry: EmDashExport.Entry, in collection: EmDashExport.Collection,
+                      shape: CollectionShape) -> String {
             let slug = entry.slug ?? entry.id
-            var path = collection.urlPattern ?? "/\(collection.slug)/{slug}"
-            path = path.replacingOccurrences(of: "{slug}", with: slug)
-                .replacingOccurrences(of: "{id}", with: entry.id)
-                .replacingOccurrences(of: "{collection}", with: collection.slug)
-                .replacingOccurrences(of: "{locale}", with: entry.locale ?? export.siteLocale ?? "")
-            return resolve(path)
+            var path: String
+            if collection.routable {
+                path = (collection.urlPattern ?? "/\(collection.slug)/{slug}")
+                    .replacingOccurrences(of: "{slug}", with: slug)
+                    .replacingOccurrences(of: "{id}", with: entry.id)
+                    .replacingOccurrences(of: "{collection}", with: collection.slug)
+                    .replacingOccurrences(of: "{locale}", with: entry.locale ?? export.siteLocale ?? "")
+            } else {
+                path = shape.servedCollection.map { "/\($0)/\(slug)" } ?? "/\(slug)"
+            }
+            return resolve(collapsingSlashes(path))
+        }
+
+        /// `//about` (a `{locale}` that was empty) would read as a protocol-relative URL, so
+        /// repeated slashes collapse before resolution.
+        private func collapsingSlashes(_ path: String) -> String {
+            path.replacingOccurrences(of: "/{2,}", with: "/", options: .regularExpression)
         }
 
         /// The listing URL for a collection: its pattern with the entry segment removed.
         func collectionURL(_ collection: EmDashExport.Collection) -> String {
-            guard let pattern = collection.urlPattern, let range = pattern.range(of: "{") else {
+            guard collection.routable, let pattern = collection.urlPattern, let range = pattern.range(of: "{") else {
                 return resolve("/\(collection.slug)/")
             }
-            return resolve(String(pattern[..<range.lowerBound]))
+            return resolve(collapsingSlashes(String(pattern[..<range.lowerBound])))
         }
 
         /// `path` as an absolute URL: already-absolute URLs pass through, site-relative paths are

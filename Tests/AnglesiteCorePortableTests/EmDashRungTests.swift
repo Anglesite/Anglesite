@@ -436,4 +436,63 @@ struct EmDashRungTests {
         #expect(throws: EmDashContentAPIError.invalidSiteURL("file:///etc/passwd")) { try EmDashContentAPI.snapshotURL(siteURL: "file:///etc/passwd") }
         #expect(throws: EmDashContentAPIError.invalidSiteURL("")) { try EmDashContentAPI.snapshotURL(siteURL: "") }
     }
+
+    // MARK: Review hardening (#2051)
+
+    @Test("a collection slug the dump repeats is read once and reported, never trapped on")
+    func duplicateCollections() throws {
+        let tables = #"""
+        {"_emdash_collections":[
+           {"id":"c1","slug":"notes","label":"Notes","url_pattern":"/notes/{slug}"},
+           {"id":"c2","slug":"notes","label":"Notes again","url_pattern":"/n/{slug}"}],
+         "_emdash_fields":[{"id":"f","collection_id":"c1","slug":"content","label":"Content","type":"portableText"}],
+         "ec_notes":[{"id":"n","slug":"one","status":"published","content":"[{\"_type\":\"block\",\"_key\":\"p\",\"children\":[{\"_type\":\"span\",\"_key\":\"s\",\"text\":\"Hi\",\"marks\":[]}]}]"}]}
+        """#
+        let export = try EmDashSnapshotDocument.parse(Data(#"{"tables":\#(tables)}"#.utf8))
+        #expect(export.collections.map(\.label) == ["Notes"])
+        #expect(export.duplicateCollectionSlugs == ["notes"])
+        let (items, problems) = EmDashRung.items(from: export, siteURL: "https://blog.example")
+        #expect(items.map(\.sourceURL) == ["https://blog.example/notes/one"])
+        #expect(problems.map(\.message) == ["The export lists the “notes” collection more than once; only the first copy was brought over"])
+
+        // A hand-built export with the same collection twice doesn't trap either.
+        let collection = EmDashExport.Collection(slug: "notes", label: "Notes", fields: [EmDashExport.Field(slug: "content", label: "Content", type: "portableText")])
+        let twice = EmDashExport(collections: [collection, collection], entries: export.entries)
+        let (twiceItems, twiceProblems) = EmDashRung.items(from: twice, siteURL: "https://blog.example")
+        #expect(twiceItems.count == 1)
+        #expect(twiceProblems.count == 1)
+        #expect(EmDashRung.htmlBlocks(in: twice).isEmpty)
+    }
+
+    @Test("an empty {locale} in the url pattern never yields a protocol-relative URL")
+    func collapsesEmptyPatternSegments() {
+        let pages = EmDashExport.Collection(slug: "pages", label: "Pages", urlPattern: "/{locale}/{slug}", fields: [
+            EmDashExport.Field(slug: "title", label: "Title", type: "string"),
+            EmDashExport.Field(slug: "blurb", label: "Blurb", type: "text"),
+        ])
+        let export = EmDashExport(collections: [pages], entries: [
+            EmDashExport.Entry(collection: "pages", id: "p", slug: "about", status: "published",
+                               data: ["title": .string("About"), "blurb": .string("Hi")]),
+        ])
+        let (items, _) = EmDashRung.items(from: export, siteURL: "https://blog.example")
+        #expect(items.map(\.sourceURL) == ["https://blog.example/about"])
+    }
+
+    @Test("a non-routable collection is imported but gets no redirect")
+    func nonRoutableCollections() throws {
+        let tables = #"""
+        {"_emdash_collections":[{"id":"c","slug":"articles","label":"Articles","url_pattern":"/articles/{slug}","routable":0,"title_field":"title"}],
+         "_emdash_fields":[{"id":"f1","collection_id":"c","slug":"title","label":"Title","type":"string"},{"id":"f2","collection_id":"c","slug":"content","label":"Content","type":"portableText"}],
+         "ec_articles":[{"id":"a","slug":"hello","status":"published","title":"Hello","content":"[{\"_type\":\"block\",\"_key\":\"p\",\"children\":[{\"_type\":\"span\",\"_key\":\"s\",\"text\":\"Hi\",\"marks\":[]}]}]"}]}
+        """#
+        let export = try EmDashSnapshotDocument.parse(Data(#"{"tables":\#(tables)}"#.utf8))
+        #expect(export.collections.first?.routable == false)
+        #expect(try Self.export().collections.allSatisfy(\.routable)) // the fixture's are all routable (1)
+        let (items, _) = EmDashRung.items(from: export, siteURL: "https://blog.example")
+        #expect(items.map(\.sourceURL) == ["https://blog.example/blog/hello"])
+        let resolved = ResolvedContent(items: items, homepage: nil, skippedURLs: [], problems: [])
+        let classified = ContentClassifier.classify(resolved, now: Date(timeIntervalSince1970: 0))
+        #expect(classified.map(\.destination) == [.collection(name: "blog", slug: "hello")])
+        #expect(RedirectsEmitter.entries(for: classified).isEmpty)
+    }
 }
