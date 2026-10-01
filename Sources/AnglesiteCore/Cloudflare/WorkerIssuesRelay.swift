@@ -8,7 +8,9 @@ import FoundationNetworking
 /// §4). Registers a site so the relay accepts its Workers Issues automation deliveries, renews
 /// the registration on every publish, and revokes it when the owner turns the feature off.
 ///
-/// The hostname is sent only so the relay can check its allowlist; the relay discards it.
+/// Registration is authorized by a domain proof (slice 5, ``WorkerIssuesProof``): the request
+/// carries the site's proof key, and the relay fetches the matching hash the site's Worker serves.
+/// The hostname is sent only for that fetch and the allowlist check; the relay discards it.
 /// Secrets never reach a log line or error string built here.
 public struct WorkerIssuesRelayClient: Sendable {
     /// Same injectable-HTTP seam as ``GreenHostChecker/Transport``.
@@ -18,10 +20,13 @@ public struct WorkerIssuesRelayClient: Sendable {
     public static let defaultBaseURL = URL(string: "https://issues.anglesite.dwk.io")!
 
     public enum Failure: Error, Equatable, Sendable {
-        /// The relay refused the registration token or the site's secret.
+        /// The relay refused the proof key or the site's secret.
         case unauthorized
         /// The site's hostname isn't on the relay's allowlist (`*.dwk.io` during the first rollout).
         case hostnameNotAllowed
+        /// The relay couldn't confirm the domain proof — usually because the publish that serves
+        /// it hasn't reached every Cloudflare edge yet.
+        case domainProofFailed
         /// Any other non-2xx status.
         case rejected(status: Int)
         /// The relay couldn't be reached.
@@ -55,17 +60,17 @@ public struct WorkerIssuesRelayClient: Sendable {
         self.transport = transport
     }
 
-    /// `POST /sites`. Passing the site's `currentSecret` renews without rotating it.
+    /// `POST /sites`, authorized by the site's domain proof. Passing the site's `currentSecret`
+    /// renews without rotating it.
     public func register(
-        siteID: String, hostname: String, catalogCommit: String, registrationToken: String, currentSecret: String?
+        siteID: String, hostname: String, catalogCommit: String, proofKey: String, currentSecret: String?
     ) async -> Result<Registration, Failure> {
         var request = URLRequest(url: baseURL.appendingPathComponent("sites"))
         request.httpMethod = "POST"
-        request.setValue("Bearer \(registrationToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let currentSecret { request.setValue(currentSecret, forHTTPHeaderField: "X-Site-Secret") }
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "siteID": siteID, "hostname": hostname, "catalogCommit": catalogCommit,
+            "siteID": siteID.lowercased(), "hostname": hostname, "catalogCommit": catalogCommit, "proofKey": proofKey,
         ])
 
         let data: Data
@@ -79,6 +84,7 @@ public struct WorkerIssuesRelayClient: Sendable {
         case 200..<300: break
         case 401: return .failure(.unauthorized)
         case 403: return .failure(.hostnameNotAllowed)
+        case 422: return .failure(.domainProofFailed)
         default: return .failure(.rejected(status: http.statusCode))
         }
         struct Body: Decodable {
@@ -96,7 +102,7 @@ public struct WorkerIssuesRelayClient: Sendable {
 
     /// `DELETE /sites/:siteID`, authorized by the site's own secret.
     public func revoke(siteID: String, secret: String) async -> Result<Void, Failure> {
-        var request = URLRequest(url: baseURL.appendingPathComponent("sites").appendingPathComponent(siteID))
+        var request = URLRequest(url: baseURL.appendingPathComponent("sites").appendingPathComponent(siteID.lowercased()))
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization")
         do {
@@ -133,8 +139,9 @@ public enum WorkerIssuesReconciler {
     public enum Outcome: Equatable, Sendable {
         /// Issues is off and nothing was registered — nothing to do.
         case inactive
-        /// Issues is on but the owner hasn't entered the relay registration token yet.
-        case needsRegistrationToken
+        /// Issues is on but no proof key exists yet, so the site isn't serving a proof. The next
+        /// publish creates and serves one.
+        case proofNotPublished
         /// Issues is on but the site has no public hostname yet (never published to a domain).
         case noHostname
         /// Registered or renewed. `secretRotated` means the Cloudflare automation must be
@@ -154,13 +161,21 @@ public enum WorkerIssuesReconciler {
         toml?.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "[observability.issues]" } ?? false
     }
 
+    /// Pauses between domain-proof attempts. A test seam, so tests needn't wait.
+    public typealias Sleep = @Sendable (Duration) async -> Void
+
+    /// Waits after a failed domain proof before retrying: a freshly published Worker can take a few
+    /// seconds to reach every Cloudflare edge.
+    static let proofRetryDelays: [Duration] = [.seconds(3), .seconds(8)]
+
     public static func reconcile(
         siteID: String,
         issuesEnabled: Bool,
         siteURL: URL?,
         catalogCommit: String = WorkerCatalogPin.commit,
         secrets: any SecretStore,
-        client: WorkerIssuesRelayClient = WorkerIssuesRelayClient()
+        client: WorkerIssuesRelayClient = WorkerIssuesRelayClient(),
+        sleep: Sleep = { try? await Task.sleep(for: $0) }
     ) async -> Outcome {
         let secretAccount = SecretAccounts.workerIssuesWebhookSecret(siteID: siteID)
         let currentSecret: String?
@@ -175,23 +190,36 @@ public enum WorkerIssuesReconciler {
             // Best-effort: if the relay is unreachable the registration simply lapses (30-day
             // expiry), so the local secret goes either way.
             _ = await client.revoke(siteID: siteID, secret: currentSecret)
-            do { try secrets.delete(account: secretAccount) } catch { return .secretStoreUnavailable }
+            do {
+                try secrets.delete(account: secretAccount)
+                try secrets.delete(account: SecretAccounts.workerIssuesProofKey(siteID: siteID))
+            } catch {
+                return .secretStoreUnavailable
+            }
             return .revoked
         }
 
-        let token: String?
+        let proofKey: String?
         do {
-            token = try secrets.read(account: SecretAccounts.workerIssuesRegistrationToken)
+            proofKey = try WorkerIssuesProof.key(siteID: siteID, secrets: secrets, createIfMissing: false)
         } catch {
             return .secretStoreUnavailable
         }
-        guard let token, !token.isEmpty else { return .needsRegistrationToken }
+        guard let proofKey else { return .proofNotPublished }
         guard let hostname = siteURL?.host?.lowercased(), !hostname.isEmpty else { return .noHostname }
 
-        switch await client.register(
+        var result = await client.register(
             siteID: siteID, hostname: hostname, catalogCommit: catalogCommit,
-            registrationToken: token, currentSecret: currentSecret)
-        {
+            proofKey: proofKey, currentSecret: currentSecret)
+        for delay in proofRetryDelays {
+            guard case .failure(.domainProofFailed) = result else { break }
+            await sleep(delay)
+            result = await client.register(
+                siteID: siteID, hostname: hostname, catalogCommit: catalogCommit,
+                proofKey: proofKey, currentSecret: currentSecret)
+        }
+
+        switch result {
         case .failure(let failure):
             return .failed(failure)
         case .success(let registration):
@@ -234,8 +262,8 @@ public enum WorkerIssuesReconciler {
         switch outcome {
         case .inactive:
             return nil
-        case .needsRegistrationToken:
-            return "Worker error reports: add the relay registration token in Settings ▸ Advanced ▸ Developer Tools to start sending reports."
+        case .proofNotPublished:
+            return "Worker error reports: the site isn't serving its ownership proof yet; it registers on the next publish."
         case .noHostname:
             return "Worker error reports: waiting for the site's first public address before registering with the relay."
         case .registered(let hookURL, let expiresAt, let rotated):
@@ -254,8 +282,8 @@ public enum WorkerIssuesReconciler {
 
     /// Folds an outcome into the site's persisted state. A rotated secret invalidates whatever
     /// automation the owner set up before, so it resets `automationConfirmed`; revocation or an
-    /// inactive site clears the state. Other outcomes (token missing, relay down) leave the last
-    /// known registration as it was.
+    /// inactive site clears the state. Other outcomes (proof not live yet, relay down) leave the
+    /// last known registration as it was.
     public static func apply(_ outcome: Outcome, to state: WorkerIssuesRelayState?) -> WorkerIssuesRelayState? {
         switch outcome {
         case .registered(let hookURL, let expiresAt, let rotated):
@@ -264,7 +292,7 @@ public enum WorkerIssuesReconciler {
                 automationConfirmed: rotated ? false : (state?.automationConfirmed ?? false))
         case .revoked, .inactive:
             return nil
-        case .needsRegistrationToken, .noHostname, .secretStoreUnavailable, .failed:
+        case .proofNotPublished, .noHostname, .secretStoreUnavailable, .failed:
             return state
         }
     }
@@ -285,5 +313,45 @@ public struct WorkerIssuesRelayState: Sendable, Codable, Equatable {
         self.hookURL = hookURL
         self.expiresAt = expiresAt
         self.automationConfirmed = automationConfirmed
+    }
+}
+
+/// The site's domain-control proof for the Workers Issues relay (#2095 slice 5, design §4).
+///
+/// A random per-site key lives only in the owner's secret store. The site Worker serves
+/// ``publishedValue(siteID:key:)`` — a hash of the key bound to the site UUID — at
+/// `WorkerComposition.issuesProofRouteClaim`. Registration presents the key, and the relay
+/// recomputes the hash and checks it against what the hostname serves. So only someone who controls
+/// both the published site and the key can register it. The hash is useless without the key, and it
+/// can't be replayed for another site. The relay (`Workers/issues-relay/src/proof.ts`) computes the
+/// same value.
+public enum WorkerIssuesProof {
+    /// The site's proof key, generated on first use when `createIfMissing` is set.
+    public static func key(siteID: String, secrets: any SecretStore, createIfMissing: Bool) throws -> String? {
+        let account = SecretAccounts.workerIssuesProofKey(siteID: siteID)
+        if let existing = try secrets.read(account: account), isKey(existing) { return existing }
+        guard createIfMissing else { return nil }
+        var generator = SystemRandomNumberGenerator()
+        let key = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }.joined()
+        try secrets.write(key, account: account)
+        return key
+    }
+
+    /// The value the site serves: lowercase hex SHA-256 of `anglesite-issues-proof:<siteID>:<key>`,
+    /// with the UUID lowercased because the relay keys sites on the lowercase form.
+    public static func publishedValue(siteID: String, key: String) -> String {
+        PortableSHA256.hexDigest(of: Array("anglesite-issues-proof:\(siteID.lowercased()):\(key)".utf8))
+    }
+
+    /// What a publish should serve: the proof value while Workers Issues is on (creating the key the
+    /// first time), otherwise `nil`. Any secret-store failure also yields `nil`, so the publish goes
+    /// ahead and the reconciler reports the problem afterwards.
+    public static func valueForPublish(siteID: String, enabled: Bool, secrets: any SecretStore) -> String? {
+        guard enabled, let key = try? key(siteID: siteID, secrets: secrets, createIfMissing: true) else { return nil }
+        return publishedValue(siteID: siteID, key: key)
+    }
+
+    static func isKey(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
     }
 }

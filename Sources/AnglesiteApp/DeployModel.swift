@@ -1089,7 +1089,12 @@ final class DeployModel {
         }
         // #1659: adds the app-owned RFC 9727 API Catalog claim whenever the social layer is
         // composed at all, before either downstream use below — see `withAPICatalogClaim`.
-        let effectiveRouteClaims = WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers)
+        // #2095 slice 5: the Workers Issues domain-proof route rides the same owner-attributed
+        // claim list, so the `.well-known` collision check sees it.
+        let tracksWorkerIssues = AppSettings.shared.tracksWorkerIssues
+        let effectiveRouteClaims = WorkerComposition.withIssuesProofClaim(
+            WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers),
+            workers: workers, enabled: tracksWorkerIssues)
 
         // ActivityPub handle-rename confirmation (#1239, design doc §"Owner-chosen username"):
         // once an actor has federated, a resolved-handle change from the last-deployed baseline
@@ -1241,7 +1246,10 @@ final class DeployModel {
             mcpEnabled: mcpEnabled,
             // #2095: Settings ▸ Advanced ▸ Developer Tools opt-in. Threaded on every deploy —
             // wrangler turns Issues back off whenever the config omits the key.
-            issuesEnabled: AppSettings.shared.tracksWorkerIssues,
+            issuesEnabled: tracksWorkerIssues,
+            issuesProof: WorkerIssuesProof.valueForPublish(
+                siteID: siteID, enabled: tracksWorkerIssues && !workers.isEmpty,
+                secrets: presentation == .foreground ? keychain : keychain.withoutUserInteraction),
             currentRoutes: currentRoutes,
             onPreflight: { [weak self] outcome in
                 Task { @MainActor in self?.onScanComplete?(outcome) }

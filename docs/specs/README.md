@@ -27,6 +27,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-10-01 | [Worker error reports — privacy review](2026-10-01-worker-issues-privacy-review.md) | [#2095](https://github.com/Anglesite/Anglesite/issues/2095) | draft |
 | 2026-09-30 | [Workers Issues webhook payload — spike notes (slice 0)](2026-09-30-workers-issues-payload-spike-notes.md) | [#2095](https://github.com/Anglesite/Anglesite/issues/2095) | draft |
 | 2026-09-06 | [AnglesiteCore target extraction — measured dependency notes](2026-09-06-anglesite-core-target-extraction-notes.md) | [#1919](https://github.com/Anglesite/Anglesite/issues/1919), [#1820](https://github.com/Anglesite/Anglesite/issues/1820) | draft |
 | 2026-08-16 | [Semantic Accessibility Audit (SwiftUI)](2026-08-16-semantic-accessibility-audit.md) | [#1096](https://github.com/Anglesite/Anglesite/issues/1096) | — |

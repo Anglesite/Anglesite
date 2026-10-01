@@ -53,15 +53,17 @@ public enum SecretAccounts {
     /// `cloudflareToken` (a Cloudflare *API* token): this one is minted for the Control Worker
     /// during remote-runtime onboarding and never reaches api.cloudflare.com.
     public static let sandboxControlToken = "sandbox-control-token"
-    /// Pre-shared token that authorizes registering a site with the Workers Issues relay
-    /// (#2095, design §4) during the `*.dwk.io` rollout. App-wide, entered once in
-    /// Settings ▸ Advanced ▸ Developer Tools.
-    public static let workerIssuesRegistrationToken = "worker-issues-registration-token"
 
     /// The relay-issued webhook secret for one site's Workers Issues automation (#2095). Site-scoped
     /// like the POSSE slots below; the relay stores only its hash.
     public static func workerIssuesWebhookSecret(siteID: String) -> String {
         "worker-issues:\(siteID):webhook-secret"
+    }
+
+    /// The per-site domain-proof key for the Workers Issues relay (#2095 slice 5,
+    /// `WorkerIssuesProof`). Only its hash is ever published or sent anywhere but the relay.
+    public static func workerIssuesProofKey(siteID: String) -> String {
+        "worker-issues:\(siteID):proof-key"
     }
 
     /// Site-scoped POSSE token slots. Account names include the stable site UUID so credentials

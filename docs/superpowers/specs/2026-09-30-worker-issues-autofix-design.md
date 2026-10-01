@@ -124,15 +124,29 @@ scopes.
 ### Registration and webhook authentication
 
 - **Registration is authorized.** `POST /sites` never accepts a bare UUID.
-  - **`*.dwk.io` rollout:** the request must carry a pre-shared registration token. It lives in
-    the relay's secrets and in the owner's Keychain, entered once in Settings.
-  - **Wider rollout (slice 5):** the pre-shared token is replaced by a domain-control challenge. The
-    relay issues a nonce. The app's next publish serves it from the site Worker at
-    `/.well-known/anglesite-issues-challenge`. The relay fetches it over HTTPS from the claimed
-    hostname and then confirms the registration.
+  - **Domain proof** *(slice 5, shipped; replaces the app's pre-shared token)*.
+    - The app keeps a random 256-bit proof key per site in the secret store
+      (`WorkerIssuesProof`, `SecretAccounts.workerIssuesProofKey`). Every publish with reports on
+      serves `sha256("anglesite-issues-proof:<uuid>:<key>")` from the site Worker at
+      `/.well-known/anglesite-issues-proof`. That path is the `ANGLESITE_ISSUES_PROOF` var, claimed
+      through `WorkerComposition.withIssuesProofClaim` so the `.well-known` collision check sees it.
+    - Registration sends the key. The relay (`Workers/issues-relay/src/proof.ts`) fetches the hash
+      from the claimed hostname: HTTPS only, no redirects, a 5 s timeout, at most 1 KiB, and DNS
+      names only, never IP literals or `localhost`. It recomputes the hash and compares in
+      constant time.
+    - The proof needs no relay-side nonce state and no extra publish. A matching pair needs
+      control of both the site and the key, and the hash is bound to the UUID, so it can't be
+      replayed for another site.
+    - Swift and TypeScript pin the same test vector.
+    - A `422` means the proof isn't visible yet, usually because the publish hasn't reached every
+      edge. The app retries twice, after 3 s and then 8 s, then reports and tries again on the next
+      publish.
+  - **Pre-shared token** (`REGISTRATION_TOKEN`). The relay still accepts it as an alternative, for
+    maintainer-run registrations such as `curl` tests. The app no longer uses it and has no field
+    for it.
 - **The allowlist binds to the hostname only at registration.** The relay checks the claimed
-  hostname against the allowlist (`*.dwk.io` for now), and the challenge proves the site controls
-  it. The relay stores only the site UUID and a SHA-256 hash of the per-site secret, then discards
+  hostname against the allowlist (`*.dwk.io` for now; `*` admits any hostname), and the domain
+  proof shows the registrant controls it. The relay stores only the site UUID and a SHA-256 hash of the per-site secret, then discards
   the hostname. Webhook deliveries never carry or need a hostname, which keeps §5's
   "drop the hostname" rule intact.
 - **Webhook auth.** The relay hashes the incoming `cf-webhook-auth` value and compares it with the
@@ -157,8 +171,8 @@ The maintainer does this once. The app never deploys the relay.
 2. Convert the App's key to PKCS#8 with
    `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app.pkcs8.pem`.
 3. Set the secrets. From `Workers/issues-relay`, run `npx wrangler secret put` once each for
-   `REGISTRATION_TOKEN` (`openssl rand -hex 32`), `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and
-   `GITHUB_APP_PRIVATE_KEY`.
+   `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID` and `GITHUB_APP_PRIVATE_KEY`. `REGISTRATION_TOKEN`
+   (`openssl rand -hex 32`) is optional and needed only for manual registrations.
 4. Run `npx wrangler deploy`. This provisions both KV namespaces and the
    `issues.anglesite.dwk.io` custom domain.
 
@@ -216,8 +230,8 @@ owner-facing consent copy that is explicit about what leaves their account.
    publish actually deployed.
    - **Issues on:** registers or renews the site with `WorkerIssuesRelayClient`, which calls
      `POST /sites`.
-     - The request carries the pre-shared token (the owner enters it in Settings ▸ Advanced ▸
-       Developer Tools), the site's public hostname, and `WorkerCatalogPin.commit`.
+     - The request carries the site's proof key (slice 5; slice 3 used a pre-shared token), its
+       public hostname, and `WorkerCatalogPin.commit`.
      - The per-site secret is kept in the secret store; renewal presents it so it isn't rotated.
      - `Config/settings.plist` records the hook URL, the expiry, and whether the automation step
        is done (`WorkerIssuesRelayState`).
@@ -252,7 +266,7 @@ owner-facing consent copy that is explicit about what leaves their account.
 | 2 | *(built, not deployed)* `Workers/issues-relay`, allowlist of `*.dwk.io` only. It covers authorized registration, webhook verification, attribution to `@dwk/*` only (no template routing), redaction, fingerprinting, and filing through a GitHub App to `davidwkeith/workers`. Payload parsing is confined to `src/extract.ts` and accepts any frame encoding, so slice 0's findings only ever touch that file. | Anglesite |
 | 3 | *(shipped)* App registration, renewal and revocation after every publish. The automation is a guided one-time dashboard step (§8 Q1 has no API). | Anglesite |
 | 4 | *(in review: [davidwkeith/workers#530](https://github.com/davidwkeith/workers/pull/530))* A `claude-code-action` workflow runs on relay-authored `source:anglesite-issues` issues. It reproduces the error with a failing test, then either opens a fix PR for review or comments a diagnosis (`agent:needs-human`, or a recommended `config` label). | workers |
-| 5 | Privacy review → consent copy → widen beyond `*.dwk.io` | Anglesite |
+| 5 | *(partly shipped)* The following are done:<br>• the domain proof replaces the access code;<br>• the owner must consent before reports start (`WorkerIssuesConsent`, versioned);<br>• the [privacy review](../../specs/2026-10-01-worker-issues-privacy-review.md) is written;<br>• the privacy manifest declares Other Diagnostic Data.<br>**Still gated:** widening (setting `ALLOWED_HOST_SUFFIXES` to `*`) waits for an Issues-automations API (§8 Q1). | Anglesite |
 
 ## 8. Open questions
 

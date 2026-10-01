@@ -36,21 +36,24 @@ import AnglesiteTestSupport
         return (200, #"{"siteID":"\#(siteID)","hookPath":"/hook/\#(siteID)","expiresAt":"2026-10-30T12:00:00.000Z"\#(secretField)}"#)
     }
 
-    static func secrets(token: String? = "reg-token", siteSecret: String? = nil) -> InMemorySecretStore {
+    static let proofKey = String(repeating: "a", count: 64)
+
+    static func secrets(proofKey: String? = WorkerIssuesRelayTests.proofKey, siteSecret: String? = nil) -> InMemorySecretStore {
         let store = InMemorySecretStore()
-        if let token { try? store.write(token, account: SecretAccounts.workerIssuesRegistrationToken) }
+        if let proofKey { try? store.write(proofKey, account: SecretAccounts.workerIssuesProofKey(siteID: siteID)) }
         if let siteSecret { try? store.write(siteSecret, account: SecretAccounts.workerIssuesWebhookSecret(siteID: siteID)) }
         return store
     }
 
     // MARK: Client
 
-    @Test("register sends the token, hostname and catalog commit, and parses the hook URL and expiry")
+    @Test("register sends the proof key, hostname and catalog commit, and parses the hook URL and expiry")
     func registerRequestAndResponse() async throws {
         let recorder = Recorder()
         recorder.respond = { _ in Self.registered(secret: "s3cret") }
         let result = await recorder.client.register(
-            siteID: Self.siteID, hostname: "blog.dwk.io", catalogCommit: "bd0ad3f", registrationToken: "reg-token", currentSecret: nil)
+            siteID: Self.siteID.uppercased(), hostname: "blog.dwk.io", catalogCommit: "bd0ad3f",
+            proofKey: Self.proofKey, currentSecret: nil)
 
         let registration = try result.get()
         #expect(registration.secret == "s3cret")
@@ -60,22 +63,23 @@ import AnglesiteTestSupport
         let request = try #require(recorder.requests.first)
         #expect(request.httpMethod == "POST")
         #expect(request.url?.absoluteString == "https://relay.test/sites")
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer reg-token")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
         #expect(request.value(forHTTPHeaderField: "X-Site-Secret") == nil)
         let body = try JSONSerialization.jsonObject(with: try #require(request.httpBody)) as? [String: String]
-        #expect(body == ["siteID": Self.siteID, "hostname": "blog.dwk.io", "catalogCommit": "bd0ad3f"])
+        #expect(body == ["siteID": Self.siteID, "hostname": "blog.dwk.io", "catalogCommit": "bd0ad3f", "proofKey": Self.proofKey])
     }
 
     @Test("register maps relay statuses to failures", arguments: [
         (401, WorkerIssuesRelayClient.Failure.unauthorized),
         (403, .hostnameNotAllowed),
+        (422, .domainProofFailed),
         (500, .rejected(status: 500)),
     ])
     func registerFailures(status: Int, expected: WorkerIssuesRelayClient.Failure) async {
         let recorder = Recorder()
         recorder.respond = { _ in (status, "{}") }
         let result = await recorder.client.register(
-            siteID: Self.siteID, hostname: "blog.dwk.io", catalogCommit: "c", registrationToken: "t", currentSecret: nil)
+            siteID: Self.siteID, hostname: "blog.dwk.io", catalogCommit: "c", proofKey: Self.proofKey, currentSecret: nil)
         #expect(result == .failure(expected))
     }
 
@@ -84,7 +88,7 @@ import AnglesiteTestSupport
         let recorder = Recorder()
         recorder.respond = { _ in (200, #"{"hookPath":"https://evil.test/x","expiresAt":"2026-10-30T12:00:00.000Z","secret":"s"}"#) }
         let result = await recorder.client.register(
-            siteID: Self.siteID, hostname: "blog.dwk.io", catalogCommit: "c", registrationToken: "t", currentSecret: nil)
+            siteID: Self.siteID, hostname: "blog.dwk.io", catalogCommit: "c", proofKey: Self.proofKey, currentSecret: nil)
         #expect(result == .failure(.invalidResponse))
     }
 
@@ -128,12 +132,12 @@ import AnglesiteTestSupport
         #expect(try secrets.read(account: SecretAccounts.workerIssuesWebhookSecret(siteID: Self.siteID)) == "existing")
     }
 
-    @Test("no token or no hostname means no request at all")
+    @Test("no proof key or no hostname means no request at all")
     func preconditions() async {
         let recorder = Recorder()
         #expect(await WorkerIssuesReconciler.reconcile(
             siteID: Self.siteID, issuesEnabled: true, siteURL: URL(string: "https://blog.dwk.io"),
-            secrets: Self.secrets(token: nil), client: recorder.client) == .needsRegistrationToken)
+            secrets: Self.secrets(proofKey: nil), client: recorder.client) == .proofNotPublished)
         #expect(await WorkerIssuesReconciler.reconcile(
             siteID: Self.siteID, issuesEnabled: true, siteURL: nil,
             secrets: Self.secrets(), client: recorder.client) == .noHostname)
@@ -154,6 +158,64 @@ import AnglesiteTestSupport
             #expect(request.url?.absoluteString == "https://relay.test/sites/\(Self.siteID)")
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer existing")
             #expect(try secrets.read(account: SecretAccounts.workerIssuesWebhookSecret(siteID: Self.siteID)) == nil)
+            #expect(try secrets.read(account: SecretAccounts.workerIssuesProofKey(siteID: Self.siteID)) == nil)
+        }
+    }
+
+    // MARK: Domain proof (slice 5)
+
+    @Test("the published proof matches the relay's pinned cross-language vector")
+    func proofVector() {
+        // Workers/issues-relay/test/proof.test.ts pins the same value for the same inputs.
+        #expect(WorkerIssuesProof.publishedValue(siteID: Self.siteID.uppercased(), key: Self.proofKey)
+            == "112a82a7c4ce77b6f898cef66ab3c08c1fd73f010d256f609f59057595bd535b")
+    }
+
+    @Test("a publish creates the proof key once, then serves the same value; off serves nothing")
+    func valueForPublish() throws {
+        let secrets = Self.secrets(proofKey: nil)
+        let first = try #require(WorkerIssuesProof.valueForPublish(siteID: Self.siteID, enabled: true, secrets: secrets))
+        let key = try #require(try secrets.read(account: SecretAccounts.workerIssuesProofKey(siteID: Self.siteID)))
+        #expect(key.count == 64 && key.allSatisfy(\.isHexDigit))
+        #expect(first == WorkerIssuesProof.publishedValue(siteID: Self.siteID, key: key))
+        #expect(WorkerIssuesProof.valueForPublish(siteID: Self.siteID, enabled: true, secrets: secrets) == first)
+        #expect(WorkerIssuesProof.valueForPublish(siteID: Self.siteID, enabled: false, secrets: secrets) == nil)
+    }
+
+    @Test("a proof the relay can't see yet is retried after a pause, then succeeds")
+    func proofRetry() async {
+        let recorder = Recorder()
+        let attempts = Counter()
+        recorder.respond = { _ in attempts.increment() < 2 ? (422, "{}") : Self.registered(secret: "s3cret") }
+        let slept = Counter()
+        let outcome = await WorkerIssuesReconciler.reconcile(
+            siteID: Self.siteID, issuesEnabled: true, siteURL: URL(string: "https://blog.dwk.io"),
+            secrets: Self.secrets(), client: recorder.client, sleep: { _ in slept.increment() })
+        guard case .registered = outcome else { Issue.record("got \(outcome)"); return }
+        #expect(recorder.requests.count == 3)
+        #expect(slept.value == 2)
+    }
+
+    @Test("a proof that never verifies gives up after the retries")
+    func proofRetryGivesUp() async {
+        let recorder = Recorder()
+        recorder.respond = { _ in (422, "{}") }
+        let outcome = await WorkerIssuesReconciler.reconcile(
+            siteID: Self.siteID, issuesEnabled: true, siteURL: URL(string: "https://blog.dwk.io"),
+            secrets: Self.secrets(), client: recorder.client, sleep: { _ in })
+        #expect(outcome == .failed(.domainProofFailed))
+        #expect(recorder.requests.count == 1 + WorkerIssuesReconciler.proofRetryDelays.count)
+    }
+
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+        @discardableResult func increment() -> Int {
+            lock.lock(); defer { lock.unlock() }
+            let before = count
+            count += 1
+            return before
         }
     }
 
@@ -183,12 +245,12 @@ import AnglesiteTestSupport
     func logMessagesAreSecretFree() {
         let hook = URL(string: "https://relay.test/hook/x")!
         let outcomes: [WorkerIssuesReconciler.Outcome] = [
-            .needsRegistrationToken, .noHostname, .revoked, .secretStoreUnavailable, .failed(.unauthorized),
+            .proofNotPublished, .noHostname, .revoked, .secretStoreUnavailable, .failed(.unauthorized),
             .registered(hookURL: hook, expiresAt: Date(), secretRotated: true),
         ]
         for outcome in outcomes {
             let message = WorkerIssuesReconciler.logMessage(for: outcome) ?? ""
-            #expect(!message.contains("s3cret") && !message.contains("reg-token"))
+            #expect(!message.contains("s3cret") && !message.contains(Self.proofKey))
         }
         #expect(WorkerIssuesReconciler.logMessage(for: .inactive) == nil)
     }

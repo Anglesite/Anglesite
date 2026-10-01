@@ -414,6 +414,22 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
     @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
     @AppStorage(AppSettings.Key.workerIssuesEnabled) private var workerIssuesEnabled: Bool = false
+    @AppStorage(AppSettings.Key.workerIssuesConsentVersion) private var workerIssuesConsentVersion: Int = 0
+    @State private var workerIssuesConsentPresented = false
+
+    /// The error-report toggle reads as on only under current consent (#2095 slice 5). Turning it
+    /// on without that consent asks first, through `workerIssuesConsentPresented`.
+    private var workerIssuesToggle: Binding<Bool> {
+        Binding(
+            get: { workerIssuesEnabled && WorkerIssuesConsent.isCurrent(workerIssuesConsentVersion) },
+            set: { isOn in
+                if isOn && !WorkerIssuesConsent.isCurrent(workerIssuesConsentVersion) {
+                    workerIssuesConsentPresented = true
+                } else {
+                    workerIssuesEnabled = isOn
+                }
+            })
+    }
     @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
@@ -508,23 +524,21 @@ private struct AdvancedSettingsView: View {
                 // Workers Issues on its next publish. Rides the toggle above, and deploy reads
                 // `AppSettings.tracksWorkerIssues`, so hiding developer tools also switches it off.
                 if developerTools.showsWorkerIssuesSetting {
-                    Toggle("Track errors in your site's Workers", isOn: $workerIssuesEnabled)
+                    Toggle("Track errors in your site's Workers", isOn: workerIssuesToggle)
                         .accessibilityIdentifier(AXID.settingsWorkerIssuesToggle)
+                        // #2095 slice 5: the owner agrees to exactly what is sent before anything is.
+                        .alert("Send Worker errors to their authors?", isPresented: $workerIssuesConsentPresented) {
+                            Button("Turn On") {
+                                workerIssuesConsentVersion = WorkerIssuesConsent.currentVersion
+                                workerIssuesEnabled = true
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("When a Worker on your site runs into an error in its own code, Anglesite reports it to the Worker's authors so they can fix it. The report is public and contains only the kind of error and where in the Worker's code it happened. The error text, your visitors' requests, and your site's address are never sent. You can turn this off at any time; it stops with your next publish.")
+                        }
                     Text("Asks Cloudflare to group repeated errors from your site's Workers, and sends errors that come from a Worker's own code to its authors so they can fix them. Only the kind of error and where in the Worker's code it happened are sent — never the error text, your visitors' requests, or your site's address. Takes effect the next time you publish, and only on sites with Workers turned on.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if workerIssuesEnabled {
-                        // #2095 slice 3: the pre-shared relay token for the `*.dwk.io` rollout.
-                        KeychainTokenRow(
-                            title: "Error report access code",
-                            read: { try KeychainStore().read(account: SecretAccounts.workerIssuesRegistrationToken) },
-                            write: { try KeychainStore().write($0, account: SecretAccounts.workerIssuesRegistrationToken) },
-                            clear: { try KeychainStore().delete(account: SecretAccounts.workerIssuesRegistrationToken) }
-                        )
-                        Text("Error reports are in early testing and need an access code from the Anglesite team.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
 

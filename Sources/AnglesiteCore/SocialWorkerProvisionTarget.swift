@@ -33,6 +33,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
     private let experiments: [DomainConfig.Experiments.Experiment]
     private let mcpEnabled: Bool
     private let issuesEnabled: Bool
+    private let issuesProof: String?
     private let keyPairSource: SocialWorkerProvisionCommand.KeyPairSource
     private let solidOidcSigningKeySource: SocialWorkerProvisionCommand.SolidOidcSigningKeySource
     private let webdavPepperSource: SocialWorkerProvisionCommand.WebdavPepperSource
@@ -58,6 +59,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
         experiments: [DomainConfig.Experiments.Experiment] = [],
         mcpEnabled: Bool = false,
         issuesEnabled: Bool = false,
+        issuesProof: String? = nil,
         keyPairSource: @escaping SocialWorkerProvisionCommand.KeyPairSource,
         solidOidcSigningKeySource: @escaping SocialWorkerProvisionCommand.SolidOidcSigningKeySource,
         webdavPepperSource: @escaping SocialWorkerProvisionCommand.WebdavPepperSource,
@@ -81,6 +83,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
         self.experiments = experiments
         self.mcpEnabled = mcpEnabled
         self.issuesEnabled = issuesEnabled
+        self.issuesProof = issuesProof
         self.keyPairSource = keyPairSource
         self.solidOidcSigningKeySource = solidOidcSigningKeySource
         self.webdavPepperSource = webdavPepperSource
@@ -443,7 +446,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                 moderators: moderators,
                 apUsername: apUsername, apIcon: apIcon,
                 experiments: experiments, mcpEnabled: mcpEnabled,
-                issuesEnabled: issuesEnabled
+                issuesEnabled: issuesEnabled, issuesProof: issuesProof
             )
             try WranglerConfigFile.write(configuration.toml, configDirectory: configDirectory)
             // Reflects "the receiver is actually live" (webmention worker active AND its Queue

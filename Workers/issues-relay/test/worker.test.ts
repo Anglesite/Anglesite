@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createWorker, hostAllowed, type Env } from "../src/app.js";
 import { FakeGitHub, memoryKV, packageDelivery } from "./support.js";
+import { proofValue } from "../src/proof.js";
 
 const ORIGIN = "https://issues.anglesite.dwk.io";
 const REGISTRATION_TOKEN = "reg-token";
@@ -12,11 +13,19 @@ let env: Env;
 let github: FakeGitHub;
 let clock: number;
 let worker: ReturnType<typeof createWorker>;
+/** What the fake site serves at the proof URL; `null` serves a 404. */
+let servedProof: string | null;
 
 beforeEach(() => {
   github = new FakeGitHub();
   clock = Date.parse("2026-09-30T12:00:00Z");
-  worker = createWorker({ github, now: () => clock });
+  servedProof = null;
+  worker = createWorker({
+    github,
+    now: () => clock,
+    proofFetch: (async () =>
+      servedProof === null ? new Response("no", { status: 404 }) : new Response(servedProof)) as unknown as typeof fetch,
+  });
   env = {
     SITES: memoryKV(),
     STATE: memoryKV(),
@@ -101,6 +110,40 @@ describe("registration", () => {
     ["bad host.dwk.io", false],
   ])("hostAllowed(%s) = %s", (host, allowed) => {
     expect(hostAllowed(host, "dwk.io")).toBe(allowed);
+  });
+});
+
+describe("registration by domain proof (slice 5)", () => {
+  const KEY = "c".repeat(64);
+  const proofRegister = (extra: Record<string, unknown> = {}, siteID = SITE) =>
+    call("/sites", {
+      method: "POST",
+      body: JSON.stringify({ siteID, hostname: "blog.dwk.io", catalogCommit: "bd0ad3f", proofKey: KEY, ...extra }),
+    });
+
+  it("registers without the token when the site serves the matching proof", async () => {
+    servedProof = await proofValue(SITE, KEY);
+    const response = await proofRegister();
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { secret?: string }).secret).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("answers 422 when the proof is missing or wrong, so the app retries later", async () => {
+    expect((await proofRegister()).status).toBe(422);
+    servedProof = await proofValue(OTHER_SITE, KEY);
+    expect((await proofRegister()).status).toBe(422);
+  });
+
+  it("still applies the hostname allowlist, and `*` widens it", async () => {
+    servedProof = await proofValue(SITE, KEY);
+    expect((await proofRegister({ hostname: "blog.example.com" })).status).toBe(403);
+    env.ALLOWED_HOST_SUFFIXES = "*";
+    expect((await proofRegister({ hostname: "blog.example.com" })).status).toBe(200);
+  });
+
+  it("needs a token or a well-formed proof key", async () => {
+    expect((await proofRegister({ proofKey: "short" })).status).toBe(401);
+    expect((await proofRegister({ proofKey: undefined })).status).toBe(401);
   });
 });
 

@@ -177,9 +177,13 @@ dials out per-session only (design spec §4).
 ### Privacy manifest and export compliance
 
 - `Resources/PrivacyInfo.xcprivacy` is linked into the `AnglesiteMobile` target
-  (shared with the Mac target — see the comment in `project.yml`). No
-  `NSPrivacyCollectedDataTypes` entries: site content stays in the owner's own
-  iCloud container, never collected by or sent to us.
+  (shared with the Mac target — see the comment in `project.yml`). Site content
+  stays in the owner's own iCloud container, never collected by or sent to us.
+  The one `NSPrivacyCollectedDataTypes` entry, Other Diagnostic Data (not linked,
+  not tracking, App Functionality), covers the opt-in Worker error reports
+  (#2095). Answer App Store Connect's privacy questions the same way:
+  Diagnostics ▸ Other Diagnostic Data. The reasoning is in
+  [`specs/2026-10-01-worker-issues-privacy-review.md`](specs/2026-10-01-worker-issues-privacy-review.md) §5.
 - `Resources/Info-iOS.plist` declares `ITSAppUsesNonExemptEncryption=false`,
   matching today's shipped feature set (standard HTTPS/TLS only). Re-verify
   once the WebRTC/DTLS transport (#1208 P4) ships — DTLS-SRTP as implemented by

@@ -1076,4 +1076,49 @@ struct WorkerCompositionTests {
         #expect(on == off)
         #expect(!on.contains("observability"))
     }
+
+    // MARK: Workers Issues domain proof (#2095 slice 5)
+
+    static let proof = String(repeating: "ab", count: 32)
+
+    @Test("issuesProof is served as ANGLESITE_ISSUES_PROOF alongside [observability.issues]")
+    func issuesProofVar() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], issuesEnabled: true, issuesProof: Self.proof
+        ).toml
+        #expect(toml.contains("ANGLESITE_ISSUES_PROOF = \"\(Self.proof)\""))
+    }
+
+    @Test("no proof var when Issues is off, without a Worker, or for a malformed value")
+    func issuesProofVarGuards() throws {
+        let off = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], issuesEnabled: false, issuesProof: Self.proof).toml
+        let staticOnly = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], issuesEnabled: true, issuesProof: Self.proof).toml
+        let malformed = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], issuesEnabled: true, issuesProof: "x\"\nevil = 1").toml
+        for toml in [off, staticOnly, malformed] {
+            #expect(!toml.contains("ANGLESITE_ISSUES_PROOF"))
+        }
+    }
+
+    @Test("the proof route is claimed only with Issues on and packages composed")
+    func issuesProofClaim() {
+        let none: [WorkerRouteClaims.OwnedClaim] = []
+        let on = WorkerComposition.withIssuesProofClaim(none, workers: [indieauthWorker], enabled: true)
+        #expect(on.map(\.claim) == [WorkerComposition.issuesProofRouteClaim])
+        #expect(on.first?.owner == WorkerComposition.issuesProofOwnerID)
+        #expect(WorkerComposition.withIssuesProofClaim(none, workers: [indieauthWorker], enabled: false).isEmpty)
+        #expect(WorkerComposition.withIssuesProofClaim(none, workers: [], enabled: true).isEmpty)
+        #expect(WorkerRouteClaims.wellKnownClaims(on).count == 1)
+    }
+
+    @Test("a claimed proof route reaches run_worker_first")
+    func issuesProofRunWorkerFirst() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker],
+            routeClaims: [WorkerComposition.issuesProofRouteClaim], issuesEnabled: true, issuesProof: Self.proof
+        ).toml
+        #expect(toml.contains("/.well-known/anglesite-issues-proof"))
+    }
 }

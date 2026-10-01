@@ -51,3 +51,18 @@ public struct DeveloperToolsVisibility: Sendable, Equatable {
         kind == .text
     }
 }
+
+/// Consent for Worker error reports (#2095 slice 5). Turning the feature on asks the owner to
+/// agree to a description of what is sent. Bump ``currentVersion`` whenever that changes (more
+/// fields, a new destination, a wider audience): `AppSettings.tracksWorkerIssues` then stays off
+/// until the owner agrees again, rather than silently sending more under an old consent.
+public enum WorkerIssuesConsent {
+    /// Version 1: the exception kind and the package and template code locations go to the
+    /// package's public issue tracker. The error text, visitors' requests and the site's address
+    /// are never sent.
+    public static let currentVersion = 1
+
+    public static func isCurrent(_ agreedVersion: Int) -> Bool {
+        agreedVersion >= currentVersion
+    }
+}

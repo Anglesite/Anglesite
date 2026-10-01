@@ -33,6 +33,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let developerToolsEnabled = "anglesite.developerToolsEnabled"
         /// Backs ``AppSettings/workerIssuesEnabled`` (#2095).
         public static let workerIssuesEnabled = "anglesite.workerIssuesEnabled"
+        /// Backs ``AppSettings/workerIssuesConsentVersion`` (#2095 slice 5).
+        public static let workerIssuesConsentVersion = "anglesite.workerIssuesConsentVersion"
         /// Backs ``AppSettings/botPreferenceSyncUIEnabled``.
         public static let botPreferenceSyncUIEnabled = "anglesite.botPreferenceSyncUIEnabled"
         /// Backs ``AppSettings/esiPreviewUnprocessed``.
@@ -281,11 +283,20 @@ public final class AppSettings: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.workerIssuesEnabled) }
     }
 
-    /// Whether a publish should opt the site's Worker into Cloudflare Workers Issues (#2095) —
-    /// ``DeveloperToolsVisibility/tracksWorkerIssues(optedIn:)`` over the two stored settings.
+    /// The ``WorkerIssuesConsent/currentVersion`` the owner last agreed to when turning on Worker
+    /// error reports (#2095 slice 5). `0` means never.
+    public var workerIssuesConsentVersion: Int {
+        get { defaults.integer(forKey: Key.workerIssuesConsentVersion) }
+        set { defaults.set(newValue, forKey: Key.workerIssuesConsentVersion) }
+    }
+
+    /// Whether a publish should opt the site's Worker into Cloudflare Workers Issues (#2095).
+    /// Requires developer tools on, the owner's opt-in, and their consent to the current
+    /// description of what's sent: ``DeveloperToolsVisibility/tracksWorkerIssues(optedIn:)`` with
+    /// the opt-in counting only under current consent.
     public var tracksWorkerIssues: Bool {
         DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
-            .tracksWorkerIssues(optedIn: workerIssuesEnabled)
+            .tracksWorkerIssues(optedIn: workerIssuesEnabled && WorkerIssuesConsent.isCurrent(workerIssuesConsentVersion))
     }
 
     /// Opt-in toggle (Settings → Advanced) that reveals the "Bot blocklist managed by" control in

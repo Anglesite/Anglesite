@@ -18,7 +18,8 @@
   "vars": {
     // The repo @dwk/* package issues are filed on (WorkerCatalogPin.repository).
     "TARGET_REPO": "davidwkeith/workers",
-    // Comma-separated hostname suffixes a site may register under (§4 allowlist).
+    // Comma-separated hostname suffixes a site may register under (§4 allowlist); "*" admits
+    // any hostname whose owner passes the domain proof (slice 5).
     "ALLOWED_HOST_SUFFIXES": "dwk.io",
     // Global cap on *new* GitHub issues per UTC day (§8 Q4).
     "DAILY_NEW_ISSUE_CAP": "10",

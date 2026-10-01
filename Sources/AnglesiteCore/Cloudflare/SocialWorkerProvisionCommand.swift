@@ -244,6 +244,9 @@ public actor SocialWorkerProvisionCommand {
         /// `AppSettings.tracksWorkerIssues`). Forwarded to `WorkerComposition.generateWranglerToml`
         /// unchanged; provisions nothing of its own.
         issuesEnabled: Bool = false,
+        /// The Workers Issues relay domain proof (#2095 slice 5, `WorkerIssuesProof.valueForPublish`),
+        /// forwarded to `WorkerComposition.generateWranglerToml` unchanged.
+        issuesProof: String? = nil,
         /// The site's currently published route set, forwarded verbatim to `DeployCommand.deploy`.
         currentRoutes: [String] = [],
         /// Forwarded verbatim to `DeployCommand.deploy` so a caller (`DeployModel`) can observe
@@ -297,7 +300,7 @@ public actor SocialWorkerProvisionCommand {
             acknowledgesPaidPlan: acknowledgesPaidPlan, inboxCaptureEnabled: inboxCaptureEnabled,
             inboxForwardEmail: inboxForwardEmail, activityPubActorType: activityPubActorType,
             moderators: moderators, experiments: experiments, mcpEnabled: mcpEnabled,
-            issuesEnabled: issuesEnabled,
+            issuesEnabled: issuesEnabled, issuesProof: issuesProof,
             keyPairSource: keyPairSource, solidOidcSigningKeySource: solidOidcSigningKeySource,
             webdavPepperSource: webdavPepperSource, secretRunner: secretRunner, accountIDSource: self.accountIDSource)
 

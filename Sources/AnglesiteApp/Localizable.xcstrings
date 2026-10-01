@@ -2003,9 +2003,6 @@
     "Duplicate & Modify" : {
 
     },
-    "Error reports are in early testing and need an access code from the Anglesite team." : {
-
-    },
     "ESI Fragments" : {
 
     },
@@ -4003,6 +4000,9 @@
     "Screen new comments for spam?" : {
 
     },
+    "Send Worker errors to their authors?" : {
+
+    },
     "SEO" : {
 
     },
@@ -5125,6 +5125,9 @@
 
     },
     "What's New in Anglesite" : {
+
+    },
+    "When a Worker on your site runs into an error in its own code, Anglesite reports it to the Worker's authors so they can fix it. The report is public and contains only the kind of error and where in the Worker's code it happened. The error text, your visitors' requests, and your site's address are never sent. You can turn this off at any time; it stops with your next publish." : {
 
     },
     "When an AI assistant asks for a page, Cloudflare serves it a markdown version instead of the full HTML — a fraction of the tokens your full page costs. Human visitors see no change. Takes effect on your next deploy to a custom domain." : {

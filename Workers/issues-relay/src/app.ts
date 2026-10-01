@@ -3,7 +3,8 @@
 // module as an entrypoint and refuses to start on a non-handler one.
 // Design: docs/superpowers/specs/2026-09-30-worker-issues-autofix-design.md §4–§5.
 //
-//   POST   /sites              register or renew a site (Bearer REGISTRATION_TOKEN)
+//   POST   /sites              register or renew a site — by domain proof (slice 5) or the
+//                              pre-shared Bearer REGISTRATION_TOKEN (the first *.dwk.io rollout)
 //   DELETE /sites/:uuid        revoke a site (Bearer <the site's webhook secret>)
 //   POST   /hook/:uuid         a site's Workers Issues automation delivery (cf-webhook-auth)
 //
@@ -12,6 +13,7 @@
 
 import { bearer, matchesHash, newSecret, secretsEqual, sha256Hex } from "./auth.js";
 import { GitHubClient } from "./github.js";
+import { PROOF_KEY, verifyDomainProof } from "./proof.js";
 import { handleDelivery, type RelayContext, type SiteRecord } from "./relay.js";
 
 export interface Env {
@@ -33,10 +35,11 @@ const COMMIT = /^[0-9a-f]{7,40}$/i;
 /** A delivery bigger than this isn't an issue summary; refuse it before parsing. */
 const MAX_BODY_BYTES = 256 * 1024;
 
-/** Test seam: the GitHub client and clock the relay uses. */
+/** Test seam: the GitHub client, clock, and the fetch used for domain proofs. */
 export interface Dependencies {
   github?: RelayContext["github"];
   now?: () => number;
+  proofFetch?: typeof fetch;
 }
 
 export function createWorker(deps: Dependencies = {}) {
@@ -46,7 +49,7 @@ export function createWorker(deps: Dependencies = {}) {
       const segments = pathname.split("/").filter(Boolean);
 
       if (segments[0] === "sites" && segments.length === 1 && request.method === "POST") {
-        return register(request, env);
+        return register(request, env, deps);
       }
       if (segments[0] === "sites" && segments.length === 2 && request.method === "DELETE") {
         return revoke(request, env, segments[1]!);
@@ -60,22 +63,32 @@ export function createWorker(deps: Dependencies = {}) {
 }
 
 /**
- * Registers or renews a site. The hostname is checked against the allowlist here and then
- * discarded (design §4). Renewal — the same site presenting its current secret in
+ * Registers or renews a site. The request is authorized either by a domain proof (`proofKey`:
+ * the relay fetches the site's published hash and checks it, see `proof.ts`) or by the
+ * pre-shared token. The hostname is checked against the allowlist, used for the proof fetch, and
+ * then discarded (design §4). Renewal — the same site presenting its current secret in
  * `x-site-secret` — slides the 30-day expiry without rotating the secret, so the Cloudflare
  * automation keeps working; any other call issues a fresh secret.
  */
-async function register(request: Request, env: Env): Promise<Response> {
-  if (!(await secretsEqual(bearer(request), env.REGISTRATION_TOKEN))) return json({ error: "unauthorized" }, 401);
+async function register(request: Request, env: Env, deps: Dependencies): Promise<Response> {
   const body = (await request.json().catch(() => null)) as {
     siteID?: unknown;
     hostname?: unknown;
     catalogCommit?: unknown;
+    proofKey?: unknown;
   } | null;
   const siteID = typeof body?.siteID === "string" && UUID.test(body.siteID) ? body.siteID.toLowerCase() : null;
   const hostname = typeof body?.hostname === "string" ? body.hostname.toLowerCase() : null;
   if (!siteID || !hostname) return json({ error: "siteID (UUID) and hostname are required" }, 400);
+  const tokenOK = await secretsEqual(bearer(request), env.REGISTRATION_TOKEN);
+  const proofKey = typeof body?.proofKey === "string" && PROOF_KEY.test(body.proofKey) ? body.proofKey : null;
+  if (!tokenOK && !proofKey) return json({ error: "unauthorized" }, 401);
   if (!hostAllowed(hostname, env.ALLOWED_HOST_SUFFIXES)) return json({ error: "hostname not allowed" }, 403);
+  if (!tokenOK) {
+    const proof = await verifyDomainProof(hostname, siteID, proofKey!, deps.proofFetch);
+    // 422 so the app can tell "publish again shortly" (the proof isn't live yet) from "not allowed".
+    if (proof !== "ok") return json({ error: `domain proof ${proof}` }, 422);
+  }
   const catalogCommit =
     typeof body?.catalogCommit === "string" && COMMIT.test(body.catalogCommit) ? body.catalogCommit.toLowerCase() : undefined;
 
@@ -140,8 +153,10 @@ async function deliver(request: Request, env: Env, siteID: string, deps: Depende
   return json(outcome, outcome.filed ? 200 : 202);
 }
 
+/** `ALLOWED_HOST_SUFFIXES` is a comma-separated suffix list; `*` admits any valid hostname. */
 export function hostAllowed(hostname: string, suffixes: string): boolean {
   if (!/^[a-z0-9.-]{1,253}$/.test(hostname)) return false;
+  if (suffixes.trim() === "*") return true;
   return suffixes
     .split(",")
     .map((s) => s.trim().toLowerCase())
