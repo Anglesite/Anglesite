@@ -173,41 +173,13 @@ public struct ContainerDeployExecutor: DeployExecutor {
         // `wrangler deploy` (without it, an assets-only Worker with no `main` script would be
         // published — every dynamic route 404s and `wrangler tail` refuses to attach), and the
         // `.wranglerSubcommand` steps (`d1 migrations apply <BINDING>` resolves the binding from
-        // the config; `d1/kv/r2/queues create` merely warn without one). `astro build` and the
-        // preflight scan never read `wrangler.toml` (confirmed against `Resources/Template`), so
-        // staging before them would be pure overhead. The staged copy is gitignored in the guest
+        // the config; `d1/kv/r2/queues create` merely warn without one), and the build (#2103: an
+        // EmDash site's Cloudflare adapter reads the Worker config at build time and copies its
+        // bindings into `dist/server/wrangler.json`; a static site's build ignores it). The
+        // preflight scan never reads it. The staged copy is gitignored in the guest
         // (the template's `.gitignore` lists it), so it can never travel back into the repo.
-        if Self.stepReadsWranglerConfig(step) {
-            if let syncArgv = WranglerInvocation.configStagingArgv(configDirectory: configDirectory) {
-                do {
-                    // Routed through `WranglerInvocation.exec` (not a raw `control.exec` with a
-                    // no-op `onOutput`) so a staging failure's actual stderr -- a guest disk-full
-                    // or permission error, say -- reaches `logCenter` the same way every other
-                    // wrangler call site's output does, rather than only the generic exit-code
-                    // message below being visible (logs are sacred). Mirrors the same fix already
-                    // applied to `ContainerCommandRunner`'s staging exec.
-                    let syncResult = try await WranglerInvocation.exec(
-                        control: control,
-                        siteID: siteID,
-                        argv: syncArgv,
-                        environment: [:],
-                        logCenter: logCenter,
-                        source: source
-                    )
-                    guard syncResult.exitCode == 0 else {
-                        return DeployStepResult(
-                            exitCode: nil,
-                            output: "couldn't sync wrangler.toml into the container (exit \(syncResult.exitCode))"
-                        )
-                    }
-                } catch is CancellationError {
-                    return DeployStepResult(exitCode: nil, output: "")
-                } catch {
-                    return DeployStepResult(exitCode: nil, output: "couldn't sync wrangler.toml into the container: \(error)")
-                }
-            }
-            // No host file (a site never scaffolded for deploy): nothing to stage; wrangler
-            // reports the missing configuration itself, exactly as before #1960.
+        if Self.stepReadsWranglerConfig(step), let failure = await stageWranglerConfig(source: source) {
+            return failure
         }
         // Stream guest output to LogCenter LIVE (matching the host path) and drain fully on every
         // exit path (success or thrown error) — `WranglerInvocation.exec` (#1821) owns that
@@ -265,6 +237,41 @@ public struct ContainerDeployExecutor: DeployExecutor {
     /// for the same "never inside Source/" reason.
     static let wellKnownResultGuestPath = "/tmp/anglesite-wellknown-result.json"
 
+    /// Stages the host's `Config/wrangler.toml` into the guest's working directory (see
+    /// ``run(step:siteDirectory:environment:source:)``), or returns the failed step result if it
+    /// couldn't. No host file (a site never scaffolded for deploy) stages nothing; wrangler reports
+    /// the missing configuration itself, exactly as before #1960.
+    private func stageWranglerConfig(source: String) async -> DeployStepResult? {
+        guard let syncArgv = WranglerInvocation.configStagingArgv(configDirectory: configDirectory) else { return nil }
+        do {
+            // Routed through `WranglerInvocation.exec` (not a raw `control.exec` with a no-op
+            // `onOutput`) so a staging failure's actual stderr -- a guest disk-full or permission
+            // error, say -- reaches `logCenter` the same way every other wrangler call site's
+            // output does, rather than only the generic exit-code message below being visible
+            // (logs are sacred). Mirrors the same fix already applied to `ContainerCommandRunner`'s
+            // staging exec.
+            let syncResult = try await WranglerInvocation.exec(
+                control: control,
+                siteID: siteID,
+                argv: syncArgv,
+                environment: [:],
+                logCenter: logCenter,
+                source: source
+            )
+            guard syncResult.exitCode == 0 else {
+                return DeployStepResult(
+                    exitCode: nil,
+                    output: "couldn't sync wrangler.toml into the container (exit \(syncResult.exitCode))"
+                )
+            }
+            return nil
+        } catch is CancellationError {
+            return DeployStepResult(exitCode: nil, output: "")
+        } catch {
+            return DeployStepResult(exitCode: nil, output: "couldn't sync wrangler.toml into the container: \(error)")
+        }
+    }
+
     /// Runs the `.build` step with the #748 claim manifest delivered through `/tmp` scratch
     /// files in the guest (never `/workspace/site` — see the path constants above), then splits
     /// the seam's JSON result blob out of stdout at the marker line so the ordinary build output
@@ -283,6 +290,9 @@ public struct ContainerDeployExecutor: DeployExecutor {
                 WellKnownBuildSeamResult())
         }
         let argv = Self.wellKnownSeamArgv(manifestBase64: manifestData.base64EncodedString())
+        if Self.stepReadsWranglerConfig(.build), let failure = await stageWranglerConfig(source: source) {
+            return .completed(failure, WellKnownBuildSeamResult())
+        }
 
         // `WranglerInvocation.exec` (#1821) owns the stream-to-LogCenter/drain mechanics now — it
         // drains fully on both the success and throw paths, so there's no local
@@ -372,13 +382,14 @@ public struct ContainerDeployExecutor: DeployExecutor {
 
     // MARK: wrangler.toml staging (#1084, #1960)
 
-    /// Which steps invoke `wrangler` in a way that reads `wrangler.toml` — the ones
-    /// `WranglerInvocation.configStagingArgv(configDirectory:)` runs ahead of. `.bundleUpload`
+    /// Which steps read `wrangler.toml` — the ones `WranglerInvocation.configStagingArgv(configDirectory:)`
+    /// runs ahead of: every `wrangler` call that reads configuration, and the build, whose
+    /// Cloudflare adapter reads it on an EmDash site (#2103). `.preflight`, `.bundleUpload`
     /// (`wrangler r2 object put`) and `.githubPagesPublish` never read it.
     static func stepReadsWranglerConfig(_ step: DeployStep) -> Bool {
         switch step {
-        case .wrangler, .wranglerSubcommand: return true
-        case .build, .preflight, .bundleUpload, .githubPagesPublish: return false
+        case .wrangler, .wranglerSubcommand, .build: return true
+        case .preflight, .bundleUpload, .githubPagesPublish: return false
         }
     }
 

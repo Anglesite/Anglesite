@@ -7,6 +7,12 @@
 import handler from "@astrojs/cloudflare/entrypoints/server";
 import { createScheduledHandler } from "@emdash-cms/cloudflare/worker";
 
+// EmDash's sandbox runner reaches this through the Worker's own exports to give each sandboxed
+// (marketplace) plugin its scoped bridge. It only does anything on a Worker with a `LOADER`
+// Worker Loader binding (#2106): an existing EmDash install connected to Anglesite keeps its
+// marketplace plugins that way.
+export { PluginBridge } from "@emdash-cms/cloudflare/worker";
+
 export default {
   ...handler,
   scheduled: createScheduledHandler(),

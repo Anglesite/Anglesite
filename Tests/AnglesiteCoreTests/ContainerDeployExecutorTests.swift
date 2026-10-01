@@ -553,8 +553,8 @@ struct ContainerDeployExecutorTests {
         #expect(calls[1].argv == ["npx", "wrangler", "d1", "migrations", "apply", "AUTH_DB", "--remote"])
     }
 
-    @Test("build and preflight steps do not stage wrangler.toml (neither reads it)")
-    func nonWranglerStepsSkipStaging() async throws {
+    @Test("the build stages wrangler.toml (an EmDash site's adapter reads it); the preflight scan doesn't")
+    func buildStagesPreflightSkips() async throws {
         let configDirectory = try makeHostConfigDirectory(wranglerToml: "name = \"my-site\"\n")
         let fake = fakePassing()
         let executor = makeExecutor(fake: fake, configDirectory: configDirectory)
@@ -563,9 +563,24 @@ struct ContainerDeployExecutorTests {
         _ = await executor.run(step: .preflight, siteDirectory: hostSiteDirectory, environment: [:], source: "src")
 
         let calls = await fake.execCalls
-        #expect(calls.count == 2, "no staging call for either step")
-        #expect(calls[0].argv == ["npm", "run", "build"])
-        #expect(calls[1].argv == ["npx", "tsx", "scripts/pre-deploy-check.ts", "--json"])
+        #expect(calls.count == 3, "one staging call, before the build only")
+        #expect(calls[0].argv[2].contains("base64 -d > wrangler.toml"))
+        #expect(calls[1].argv == ["npm", "run", "build"])
+        #expect(calls[2].argv == ["npx", "tsx", "scripts/pre-deploy-check.ts", "--json"])
+    }
+
+    @Test("the claim-manifest build stages wrangler.toml before it runs")
+    func claimManifestBuildStagesToml() async throws {
+        let configDirectory = try makeHostConfigDirectory(wranglerToml: "name = \"my-site\"\n")
+        let fake = fakePassing()
+        let executor = makeExecutor(fake: fake, configDirectory: configDirectory)
+
+        _ = await executor.runBuildWithClaimManifest(
+            siteDirectory: hostSiteDirectory, environment: [:], source: "src", claimManifest: WellKnownClaimManifest())
+
+        let calls = await fake.execCalls
+        #expect(calls.count == 2)
+        #expect(calls[0].argv[2].contains("base64 -d > wrangler.toml"))
     }
 
     @Test("wrangler step skips the staging when the host has no Config/wrangler.toml yet")

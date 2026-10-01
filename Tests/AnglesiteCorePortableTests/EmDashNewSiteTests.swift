@@ -80,7 +80,7 @@ struct EmDashNewSiteTests {
         #expect(offenders.isEmpty, "\(offenders)")
     }
 
-    @Test("Publish Site and the deploy share one refusal decision")
+    @Test("a static target refuses an EmDash site, and a site whose kind can't be confirmed")
     func sharedStaticDeployRefusal() throws {
         let root = try Self.tempDir()
         defer { try? FileManager.default.removeItem(at: root) }
