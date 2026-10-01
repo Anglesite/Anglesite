@@ -8,9 +8,10 @@
  * and a local R2 bucket as `MEDIA` — and drives EmDash's content API against it:
  *
  * 1. A draft whose body holds a secret is refused by `content:beforePublish`
- *    (`422 PUBLISH_REJECTED`, with the gate's reason from `scripts/emdash-gate/policy.ts`), stays
- *    a draft, and its page is not served.
- * 2. A clean draft publishes and its page renders.
+ *    (`422 PUBLISH_REJECTED`), with exactly the reason the site's own pinned
+ *    `scripts/emdash-gate/policy.ts` computes for that draft; it stays a draft and its page is
+ *    not served.
+ * 2. A clean draft (one the same policy allows) publishes and its page renders.
  *
  * Headless EmDash: the site's `package.json` names `seed/seed.json`, which EmDash applies on the
  * first request (the `articles` collection), and its migrations run then too. EmDash's setup
@@ -18,40 +19,52 @@
  * D1 with `wrangler d1 execute --local` (an `ec_pat_` token is stored as the base64url SHA-256
  * of itself), the same store workerd reads.
  *
+ * The site directory is left as the build made it: the adapter's `dist/server/wrangler.json`
+ * (staged with the bindings for the run) is restored, and `.wrangler/state/` — the local D1, R2
+ * and KV, which hold the test drafts and their secret — is removed on every exit path.
+ * `.wrangler/deploy/config.json`, which the build writes and `astro preview` needs, stays.
+ *
  * Usage: node scripts/check-emdash-gate-runtime.mjs <site-dir>
  *   <site-dir> is a built EmDash site (`dist/server/entry.mjs` present, dependencies installed),
  *   e.g. the `Source/` under scripts/check-emdash-overlay.sh's work dir.
  *
- * The server's log is printed when a check fails. The preview server is stopped on exit.
+ * The server's log is printed when a check fails.
  */
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { constants as osConstants } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 
 const BOOT_TIMEOUT_MS = 180_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const STOP_GRACE_MS = 10_000;
+const KILL_GRACE_MS = 1_000;
 
 /** The bindings the overlay's astro.config.ts reads (`EMDASH_BINDINGS`). */
 const DB_BINDING = "DB";
 const MEDIA_BINDING = "MEDIA";
 
-const site = resolve(process.argv[2] ?? "");
-if (!process.argv[2]) fail("usage: check-emdash-gate-runtime.mjs <site-dir>");
-const wranglerConfigPath = join(site, "dist", "server", "wrangler.json");
-for (const required of [join(site, "dist", "server", "entry.mjs"), wranglerConfigPath, join(site, "node_modules", "astro", "bin", "astro.mjs"), join(site, "node_modules", "wrangler", "bin", "wrangler.js")]) {
-  if (!existsSync(required)) fail(`not a built EmDash site: missing ${required}`);
-}
-
+// Everything the exit paths read is declared before the first `fail()` can run.
 /** Everything the preview server printed, shown when a check fails. */
 let serverLog = "";
 /** @type {import("node:child_process").ChildProcess | undefined} */
 let server;
-const originalWranglerConfig = readFileSync(wranglerConfigPath, "utf8");
+let stopped = false;
+/** The adapter's wrangler.json as the build wrote it; `undefined` until it has been read. */
+let originalWranglerConfig;
+
+const site = resolve(process.argv[2] ?? "");
+const wranglerConfigPath = join(site, "dist", "server", "wrangler.json");
+const localStateDir = join(site, ".wrangler", "state");
+const astroBin = join(site, "node_modules", "astro", "bin", "astro.mjs");
+const wranglerBin = join(site, "node_modules", "wrangler", "bin", "wrangler.js");
+const tsxBin = join(site, "node_modules", "tsx", "dist", "cli.mjs");
+const policyModule = join(site, "scripts", "emdash-gate", "policy.ts");
 
 function fail(message) {
   console.error(`✗ ${message}`);
@@ -82,37 +95,58 @@ function signalServer(signal) {
   }
 }
 
-let stopped = false;
+/**
+ * Puts the site directory back as the build left it. Nothing is touched until the site has been
+ * validated and its config read: before that, `site` may be the working directory of a bad call.
+ */
+function restoreSite() {
+  if (originalWranglerConfig === undefined) return;
+  writeFileSync(wranglerConfigPath, originalWranglerConfig);
+  rmSync(localStateDir, { recursive: true, force: true });
+}
 
 /** The orderly stop: SIGTERM, a grace period for workerd to shut down, then SIGKILL. */
 async function stopServer() {
   if (stopped) return;
   stopped = true;
-  writeFileSync(wranglerConfigPath, originalWranglerConfig);
-  if (!serverRunning()) return;
-  const exited = new Promise((resolveExit) => server.once("exit", () => resolveExit(false)));
-  signalServer("SIGTERM");
-  if (await Promise.race([exited, sleep(STOP_GRACE_MS).then(() => true)])) signalServer("SIGKILL");
+  if (serverRunning()) {
+    const exited = new Promise((resolveExit) => server.once("exit", () => resolveExit(false)));
+    signalServer("SIGTERM");
+    if (await Promise.race([exited, sleep(STOP_GRACE_MS).then(() => true)])) signalServer("SIGKILL");
+  }
+  restoreSite();
 }
 
-/** The stop for a failure or a signal, where the process is about to exit: no event loop to wait on. */
+/** A synchronous pause for the exit paths, where there is no event loop left to wait on. */
+function pauseSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** The stop for a failure or a signal, where the process is about to exit. */
 function killServer() {
   if (stopped) return;
   stopped = true;
-  writeFileSync(wranglerConfigPath, originalWranglerConfig);
-  if (!serverRunning()) return;
-  signalServer("SIGTERM");
-  spawnSync("sleep", ["1"]);
-  signalServer("SIGKILL");
+  if (serverRunning()) {
+    signalServer("SIGTERM");
+    pauseSync(KILL_GRACE_MS);
+    signalServer("SIGKILL");
+  }
+  restoreSite();
 }
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
     killServer();
-    process.exit(130);
+    process.exit(128 + osConstants.signals[signal]);
   });
 }
 process.on("exit", killServer);
+
+if (!process.argv[2]) fail("usage: check-emdash-gate-runtime.mjs <site-dir>");
+for (const required of [join(site, "dist", "server", "entry.mjs"), wranglerConfigPath, policyModule, astroBin, wranglerBin, tsxBin]) {
+  if (!existsSync(required)) fail(`not a built EmDash site: missing ${required}`);
+}
+originalWranglerConfig = readFileSync(wranglerConfigPath, "utf8");
 
 async function freePort() {
   return new Promise((resolvePort, reject) => {
@@ -166,12 +200,37 @@ function portableText(text) {
   return [{ _type: "block", _key: "b1", style: "normal", markDefs: [], children: [{ _type: "span", _key: "s1", text, marks: [] }] }];
 }
 
+/**
+ * What the site's own pinned policy decides for a draft — the same `scripts/emdash-gate/policy.ts`
+ * the server bundle was built from — so the reason EmDash returns is compared with the source of
+ * that copy rather than with a transcription of it here. Evaluated with the site's `tsx`, since
+ * the policy is TypeScript with extension-less imports.
+ */
+function pinnedPolicyDecision(slug, data) {
+  const script = [
+    `import { decidePublish, publishIssues } from ${JSON.stringify(pathToFileURL(policyModule).href)};`,
+    "const event = { collection: 'articles', content: JSON.parse(process.env.ANGLESITE_GATE_CONTENT) };",
+    "console.log(JSON.stringify({ decision: decidePublish(event) ?? null, categories: publishIssues(event).map((issue) => issue.category) }));",
+  ].join("\n");
+  const result = spawnSync(process.execPath, [tsxBin, "--eval", script], {
+    cwd: site,
+    encoding: "utf8",
+    timeout: 60_000,
+    env: { ...process.env, ANGLESITE_GATE_CONTENT: JSON.stringify({ slug, data }), FORCE_COLOR: "0", NO_COLOR: "1" },
+  });
+  if (result.status !== 0) {
+    serverLog += `\n--- tsx policy evaluation ---\n${result.stdout}\n${result.stderr}\n`;
+    fail(`could not evaluate the site's pinned policy (status ${result.status})`);
+  }
+  return JSON.parse(result.stdout.trim().split("\n").at(-1));
+}
+
 async function bootPreview(port) {
   // `--ignore-lock` keeps `astro preview` in the foreground (it otherwise daemonises itself when
   // it detects an agent session), so this process owns the server and can stop it.
   server = spawn(
     process.execPath,
-    [join(site, "node_modules", "astro", "bin", "astro.mjs"), "preview", "--host", "127.0.0.1", "--port", String(port), "--ignore-lock"],
+    [astroBin, "preview", "--host", "127.0.0.1", "--port", String(port), "--ignore-lock"],
     { cwd: site, detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ASTRO_TELEMETRY_DISABLED: "1", FORCE_COLOR: "0", NO_COLOR: "1" } },
   );
   server.stdout.on("data", (chunk) => (serverLog += chunk));
@@ -183,9 +242,9 @@ async function bootPreview(port) {
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) fail(`astro preview exited before it was ready (code ${server.exitCode})`);
-    // Vite's preview falls back to another port when the requested one is taken; the log is the
-    // source of truth for where the server listens.
-    const listening = serverLog.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
+    // Vite's preview has no strict-port mode and falls back to another port when the requested
+    // one is taken, so its "Local" line is the source of truth for where the server listens.
+    const listening = serverLog.match(/\bLocal\s+http:\/\/127\.0\.0\.1:(\d+)\//);
     if (listening) {
       const base = `http://127.0.0.1:${listening[1]}`;
       try {
@@ -207,13 +266,15 @@ function createAdminToken() {
   const hash = createHash("sha256").update(token).digest("base64url");
   const now = new Date().toISOString();
   const userID = "01ANGLESITEGATE0000000000";
+  // Every interpolated value is generated here (ULID-shaped ids, a base64url token and hash, an
+  // ISO timestamp); nothing comes from user input or the site.
   const sql = [
     `INSERT INTO users (id, email, name, role, email_verified, disabled, created_at, updated_at) VALUES ('${userID}', 'gate@anglesite.invalid', 'Anglesite gate check', 50, 1, 0, '${now}', '${now}')`,
     `INSERT INTO _emdash_api_tokens (id, name, token_hash, prefix, user_id, scopes, created_at) VALUES ('01ANGLESITEGATETOKEN00000', 'anglesite-gate check', '${hash}', '${token.slice(0, 11)}', '${userID}', '["admin"]', '${now}')`,
   ].join("; ");
   const result = spawnSync(
     process.execPath,
-    [join(site, "node_modules", "wrangler", "bin", "wrangler.js"), "d1", "execute", DB_BINDING, "--local", "--persist-to", join(site, ".wrangler", "state"), "--config", wranglerConfigPath, "--command", sql],
+    [wranglerBin, "d1", "execute", DB_BINDING, "--local", "--persist-to", localStateDir, "--config", wranglerConfigPath, "--command", sql],
     { cwd: site, encoding: "utf8", timeout: 120_000, env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false", FORCE_COLOR: "0", NO_COLOR: "1" } },
   );
   if (result.status !== 0) {
@@ -226,7 +287,7 @@ function createAdminToken() {
 async function main() {
   stageWorkerConfig();
   // A clean local store every run: D1 (migrations + seed run again on first request), R2, KV.
-  for (const store of ["d1", "r2", "kv"]) rmSync(join(site, ".wrangler", "state", "v3", store), { recursive: true, force: true });
+  rmSync(localStateDir, { recursive: true, force: true });
 
   const base = await bootPreview(await freePort());
   console.log(`✓ astro preview is serving the EmDash site at ${base}`);
@@ -241,10 +302,17 @@ async function main() {
   // 1. A secret in the body trips the gate. Built at runtime and vendor-neutral, so it matches the
   //    gate's generic pattern without looking like a real provider's key (as in policy.test.ts).
   const secret = `api_key: ${"x".repeat(24)}`;
+  const leakedData = { title: "Leaked key", summary: "A note", content: portableText(`Config notes: ${secret}`) };
+  const expectedRefusal = pinnedPolicyDecision("leaked-key", leakedData);
+  check(
+    expectedRefusal.decision?.cancel === true && expectedRefusal.categories.includes("exposed-token") && expectedRefusal.decision.reason.length > 0,
+    `the site's pinned policy refuses that draft for an exposed token: ${JSON.stringify(expectedRefusal.decision?.reason)}`,
+  );
+
   const leaked = await request(base, "/_emdash/api/content/articles", {
     method: "POST",
     token,
-    body: { slug: "leaked-key", status: "draft", data: { title: "Leaked key", summary: "A note", content: portableText(`Config notes: ${secret}`) } },
+    body: { slug: "leaked-key", status: "draft", data: leakedData },
   });
   check(leaked.status === 201 && typeof leaked.json?.data?.item?.id === "string", "a draft with a secret in its body is saved as a draft");
   const leakedID = leaked.json.data.item.id;
@@ -252,8 +320,7 @@ async function main() {
   const refused = await request(base, `/_emdash/api/content/articles/${leakedID}/publish`, { method: "POST", token, body: {} });
   check(refused.status === 422 && refused.json?.success === false, `publishing it is refused (HTTP ${refused.status}: ${refused.text.slice(0, 200)})`);
   check(refused.json?.error?.code === "PUBLISH_REJECTED", "EmDash reports the publish as cancelled by a content policy (PUBLISH_REJECTED)");
-  const reason = String(refused.json?.error?.message ?? "");
-  check(reason.startsWith("Anglesite can't publish this yet") && reason.includes("API key"), `the cancellation carries the gate's reason: ${JSON.stringify(reason)}`);
+  check(refused.json?.error?.message === expectedRefusal.decision.reason, "the cancellation carries exactly the reason the site's pinned policy gives");
 
   const stillDraft = await request(base, `/_emdash/api/content/articles/${leakedID}`, { token });
   check(stillDraft.json?.data?.item?.status === "draft", "the refused entry is still a draft");
@@ -261,10 +328,12 @@ async function main() {
   check(leakedPage.status === 404, "the refused entry's page is not served");
 
   // 2. A clean draft publishes.
+  const cleanData = { title: "Council approves budget", summary: "The vote", content: portableText("The council voted 5–2 on Tuesday.") };
+  check(pinnedPolicyDecision("council-vote", cleanData).decision === null, "the site's pinned policy allows the clean draft");
   const clean = await request(base, "/_emdash/api/content/articles", {
     method: "POST",
     token,
-    body: { slug: "council-vote", status: "draft", data: { title: "Council approves budget", summary: "The vote", content: portableText("The council voted 5–2 on Tuesday.") } },
+    body: { slug: "council-vote", status: "draft", data: cleanData },
   });
   check(clean.status === 201 && typeof clean.json?.data?.item?.id === "string", "a clean draft is saved as a draft");
   const cleanID = clean.json.data.item.id;
