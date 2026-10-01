@@ -260,7 +260,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [ControlWorker, anglesite-oauth-callback, issues-spike, issues-relay]
+        project: [ControlWorker, anglesite-oauth-callback, issues-relay]
     defaults:
       run:
         working-directory: Workers/${{ matrix.project }}
