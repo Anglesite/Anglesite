@@ -261,7 +261,7 @@ owner-facing consent copy that is explicit about what leaves their account.
 
 | # | Slice | Repo |
 |---|---|---|
-| 0 | **Spike, blocks slice 2:** capture a real generic-webhook payload with `Workers/issues-spike` and confirm it carries the stack and fingerprint (§8 Q2). Runbook and findings are in [`../../specs/2026-09-30-workers-issues-payload-spike-notes.md`](../../specs/2026-09-30-workers-issues-payload-spike-notes.md). | Anglesite (throwaway) |
+| 0 | **Spike, blocks slice 2:** capture a real generic-webhook payload with the spike kit (removed from the tree; the notes say how to restore it) and confirm it carries the stack and fingerprint (§8 Q2). Runbook and findings are in [`../../specs/2026-09-30-workers-issues-payload-spike-notes.md`](../../specs/2026-09-30-workers-issues-payload-spike-notes.md). | Anglesite (throwaway) |
 | 1 | `[observability.issues]` in composition + the developer setting (no filing yet; the owner can already see Issues in the dashboard) | Anglesite |
 | 2 | *(built, not deployed)* `Workers/issues-relay`, allowlist of `*.dwk.io` only. It covers authorized registration, webhook verification, attribution to `@dwk/*` only (no template routing), redaction, fingerprinting, and filing through a GitHub App to `davidwkeith/workers`. Payload parsing is confined to `src/extract.ts` and accepts any frame encoding, so slice 0's findings only ever touch that file. | Anglesite |
 | 3 | *(shipped)* App registration, renewal and revocation after every publish. The automation is a guided one-time dashboard step (§8 Q1 has no API). | Anglesite |
