@@ -311,7 +311,9 @@ public enum EmDashConnection {
     /// - its resources in `SiteSettings.emdashResources` (and `emdashD1DatabaseID`, for the
     ///   withheld-pages notice);
     /// - `workerProvisioned`, so the deploy's Worker-name check treats the install's Worker as
-    ///   this site's own rather than someone else's.
+    ///   this site's own rather than someone else's;
+    /// - `emdashWorkersPaidPlan` when the install has a Worker Loader, which only the Workers Paid
+    ///   plan offers, so Publish Site doesn't ask what the account already shows (#2116).
     ///
     /// Refused with ``ConnectError/alreadyPublished`` for a site that already has a Worker of its
     /// own (published, provisioned, or with EmDash resources recorded): connecting would point a
@@ -335,6 +337,7 @@ public enum EmDashConnection {
                 $0.emdashResources = install.resources
                 $0.emdashD1DatabaseID = install.databaseID
                 $0.workerProvisioned = true
+                if install.hasWorkerLoader { $0.emdashWorkersPaidPlan = true }
             }
         } catch {
             if let original {

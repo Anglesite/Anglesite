@@ -12,7 +12,9 @@ import Foundation
 /// 1. Creates the site's D1 database, R2 media bucket and session KV namespace, each only if
 ///    `SiteSettings.emdashResources` doesn't already record it, saving after each one so a failed
 ///    publish resumes where it stopped.
-/// 2. Writes the Worker config (``EmDashWorkerConfig``) to `Config/wrangler.toml`.
+/// 2. Writes the Worker config (``EmDashWorkerConfig``) to `Config/wrangler.toml`, with Workers
+///    Caching on only when the owner said the account is on the Workers Paid plan
+///    (`SiteSettings.emdashWorkersPaidPlan`, #2116).
 /// 3. Pushes `EMDASH_ENCRYPTION_KEY`, generated once and kept in the platform secret store.
 ///
 /// The shared spine then builds and runs the pre-deploy gate (in its server-rendered mode, #2055)
@@ -79,8 +81,11 @@ public actor EmDashDeployTarget: DeployTarget {
         let source = "emdash-provision:\(context.siteID)"
         let store = SiteConfigStore(configDirectory: context.configDirectory)
         var resources: EmDashWorkerConfig.Resources
+        let workersPaidPlan: Bool
         do {
-            resources = try await store.load().emdashResources ?? .init()
+            let settings = try await store.load()
+            resources = settings.emdashResources ?? .init()
+            workersPaidPlan = settings.emdashWorkersPaidPlan == true
         } catch {
             // Without the record, every resource would have to be looked up again; a settings file
             // that can't be read is worth stopping for rather than guessing past.
@@ -164,7 +169,7 @@ public actor EmDashDeployTarget: DeployTarget {
         }
 
         do {
-            let toml = try EmDashWorkerConfig.toml(workerName: siteName, resources: resources)
+            let toml = try EmDashWorkerConfig.toml(workerName: siteName, resources: resources, cache: workersPaidPlan)
             try WranglerConfigFile.write(toml, configDirectory: context.configDirectory)
         } catch {
             return .failed(reason: "couldn't write the EmDash Worker's configuration: \(error)", exitCode: nil)
@@ -306,5 +311,27 @@ public actor EmDashDeployTarget: DeployTarget {
                 source: "emdash-provision", stream: .stderr,
                 text: "couldn't record the EmDash site's Cloudflare resources: \(error)")
         }
+    }
+}
+
+// MARK: - The Workers plan question (#2116)
+
+public extension EmDashDeployTarget {
+    /// Whether Publish Site should ask the owner, before publishing, whether their Cloudflare
+    /// account is on the Workers Paid plan: an EmDash site whose owner hasn't answered yet. The
+    /// answer decides whether the site's Worker caches its pages
+    /// (`SiteSettings.emdashWorkersPaidPlan`). A settings file that can't be read is asked about
+    /// too: the answer is saved through the same store, and asking again costs one click.
+    ///
+    /// Reads two small files synchronously (the package marker and `settings.plist`), like the
+    /// license gate's `LicensingStore` read that runs just before it in `DeployModel.deploy`.
+    static func needsWorkersPlanAnswer(sourceDirectory: URL, configDirectory: URL) -> Bool {
+        guard SiteEditingSurfaces.forSourceDirectory(sourceDirectory).serverRenderedDeploy else { return false }
+        return (try? SiteConfigStore.read(from: configDirectory))?.emdashWorkersPaidPlan == nil
+    }
+
+    /// Records the owner's answer for the site whose `Config/` is `configDirectory`.
+    static func recordWorkersPlan(paid: Bool, configDirectory: URL) async throws {
+        _ = try await SiteConfigStore(configDirectory: configDirectory).update { $0.emdashWorkersPaidPlan = paid }
     }
 }

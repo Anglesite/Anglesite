@@ -126,6 +126,12 @@ enum AXID {
     /// The New Site chooser's picker of the owner's existing EmDash sites.
     static let newSiteEmDashSite = "newSite.emdashSite"
 
+    // MARK: Publish Site (#2116)
+
+    /// The Workers plan question's answers, asked once the first time an EmDash site publishes.
+    static let deployWorkersPlanPaid = "deploy.workersPlan.paid"
+    static let deployWorkersPlanFree = "deploy.workersPlan.free"
+
     /// Every hand-assigned identifier, for `AXIDTests`' uniqueness/format checks (the
     /// toolbar family is generated from `SiteToolbarItemID`, and the per-worker / per-site
     /// families above from their stable ids; each is frozen by its own formatting test).
@@ -145,5 +151,6 @@ enum AXID {
         settingsDeveloperToolsToggle, settingsWorkerIssuesToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
         newSiteEmDashSetup, newSiteEmDashSite,
+        deployWorkersPlanPaid, deployWorkersPlanFree,
     ]
 }

@@ -113,6 +113,8 @@ struct EmDashDeployTargetTests {
         #expect(toml.contains(#"main = "./src/worker.ts""#))
         #expect(toml.contains(#"database_id = "0f2c1d3e-aaaa-bbbb-cccc-1234567890ab""#))
         #expect(toml.contains(#"bucket_name = "news-cms-media""#))
+        // Not asked about the Workers plan (a background publish): the Worker doesn't cache.
+        #expect(toml.contains("[cache]\nenabled = false"))
         #expect(secrets.pushed.map(\.name) == ["EMDASH_ENCRYPTION_KEY"])
         #expect(secrets.pushed.first?.value == "emdash_enc_v1_key")
     }
@@ -228,6 +230,8 @@ struct EmDashDeployTargetTests {
         let resources = EmDashWorkerConfig.Resources(
             d1DatabaseName: "news-cms", d1DatabaseID: "db1", mediaBucketName: "news-cms-media", sessionKVNamespaceID: "kv1")
         let toml = try EmDashWorkerConfig.toml(workerName: "news", resources: resources)
+        #expect(toml.contains("[cache]\nenabled = false"))
+        #expect(try EmDashWorkerConfig.toml(workerName: "news", resources: resources, cache: true).contains("[cache]\nenabled = true"))
         for line in [
             #"name = "news""#, #"compatibility_flags = ["nodejs_compat"]"#, #"crons = ["* * * * *"]"#,
             #"binding = "DB""#, #"binding = "MEDIA""#, #"binding = "SESSION""#, #"id = "kv1""#,
@@ -242,6 +246,36 @@ struct EmDashDeployTargetTests {
         #expect(throws: EmDashWorkerConfig.ConfigError.invalidValue("kv1\"\n[vars]")) {
             try EmDashWorkerConfig.toml(workerName: "news", resources: odd)
         }
+    }
+
+    @Test("the Worker caches only when the owner said the account is on the Workers Paid plan")
+    func cacheFollowsTheOwnersAnswer() async throws {
+        for (answer, enabled) in [(true, true), (false, false)] {
+            let dir = try Self.tempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let context = Self.context(dir, executor: FakeExecutor(Self.created))
+            try await EmDashDeployTarget.recordWorkersPlan(paid: answer, configDirectory: context.configDirectory)
+            #expect(await Self.target(Secrets()).prepare(context: context) == nil)
+            let toml = try #require(WranglerConfigFile.read(configDirectory: context.configDirectory))
+            #expect(toml.contains("[cache]\nenabled = \(enabled)"), "answer \(answer)")
+        }
+    }
+
+    @Test("Publish Site asks about the Workers plan once, and only for an EmDash site")
+    func asksOnceForEmDash() async throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (emdash, _) = try AnglesitePackage.createSkeleton(
+            at: root.appendingPathComponent("News.anglesite"), displayName: "News", kind: .emdash)
+        let (anglesite, _) = try AnglesitePackage.createSkeleton(
+            at: root.appendingPathComponent("Blog.anglesite"), displayName: "Blog")
+        #expect(EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL))
+        #expect(!EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: anglesite.sourceURL, configDirectory: anglesite.configURL))
+
+        // Either answer is final: "Free Plan" isn't asked again either.
+        try await EmDashDeployTarget.recordWorkersPlan(paid: false, configDirectory: emdash.configURL)
+        #expect(!EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL))
+        #expect(try await SiteConfigStore(configDirectory: emdash.configURL).load().emdashWorkersPaidPlan == false)
     }
 
     @Test("resource names fit Cloudflare's limits for the longest Worker name Anglesite allows")

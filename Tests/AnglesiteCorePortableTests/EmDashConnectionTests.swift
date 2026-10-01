@@ -156,6 +156,8 @@ struct EmDashConnectionTests {
         let settings = try await SiteConfigStore(configDirectory: config).load()
         #expect(settings.workerProvisioned == true)
         #expect(settings.emdashD1DatabaseID == "db-news")
+        // A Worker Loader is a Workers Paid feature, so Publish Site doesn't ask about the plan.
+        #expect(settings.emdashWorkersPaidPlan == true)
         let siteConfig = try String(contentsOf: source.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(siteConfig.contains("CF_PROJECT_NAME=news_room"))
         #expect(siteConfig.contains("SITE_NAME=News"))
@@ -185,6 +187,7 @@ struct EmDashConnectionTests {
         #expect(toml.contains(#"bucket_name = "news-media""#))
         #expect(toml.contains(#"id = "kv-new""#))
         #expect(toml.contains("[[worker_loaders]]\nbinding = \"LOADER\""))
+        #expect(toml.contains("[cache]\nenabled = true"))
     }
 
     @Test("a token that can list Workers but not read D1 is told apart from a refused token")
