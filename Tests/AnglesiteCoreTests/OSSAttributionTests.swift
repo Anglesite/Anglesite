@@ -28,6 +28,7 @@ struct OSSAttributionTests {
         #expect(AttributionSource.appBinary.rawValue == "app-binary")
         #expect(AttributionSource.containerImage.rawValue == "container-image")
         #expect(AttributionSource.websiteTemplate.rawValue == "website-template")
+        #expect(AttributionSource.emdashSite.rawValue == "emdash-site")
     }
 
     @Test("display names")
@@ -35,5 +36,15 @@ struct OSSAttributionTests {
         #expect(AttributionSource.appBinary.displayName == "App")
         #expect(AttributionSource.containerImage.displayName == "Container & Sidecar")
         #expect(AttributionSource.websiteTemplate.displayName == "Website Template")
+        #expect(AttributionSource.emdashSite.displayName == "EmDash Site Template")
+    }
+
+    /// #2088: an EmDash site installs the overlay's lockfile, not the template's, so its notice
+    /// must come from the overlay's set.
+    @Test("siteTemplate(for:) picks the overlay's set for an EmDash site only")
+    func siteTemplateForKind() {
+        #expect(AttributionSource.siteTemplate(for: .emdash) == .emdashSite)
+        #expect(AttributionSource.siteTemplate(for: .anglesite) == .websiteTemplate)
+        #expect(AttributionSource.siteTemplate(for: .unrecognized("x")) == .websiteTemplate)
     }
 }

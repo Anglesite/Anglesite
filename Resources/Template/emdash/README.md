@@ -27,7 +27,10 @@ and 4):
 - `seed/seed.json`: the EmDash schema a new site starts with. It maps the `articles` collection
   onto Anglesite's `articles` content type.
 - `package.json` / `package-lock.json`: the template's dependencies plus EmDash's. The owner
-  approved the additional packages for EmDash sites only.
+  approved the additional packages for EmDash sites only. This lockfile is also the input to
+  `Resources/Attributions/emdash-site.json`, the set an EmDash site's `THIRD-PARTY-NOTICES.md`
+  is written from (#2088): regenerate it with `scripts/generate-attributions.sh` after a
+  dependency change here, or CI's manifest check fails.
 
 The Worker's `wrangler` configuration is not here. Anglesite writes it from its own
 provisioning state into the site's `Config/` and stages it next to the build.
