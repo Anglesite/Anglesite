@@ -2,7 +2,8 @@ import SwiftUI
 import AnglesiteCore
 
 /// Asked once, the first time an EmDash site is published (#2116): whether the owner's Cloudflare
-/// account is on the Workers Paid plan. The answer decides whether the site's Worker keeps cached
+/// account is on the Workers Paid plan. The Website inspector's Workers Paid plan toggle changes
+/// the answer later. The answer decides whether the site's Worker keeps cached
 /// copies of its articles (`SiteSettings.emdashWorkersPaidPlan`). Worded about cost and speed,
 /// never about caches or Workers configuration (decision D1). Mirrors `LicenseGateSheetView`'s
 /// park-and-resume shape: answering saves the choice and publishes; Cancel publishes nothing and
@@ -19,7 +20,7 @@ struct EmDashWorkersPlanSheetView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("On the free plan, keeping copies would use up the plan's daily limit of visits sooner, so Anglesite leaves it off. If you're not sure, choose Free Plan.")
+                Text("On the free plan, keeping copies would use up the plan's daily limit of visits sooner, so Anglesite leaves it off. If you're not sure, choose Free Plan. You can change this later in the Website inspector.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

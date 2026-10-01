@@ -131,6 +131,8 @@ enum AXID {
     /// The Workers plan question's answers, asked once the first time an EmDash site publishes.
     static let deployWorkersPlanPaid = "deploy.workersPlan.paid"
     static let deployWorkersPlanFree = "deploy.workersPlan.free"
+    /// The Website inspector's toggle that changes that answer later.
+    static let websiteInspectorWorkersPaidPlan = "websiteInspector.workersPaidPlan"
 
     /// Every hand-assigned identifier, for `AXIDTests`' uniqueness/format checks (the
     /// toolbar family is generated from `SiteToolbarItemID`, and the per-worker / per-site
@@ -151,6 +153,6 @@ enum AXID {
         settingsDeveloperToolsToggle, settingsWorkerIssuesToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
         newSiteEmDashSetup, newSiteEmDashSite,
-        deployWorkersPlanPaid, deployWorkersPlanFree,
+        deployWorkersPlanPaid, deployWorkersPlanFree, websiteInspectorWorkersPaidPlan,
     ]
 }

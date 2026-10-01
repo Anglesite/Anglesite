@@ -83,7 +83,8 @@ form of option B.
    to the Worker, static files included, so on the Free plan it would only use up the daily
    request limit sooner. Anglesite can't read an account's plan with the token it holds, so
    Publish Site asks the owner once, in cost terms (`EmDashWorkersPlanSheetView`), and records
-   the answer in `SiteSettings.emdashWorkersPaidPlan`. A connected install with a `LOADER`
+   the answer in `SiteSettings.emdashWorkersPaidPlan`; the Website inspector's Workers Paid plan
+   toggle changes it later, from the next publish on. A connected install with a `LOADER`
    (a Paid-plan feature) records it without asking, and a background publish never asks and
    leaves the cache off. `EmDashWorkerConfig` writes `[cache] enabled` from the answer, and the
    overlay's `astro.config.ts` gives Astro `cacheCloudflare()` only when that table is `true`,

@@ -272,10 +272,29 @@ struct EmDashDeployTargetTests {
         #expect(EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL))
         #expect(!EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: anglesite.sourceURL, configDirectory: anglesite.configURL))
 
-        // Either answer is final: "Free Plan" isn't asked again either.
+        // Publish Site doesn't ask again after either answer: "Free Plan" is recorded too.
         try await EmDashDeployTarget.recordWorkersPlan(paid: false, configDirectory: emdash.configURL)
         #expect(!EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL))
         #expect(try await SiteConfigStore(configDirectory: emdash.configURL).load().emdashWorkersPaidPlan == false)
+    }
+
+    @Test("the Website inspector shows the Workers plan only for an EmDash site, and changes the answer")
+    func inspectorSetting() async throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (emdash, _) = try AnglesitePackage.createSkeleton(
+            at: root.appendingPathComponent("News.anglesite"), displayName: "News", kind: .emdash)
+        let (anglesite, _) = try AnglesitePackage.createSkeleton(
+            at: root.appendingPathComponent("Blog.anglesite"), displayName: "Blog")
+        #expect(EmDashDeployTarget.workersPaidPlanSetting(sourceDirectory: anglesite.sourceURL, configDirectory: anglesite.configURL) == nil)
+        // Unanswered reads as off, like the cache it leaves off.
+        #expect(EmDashDeployTarget.workersPaidPlanSetting(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL) == false)
+
+        for paid in [true, false] {
+            try await EmDashDeployTarget.recordWorkersPlan(paid: paid, configDirectory: emdash.configURL)
+            #expect(EmDashDeployTarget.workersPaidPlanSetting(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL) == paid)
+            #expect(!EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL))
+        }
     }
 
     @Test("resource names fit Cloudflare's limits for the longest Worker name Anglesite allows")

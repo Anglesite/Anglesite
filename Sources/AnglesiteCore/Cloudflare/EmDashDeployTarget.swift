@@ -330,6 +330,15 @@ public extension EmDashDeployTarget {
         return (try? SiteConfigStore.read(from: configDirectory))?.emdashWorkersPaidPlan == nil
     }
 
+    /// The Website inspector's Workers Paid setting, which changes the answer later: `nil` for a
+    /// site that isn't EmDash, which has no such setting, and otherwise whether the Worker caches its
+    /// pages from the next publish on. An unanswered question reads as `false`, since Publish Site
+    /// leaves the cache off until the owner says otherwise.
+    static func workersPaidPlanSetting(sourceDirectory: URL, configDirectory: URL) -> Bool? {
+        guard SiteEditingSurfaces.forSourceDirectory(sourceDirectory).serverRenderedDeploy else { return nil }
+        return (try? SiteConfigStore.read(from: configDirectory))?.emdashWorkersPaidPlan == true
+    }
+
     /// Records the owner's answer for the site whose `Config/` is `configDirectory`.
     static func recordWorkersPlan(paid: Bool, configDirectory: URL) async throws {
         _ = try await SiteConfigStore(configDirectory: configDirectory).update { $0.emdashWorkersPaidPlan = paid }

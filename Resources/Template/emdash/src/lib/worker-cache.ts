@@ -22,6 +22,9 @@ export const ARTICLE_CACHE_MAX_AGE_SECONDS = 3600;
  * Whether `toml` (the Worker config, or `undefined` when there is none, as in local
  * development) turns Workers Caching on. Only `enabled = true` under a `[cache]` table counts;
  * anything else leaves it off.
+ *
+ * Not a TOML parser: it reads only the plain `[cache]` table `EmDashWorkerConfig` writes, so a
+ * `#` always starts a comment here, even inside a quoted string.
  */
 export function workerCacheEnabled(toml: string | undefined): boolean {
   if (!toml) return false;

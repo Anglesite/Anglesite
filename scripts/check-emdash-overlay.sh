@@ -92,7 +92,10 @@ echo "✓ the pre-deploy gate refuses the build without the publish gate"
 
 # Workers Caching (#2116). The build above had no Worker config, as in local development, so it
 # must not have Cloudflare's route-cache provider (its `astro-version:` tag prefix marks it in the
-# bundle), or EmDash would purge a cache the Worker doesn't have. A Workers Paid site's config
+# bundle: `VERSION_TAG_PREFIX` in @astrojs/cloudflare's src/cache/provider.ts, upstream at
+# https://github.com/withastro/astro/blob/main/packages/integrations/cloudflare/src/cache/provider.ts),
+# or EmDash would purge a cache the Worker doesn't have. If the adapter renames the prefix, the
+# provider-present check below fails, so the rename can't make this check pass by accident. A Workers Paid site's config
 # (`EmDashWorkerConfig.toml(…, cache: true)`) turns the provider on, and the adapter carries the
 # setting into the deployed config.
 cache_provider_bundled() { grep -rqs 'astro-version:' dist/server; }
