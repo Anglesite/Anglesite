@@ -21,15 +21,21 @@ public enum EmDashWorkerConfig {
         public var mediaBucketName: String?
         /// The Cloudflare adapter's Astro session store (binding `SESSION`).
         public var sessionKVNamespaceID: String?
+        /// Whether the Worker gets a Worker Loader (binding `LOADER`), so EmDash runs marketplace
+        /// plugins sandboxed. Set for a connected install that already had one (#2106); a paid-plan
+        /// feature, so a provisioned site has none.
+        public var workerLoader: Bool?
 
         public init(
             d1DatabaseName: String? = nil, d1DatabaseID: String? = nil,
-            mediaBucketName: String? = nil, sessionKVNamespaceID: String? = nil
+            mediaBucketName: String? = nil, sessionKVNamespaceID: String? = nil,
+            workerLoader: Bool? = nil
         ) {
             self.d1DatabaseName = d1DatabaseName
             self.d1DatabaseID = d1DatabaseID
             self.mediaBucketName = mediaBucketName
             self.sessionKVNamespaceID = sessionKVNamespaceID
+            self.workerLoader = workerLoader
         }
 
         /// Whether every resource the Worker is bound to exists.
@@ -43,6 +49,9 @@ public enum EmDashWorkerConfig {
     public static let databaseBinding = "DB"
     public static let mediaBinding = "MEDIA"
     public static let sessionBinding = "SESSION"
+    /// The Worker Loader binding EmDash's sandbox runner looks for (`sandbox()` in
+    /// `@emdash-cms/cloudflare`).
+    public static let workerLoaderBinding = "LOADER"
 
     /// The Worker's entry: the overlay's `src/worker.ts`, which adds EmDash's scheduled handler to
     /// Astro's, so scheduled articles publish when they come due.
@@ -111,16 +120,22 @@ public enum EmDashWorkerConfig {
         binding = "\(sessionBinding)"
         id = "\(session)"
 
-        """
+        """ + (resources.workerLoader == true ? """
+
+        [[worker_loaders]]
+        binding = "\(workerLoaderBinding)"
+
+        """ : "")
     }
 
     /// The same compatibility date as the social Worker composition (`WorkerComposition`).
     static let compatibilityDate = "2026-07-15"
 
-    /// Letters, digits and hyphens: every Worker, D1, R2 and KV name or id Cloudflare issues.
+    /// Letters, digits, hyphens and underscores: every Worker, D1, R2 and KV name or id
+    /// Cloudflare issues (Worker names may carry underscores).
     static func isPlainIdentifier(_ value: String) -> Bool {
         !value.isEmpty && value.unicodeScalars.allSatisfy { scalar in
-            (scalar.isASCII && CharacterSet.alphanumerics.contains(scalar)) || scalar == "-"
+            (scalar.isASCII && CharacterSet.alphanumerics.contains(scalar)) || scalar == "-" || scalar == "_"
         }
     }
 

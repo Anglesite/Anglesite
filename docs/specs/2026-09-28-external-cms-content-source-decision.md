@@ -132,6 +132,22 @@ form of option B.
      deploys. Anglesite then takes over the site's frontend deploy and registers `anglesite-gate`.
      The install's content, users, roles and other plugins are kept. Before connecting, the app
      says in plain terms that the site's design will switch to the Anglesite theme.
+
+     `EmDashInstallFinder` (#2106) finds installs in the account: a Worker is one when a D1
+     database it's bound to holds EmDash's schema (`_emdash_collections`). Its bindings come from
+     the Worker's settings, and its plugins from `_plugin_state`. `EmDashConnection` records the
+     install's database, media bucket, session store and `LOADER` binding in
+     `SiteSettings.emdashResources`, and its Worker name as `CF_PROJECT_NAME`. Publish Site then
+     deploys to that same Worker through `EmDashDeployTarget`, creating only a session store if
+     the install has none. Publishing to the same Worker keeps its secrets (EmDash's encryption
+     key is never overwritten), its custom domains and routes, and so its writers' passkeys.
+     Owner decisions (2026-10-01):
+     - Marketplace plugins are kept. The template registers EmDash's sandbox runner and exports
+       `PluginBridge`, so a Worker with a `LOADER` binding runs them sandboxed. Without one they
+       stay off, as they did before.
+     - Plugins written into the install's own code are replaced with it. The pre-connect notice
+       names them, and the owner confirms or cancels.
+     - The owner connects from the New Site wizard.
    - **Refused:** installs Anglesite can't deploy to, such as EmDash hosted by a third-party
      platform. Anglesite can't guarantee the gate there, so it offers #2051's import into a new
      site instead.
