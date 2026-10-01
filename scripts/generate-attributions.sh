@@ -19,6 +19,8 @@
 # platform-specific optional packages (@esbuild/darwin-arm64, workerd-darwin-arm64, …), so a
 # manifest generated on another platform never matches the committed one, and CI diffs both on
 # macOS. On another platform, `npm ci --os=darwin --cpu=arm64` installs the same tree.
+# Use the npm that CI's Node (scripts/node-version.txt) ships: npm 11 skips a lockfile entry
+# marked "extraneous", npm 10 still installs it, and the manifests must match CI's tree.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OVERRIDES="$ROOT/scripts/attributions-overrides.json"
