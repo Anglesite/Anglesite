@@ -283,11 +283,12 @@ final class SiteWindowModel {
     var showsWithheldPagesNotice: Bool {
         !withheldPages.isEmpty && withheldPagesDismissedFor != EmDashWithheldPages.noticeKey(withheldPages)
     }
-    /// Why Publish Site is unavailable for this site, or `nil` when it isn't (#2050) —
-    /// `SiteEditingSurfaces.staticDeployRefusal`, the same decision `DeployCommand` makes, read
-    /// from the package marker in `loadAndStart()` with no recents fallback, so the menu and the
-    /// deploy itself always agree.
-    private(set) var staticDeployRefusal: String?
+    /// Why Publish Site is unavailable for this site, or `nil` when it isn't (#2050, #2103) —
+    /// `SiteEditingSurfaces.publishRefusal`, read from the package marker in `loadAndStart()`
+    /// with no recents fallback. An Anglesite site publishes statically and an EmDash site as its
+    /// EmDash Worker; only a site whose kind can't be confirmed is refused, as `DeployCommand`
+    /// refuses it too.
+    private(set) var publishRefusal: String?
     var harden = HardenModel()
     var aiSearch = AISearchModel()
     var domainConfigAudit = DomainConfigAuditModel()
@@ -1245,7 +1246,7 @@ final class SiteWindowModel {
         deploy.isRunning || backup.isRunning || audit.isRunning
     }
 
-    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy && staticDeployRefusal == nil }
+    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy && publishRefusal == nil }
     var canRunBackup: Bool { site?.isValid == true && !siteOperationRunning }
     var canRunAudit: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
     var canRunHarden: Bool { site?.isValid == true && !harden.isRunning }
@@ -2770,8 +2771,8 @@ final class SiteWindowModel {
         }
         editingSurfaces = await Self.loadEditingSurfaces(for: resolved)
         let sourceDirectory = resolved.sourceDirectory
-        staticDeployRefusal = await Task.detached(priority: .userInitiated) {
-            SiteEditingSurfaces.staticDeployRefusal(sourceDirectory: sourceDirectory)
+        publishRefusal = await Task.detached(priority: .userInitiated) {
+            SiteEditingSurfaces.publishRefusal(sourceDirectory: sourceDirectory)
         }.value
         site = resolved
         await refreshIsHostedCommunity()
