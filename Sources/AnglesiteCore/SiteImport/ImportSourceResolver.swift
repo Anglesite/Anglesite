@@ -38,12 +38,12 @@ public struct ResolvedContent: Sendable, Equatable {
 /// Resolves a crawled `ImportSnapshot` into a single set of import items by running every
 /// extraction rung and merging their output.
 ///
-/// The rungs disagree in priority — WordPress's REST API is authoritative when present, a feed
-/// is the next-best structured source, and microformats2 markup is the last structured source
-/// before falling back to plain-page readability. Rather than have each rung try to detect and
-/// defer to the others, `ImportSourceResolver` runs all three unconditionally and merges by
-/// source URL, so a WordPress post and its feed entry (or its mf2 h-entry) never produce two
-/// items.
+/// The rungs disagree in priority — an EmDash site's own content export is authoritative when
+/// the probe captured it (#2051), then WordPress's REST API, then a feed as the next-best
+/// structured source, and microformats2 markup is the last structured source before falling back
+/// to plain-page readability. Rather than have each rung try to detect and defer to the others,
+/// `ImportSourceResolver` runs all four unconditionally and merges by source URL, so a WordPress
+/// post and its feed entry (or its mf2 h-entry) never produce two items.
 public enum ImportSourceResolver {
     /// Path-pattern regexes for pages that are archive/index listings rather than content: tag,
     /// category, and author archives; pagination; and feed-listing URLs. These are automatically
@@ -59,17 +59,21 @@ public enum ImportSourceResolver {
     /// deduplicated, sorted result.
     ///
     /// - Parameter snapshot: The crawled site snapshot to resolve.
-    /// - Returns: The merged items (rung priority `wpREST > feed > microformats`, plus a
+    /// - Returns: The merged items (rung priority `emdash > wpREST > feed > microformats`, plus a
     ///   readability fallback for unclaimed pages), the homepage, skipped archive URLs, and every
     ///   problem collected along the way.
     public static func resolve(_ snapshot: ImportSnapshot) -> ResolvedContent {
+        // EmDash's export is the site's own content store, so it outranks even WordPress's REST
+        // API — an EmDash site's pages are server-rendered from exactly that data (#2051).
+        let emdashResult = EmDashRung.items(from: snapshot)
         let wpResult = WordPressRESTRung.items(from: snapshot)
         let feedResult = FeedRung.items(from: snapshot)
         let mfResult = MicroformatsRung.items(from: snapshot)
-        let problems = wpResult.problems + feedResult.problems + mfResult.problems
+        let problems = emdashResult.problems + wpResult.problems + feedResult.problems + mfResult.problems
 
         var itemsByURL: [String: ImportItem] = [:]
-        for item in wpResult.items + feedResult.items + mfResult.items where itemsByURL[item.sourceURL] == nil {
+        for item in emdashResult.items + wpResult.items + feedResult.items + mfResult.items
+        where itemsByURL[item.sourceURL] == nil {
             itemsByURL[item.sourceURL] = item
         }
 
