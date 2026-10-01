@@ -70,6 +70,7 @@ public enum EmDashRung {
                 message: "The export lists the “\(slug)” collection more than once; only the first copy was brought over"))
         }
         export.duplicateCollectionSlugs.forEach(reportDuplicate)
+        let entriesByCollection = Dictionary(grouping: export.entries, by: \.collection)
 
         for collection in export.collections {
             guard seenCollections.insert(collection.slug).inserted else {
@@ -84,7 +85,7 @@ public enum EmDashRung {
                     message: "“\(collection.label)” has no Anglesite equivalent, so its entries were brought over as \(noun)"))
             }
 
-            for entry in export.entries where entry.collection == collection.slug {
+            for entry in entriesByCollection[collection.slug] ?? [] {
                 guard entry.status == "published", !entry.trashed else { continue }
                 let sourceURL = site.entryURL(entry, in: collection, shape: shape)
                 let built = buildItem(entry: entry, collection: collection, shape: shape, site: site,
@@ -332,14 +333,22 @@ public enum EmDashRung {
         if let date = iso8601Formatter.date(from: text) ?? iso8601FractionalFormatter.date(from: text) {
             return date
         }
-        for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd"] {
-            let formatter = DateFormatter()
-            formatter.dateFormat = format
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "UTC")
+        for formatter in plainFormatters {
             if let date = formatter.date(from: text) { return date }
         }
         return nil
+    }
+
+    /// The non-ISO forms, built once: SQLite's `CURRENT_TIMESTAMP`, a `T`-separated local
+    /// datetime without zone, and a bare date. Read-only after setup, like the ISO ones below.
+    private nonisolated(unsafe) static let plainFormatters: [DateFormatter] = [
+        "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd",
+    ].map { format in
+        let formatter = DateFormatter()
+        formatter.dateFormat = format
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
     }
 
     private nonisolated(unsafe) static let iso8601Formatter: ISO8601DateFormatter = {
@@ -472,18 +481,30 @@ public enum EmDashRung {
         /// then sees as unchanged.
         func entryURL(_ entry: EmDashExport.Entry, in collection: EmDashExport.Collection,
                       shape: CollectionShape) -> String {
-            let slug = entry.slug ?? entry.id
+            // Each substituted value is one path segment: a slug with a `/`, `?` or `#` in it
+            // (EmDash validates slugs, but a dump is just JSON) must not add segments, a query or
+            // a fragment to the source URL — and so to the redirect written from it.
+            let slug = Self.pathSegment(entry.slug ?? entry.id)
             var path: String
             if collection.routable {
                 path = (collection.urlPattern ?? "/\(collection.slug)/{slug}")
                     .replacingOccurrences(of: "{slug}", with: slug)
-                    .replacingOccurrences(of: "{id}", with: entry.id)
-                    .replacingOccurrences(of: "{collection}", with: collection.slug)
-                    .replacingOccurrences(of: "{locale}", with: entry.locale ?? export.siteLocale ?? "")
+                    .replacingOccurrences(of: "{id}", with: Self.pathSegment(entry.id))
+                    .replacingOccurrences(of: "{collection}", with: Self.pathSegment(collection.slug))
+                    .replacingOccurrences(of: "{locale}", with: Self.pathSegment(entry.locale ?? export.siteLocale ?? ""))
             } else {
                 path = shape.servedCollection.map { "/\($0)/\(slug)" } ?? "/\(slug)"
             }
             return resolve(collapsingSlashes(path))
+        }
+
+        /// The characters allowed unencoded in one path segment: `urlPathAllowed` minus the
+        /// segment separator (`?` and `#` are already outside it).
+        private static let segmentAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+
+        /// `value` percent-encoded as a single path segment.
+        static func pathSegment(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: segmentAllowed) ?? value
         }
 
         /// `//about` (a `{locale}` that was empty) would read as a protocol-relative URL, so
@@ -504,7 +525,7 @@ public enum EmDashRung {
         /// joined to the origin.
         func resolve(_ path: String) -> String {
             if path.hasPrefix("http://") || path.hasPrefix("https://") { return path }
-            if path.hasPrefix("//") { return "https:" + path }
+            if path.hasPrefix("//") { return (origin.hasPrefix("http://") ? "http:" : "https:") + path }
             return origin + (path.hasPrefix("/") ? path : "/" + path)
         }
 

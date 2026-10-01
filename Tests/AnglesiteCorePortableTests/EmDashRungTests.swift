@@ -388,10 +388,13 @@ struct EmDashRungTests {
         var requests: [URLRequest] = []
         var status = 200
         var body = Data()
+        var headers: [String: String] = ["Content-Type": "application/json; charset=utf-8"]
+        /// The URL the response claims to come from; `nil` echoes the request's.
+        var answeredURL: URL?
 
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            let response = HTTPURLResponse(url: answeredURL ?? request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!
             return (body, response)
         }
     }
@@ -435,6 +438,118 @@ struct EmDashRungTests {
         #expect(throws: EmDashContentAPIError.invalidSiteURL("blog.example")) { try EmDashContentAPI.snapshotURL(siteURL: "blog.example") }
         #expect(throws: EmDashContentAPIError.invalidSiteURL("file:///etc/passwd")) { try EmDashContentAPI.snapshotURL(siteURL: "file:///etc/passwd") }
         #expect(throws: EmDashContentAPIError.invalidSiteURL("")) { try EmDashContentAPI.snapshotURL(siteURL: "") }
+    }
+
+    // MARK: PR #2114 review
+
+    @Test("the token only travels over https, except to a loopback dev server")
+    func refusesCleartextToken() throws {
+        #expect(throws: EmDashContentAPIError.insecureSiteURL("http://blog.example")) {
+            try EmDashContentAPI.snapshotURL(siteURL: "http://blog.example")
+        }
+        #expect(throws: EmDashContentAPIError.insecureSiteURL("http://10.0.0.5:4321")) {
+            try EmDashContentAPI.snapshotURL(siteURL: "http://10.0.0.5:4321")
+        }
+        for local in ["http://localhost:4321", "http://emdash.localhost", "http://127.0.0.1:8788", "http://127.1.2.3", "http://[::1]:4321"] {
+            #expect(try EmDashContentAPI.snapshotURL(siteURL: local).path == "/_emdash/api/snapshot", Comment(rawValue: local))
+        }
+        #expect(EmDashContentAPI.isLoopbackHost("127.0.0.1"))
+        #expect(!EmDashContentAPI.isLoopbackHost("127.0.0.1.evil.example"))
+        #expect(!EmDashContentAPI.isLoopbackHost("notlocalhost"))
+    }
+
+    @Test("a redirect, or an answer from another origin, is refused rather than followed")
+    func refusesRedirects() async throws {
+        let http = FakeHTTP()
+        let api = EmDashContentAPI(client: http)
+        for status in [301, 302, 307, 308] {
+            http.status = status
+            await #expect(throws: EmDashContentAPIError.redirected) { try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t") }
+        }
+        http.status = 200
+        http.body = try Self.fixtureData("emdash-backup")
+        http.answeredURL = URL(string: "https://evil.example/_emdash/api/snapshot")
+        await #expect(throws: EmDashContentAPIError.redirected) { try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t") }
+        http.answeredURL = URL(string: "https://BLOG.example/_emdash/api/snapshot") // same origin, different case
+        #expect(try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t").count == http.body.count)
+    }
+
+    @Test("a snapshot past the size bound is refused by Content-Length or by what arrived")
+    func refusesOversizedSnapshots() async throws {
+        let http = FakeHTTP()
+        let api = EmDashContentAPI(client: http)
+        http.body = Data("{}".utf8)
+        http.headers["Content-Length"] = String(EmDashContentAPI.maximumSnapshotBytes + 1)
+        await #expect(throws: EmDashContentAPIError.snapshotTooLarge(bytes: EmDashContentAPI.maximumSnapshotBytes + 1)) {
+            try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t")
+        }
+        http.headers["Content-Length"] = nil
+        http.body = Data(repeating: UInt8(ascii: " "), count: EmDashContentAPI.maximumSnapshotBytes + 1)
+        await #expect(throws: EmDashContentAPIError.snapshotTooLarge(bytes: EmDashContentAPI.maximumSnapshotBytes + 1)) {
+            try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t")
+        }
+        http.body = Data("{\"tables\":{}}".utf8)
+        #expect(try await api.fetchExport(siteURL: "https://blog.example", token: "t").collections.isEmpty)
+    }
+
+    @Test("a 2xx that isn't JSON is 'not EmDash', not a parse error")
+    func refusesNonJSONAnswers() async throws {
+        let http = FakeHTTP()
+        let api = EmDashContentAPI(client: http)
+        http.headers = ["Content-Type": "text/html; charset=utf-8"]
+        http.body = Data("<!doctype html><title>Sign in</title>".utf8)
+        await #expect(throws: EmDashContentAPIError.notEmDash) { try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t") }
+        http.headers = [:] // no Content-Type: the body decides
+        await #expect(throws: EmDashContentAPIError.notEmDash) { try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t") }
+        http.body = Data("  \n{\"tables\":{}}".utf8)
+        #expect(try await api.fetchSnapshot(siteURL: "https://blog.example", token: "t") == http.body)
+        #expect(EmDashContentAPI.looksLikeJSON(contentType: "application/vnd.api+json", body: Data()))
+        #expect(!EmDashContentAPI.looksLikeJSON(contentType: nil, body: Data()))
+    }
+
+    @Test("a slug is one percent-encoded path segment in the source URL")
+    func encodesSlugSegment() {
+        let notes = EmDashExport.Collection(slug: "notes", label: "Notes", urlPattern: "/notes/{slug}", fields: [
+            EmDashExport.Field(slug: "content", label: "Content", type: "text"),
+        ])
+        let export = EmDashExport(collections: [notes], entries: [
+            EmDashExport.Entry(collection: "notes", id: "n", slug: "a b/c?d#e", status: "published", data: ["content": .string("Hi")]),
+        ])
+        let (items, _) = EmDashRung.items(from: export, siteURL: "https://blog.example")
+        #expect(items.map(\.sourceURL) == ["https://blog.example/notes/a%20b%2Fc%3Fd%23e"])
+        #expect(URLComponents(string: items[0].sourceURL)?.path == "/notes/a b/c?d#e")
+        #expect(URLComponents(string: items[0].sourceURL)?.query == nil)
+    }
+
+    @Test("a protocol-relative image URL takes the site's scheme")
+    func protocolRelativeInheritsScheme() {
+        let photos = EmDashExport.Collection(slug: "photos", label: "Photos", fields: [EmDashExport.Field(slug: "photo", label: "Photo", type: "image")])
+        let export = EmDashExport(collections: [photos], entries: [
+            EmDashExport.Entry(collection: "photos", id: "p", slug: "p", status: "published", data: ["photo": .string("//cdn.example/p.jpg")]),
+        ])
+        #expect(EmDashRung.items(from: export, siteURL: "http://localhost:4321").items.first?.hint == .photo(image: "http://cdn.example/p.jpg"))
+        #expect(EmDashRung.items(from: export, siteURL: "https://blog.example").items.first?.hint == .photo(image: "https://cdn.example/p.jpg"))
+    }
+
+    @Test("with EmDash and WordPress probes both present, EmDash wins per URL and nothing is doubled")
+    func resolverMergesProbes() throws {
+        let json = String(decoding: try Self.fixtureData("emdash-backup"), as: UTF8.self)
+        let wpPosts = """
+        [{"link":"https://blog.example/articles/hello-world/","date_gmt":"2026-09-20T10:15:00",
+          "title":{"rendered":"Hello from WP"},"content":{"rendered":"<p>wp</p>"},"excerpt":{"rendered":""}},
+         {"link":"https://blog.example/wp-only/","date_gmt":"2026-09-01T10:15:00",
+          "title":{"rendered":"Only in WP"},"content":{"rendered":"<p>wp</p>"},"excerpt":{"rendered":""}}]
+        """
+        let snapshot = ImportSnapshot(
+            siteURL: Self.siteURL, probes: SiteProbes(wpPostsJSON: wpPosts, emdashSnapshotJSON: json),
+            pages: [], assets: [], conversions: [ImportSnapshot.htmlKey("<p>wp</p>"): "wp"])
+        let resolved = ImportSourceResolver.resolve(snapshot)
+        let urls = resolved.items.map(\.sourceURL)
+        #expect(Set(urls).count == urls.count)
+        #expect(urls.filter { $0 == "https://blog.example/articles/hello-world" }.count == 1)
+        #expect(resolved.items.first { $0.sourceURL == "https://blog.example/articles/hello-world" }?.rung == .emdash)
+        #expect(resolved.items.first { $0.sourceURL == "https://blog.example/wp-only" }?.rung == .wpREST)
+        #expect(resolved.items.count == 6) // 5 EmDash + the WP-only post
     }
 
     // MARK: Review hardening (#2051)
