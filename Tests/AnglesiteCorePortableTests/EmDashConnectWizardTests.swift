@@ -78,6 +78,86 @@ struct EmDashConnectWizardTests {
         #expect(signIn.state == .failed(.signInFailed))
     }
 
+    /// Runs `search` until it's waiting on a source, cancels it, and returns the state it leaves.
+    private static func cancelMidSearch(_ search: EmDashInstallSearch) async -> EmDashInstallSearch.State {
+        let task = Task { await search.search() }
+        for _ in 0..<1_000 where search.state != .searching { await Task.yield() }
+        task.cancel()
+        await task.value
+        return search.state
+    }
+
+    @Test("cancelling a search, at any step, leaves it idle rather than failed")
+    func cancellationIsIdle() async {
+        let neverEnding: @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .seconds(3_600)) // sleep-is-subject: a source that only ever ends by cancellation
+        }
+        let duringToken = EmDashInstallSearch(
+            tokenSource: { try await neverEnding(); return "tok" },
+            accountIDSource: { _ in "acct" }, installsSource: { _, _ in [] })
+        #expect(await Self.cancelMidSearch(duringToken) == .idle)
+
+        let duringAccount = EmDashInstallSearch(
+            tokenSource: { "tok" },
+            accountIDSource: { _ in try? await neverEnding(); return nil },
+            installsSource: { _, _ in [] })
+        #expect(await Self.cancelMidSearch(duringAccount) == .idle)
+
+        let duringInstalls = EmDashInstallSearch(
+            tokenSource: { "tok" }, accountIDSource: { _ in "acct" },
+            installsSource: { _, _ in try await neverEnding(); return [] })
+        #expect(await Self.cancelMidSearch(duringInstalls) == .idle)
+    }
+
+    @Test("a later search supersedes an earlier one, and switching away resets it")
+    func supersedingAndReset() async throws {
+        final class Gate: @unchecked Sendable {
+            var calls = 0
+        }
+        let gate = Gate()
+        let news = Self.install("news")
+        // The first search's results arrive after the second search has finished.
+        let search = EmDashInstallSearch(
+            tokenSource: { "tok" }, accountIDSource: { _ in "acct" },
+            installsSource: { _, _ in
+                gate.calls += 1
+                if gate.calls == 1 {
+                    try? await Task.sleep(for: .milliseconds(200)) // sleep-is-subject: the slower, superseded search
+                    return []
+                }
+                return [news]
+            })
+        let first = Task { await search.search() }
+        // Until the first search is inside its (slow) installs call.
+        for _ in 0..<100_000 where gate.calls == 0 { await Task.yield() }
+        await search.search()
+        await first.value
+        #expect(search.state == .found([news]), "the superseded search's empty result is dropped")
+
+        let catalog = ThemeCatalog(themes: [Theme(id: "classic", name: "Classic", blurb: "", swatch: [], cssVars: [:])])
+        let model = NewSiteWizardModel(catalog: catalog, isNameTaken: { _ in false }, emdashSearch: Self.search(token: nil))
+        model.draft.siteKind = .emdash
+        model.connectsExistingEmDash = true
+        await model.emdashSearch.search()
+        #expect(model.emdashSearch.state == .needsSignIn)
+        model.connectsExistingEmDash = false
+        #expect(model.emdashSearch.state == .idle)
+    }
+
+    @Test("a pick whose install is gone on a later search is dropped")
+    func stalePickDropped() async {
+        final class Installs: @unchecked Sendable { var list: [EmDashInstall] = [] }
+        let installs = Installs()
+        installs.list = [Self.install("news"), Self.install("zine")]
+        let search = Self.search(installs: { installs.list })
+        await search.search()
+        search.selectedWorkerName = "zine"
+        installs.list = [Self.install("news"), Self.install("blog")]
+        await search.search()
+        #expect(search.selectedWorkerName == nil)
+        #expect(search.connectableSelection == nil)
+    }
+
     @Test("the pre-connect notice names code plugins and marketplace plugins with nowhere to run")
     func pluginsThatStop() {
         let install = Self.install("news", codePlugins: ["audit-log"])
@@ -150,5 +230,22 @@ struct EmDashConnectWizardTests {
         let settings = try await SiteConfigStore(configDirectory: package.configURL).load()
         #expect(settings.emdashResources == install.resources)
         #expect(settings.workerProvisioned == true)
+
+        // An install that can't be connected fails the build and leaves no half-built site.
+        let other = root.appendingPathComponent("Other", isDirectory: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        var failed = false
+        let unclear = Self.install("old", problem: .mediaBucketUnclear)
+        let otherScaffolder = SiteScaffolder(
+            sitesRoot: other, templateURL: template, catalog: ThemeCatalog(themes: []),
+            run: { _, _, _ in .init(stdout: "", stderr: "", exitCode: 0) },
+            gitInit: { _ in }, gitCommit: { _ in },
+            register: { try SiteStore.Site.make(package: $0) },
+            attributionsLoader: { _ in [] }, appVersion: { "1.0.0" }, hostLanguage: { "en" })
+        for await step in otherScaffolder.scaffold(NewSiteDraft(siteType: .blog, name: "Zine", siteKind: .emdash, emdashInstall: unclear)) {
+            if case .failed = step { failed = true }
+        }
+        #expect(failed)
+        #expect(!FileManager.default.fileExists(atPath: other.appendingPathComponent("zine.anglesite").path))
     }
 }

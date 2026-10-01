@@ -77,41 +77,64 @@ public final class EmDashInstallSearch {
         selectedInstall.flatMap { $0.problem == nil ? $0 : nil }
     }
 
+    /// Which search is current: a search started later supersedes an earlier one, whose
+    /// results are dropped.
+    private var generation = 0
+
     /// Finds the installs in the owner's account. Picks the only connectable one when there's
-    /// exactly one, and keeps an earlier pick that's still there.
+    /// exactly one, keeps an earlier pick that's still there, and drops one that isn't.
+    ///
+    /// Starting another search (Try Again, or the choice toggled back) supersedes this one: only
+    /// the latest search ever writes the state. A cancelled search leaves the state ``State/idle``,
+    /// never a failure, so the next look starts fresh.
     public func search() async {
+        generation += 1
+        let current = generation
         state = .searching
+        let isCurrent = { [weak self] in self?.generation == current && !Task.isCancelled }
         let token: String?
         do {
             token = try await tokenSource()
         } catch {
-            state = .failed(.signInRefused)
+            finish(current, cancelled: .idle, otherwise: error is CancellationError ? .idle : .failed(.signInRefused))
             return
         }
-        guard let token, !token.isEmpty else {
-            state = .needsSignIn
-            return
-        }
-        guard let accountID = await accountIDSource(token) else {
-            state = .failed(.noAccount)
-            return
-        }
+        guard isCurrent() else { return finish(current, cancelled: .idle, otherwise: .idle) }
+        guard let token, !token.isEmpty else { return finish(current, cancelled: .idle, otherwise: .needsSignIn) }
+        let accountID = await accountIDSource(token)
+        guard isCurrent() else { return finish(current, cancelled: .idle, otherwise: .idle) }
+        guard let accountID else { return finish(current, cancelled: .idle, otherwise: .failed(.noAccount)) }
         do {
             let installs = try await installsSource(accountID, token)
+            guard isCurrent() else { return finish(current, cancelled: .idle, otherwise: .idle) }
             state = .found(installs)
             if !installs.contains(where: { $0.workerName == selectedWorkerName }) {
                 let connectable = installs.filter { $0.problem == nil }
                 selectedWorkerName = connectable.count == 1 ? connectable[0].workerName : nil
             }
         } catch is CancellationError {
-            state = .idle
+            finish(current, cancelled: .idle, otherwise: .idle)
         } catch EmDashInstallFinder.FindError.cannotReadDatabases {
-            state = .failed(.cannotReadDatabases)
+            finish(current, cancelled: .idle, otherwise: .failed(.cannotReadDatabases))
         } catch CloudflareError.unauthorized {
-            state = .failed(.signInRefused)
+            finish(current, cancelled: .idle, otherwise: .failed(.signInRefused))
         } catch {
-            state = .failed(.unavailable)
+            finish(current, cancelled: .idle, otherwise: .failed(.unavailable))
         }
+    }
+
+    /// Ends search `current` with `otherwise`, or `cancelled` when the task was cancelled. A
+    /// superseded search writes nothing.
+    private func finish(_ current: Int, cancelled: State, otherwise: State) {
+        guard generation == current else { return }
+        state = Task.isCancelled ? cancelled : otherwise
+    }
+
+    /// Back to ``State/idle``, superseding any search in flight, so the next look starts fresh:
+    /// the owner switched away from connecting an existing site.
+    public func reset() {
+        generation += 1
+        state = .idle
     }
 
     /// Records that the app's Cloudflare sign-in didn't finish (not a cancel).

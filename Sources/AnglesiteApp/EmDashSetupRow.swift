@@ -111,7 +111,9 @@ struct EmDashSetupRow: View {
     static func connectMessage(for install: EmDashInstall) -> String {
         var message = String(localized: "The website will switch to the design you chose here. Its articles, writers and settings stay in EmDash.")
         let stopping = install.pluginsThatStop
-        if !stopping.isEmpty {
+        if stopping.count == 1, let plugin = stopping.first {
+            message += "\n\n" + String(localized: "This plugin will stop working: \(plugin).")
+        } else if !stopping.isEmpty {
             let list = stopping.formatted(.list(type: .and))
             message += "\n\n" + String(localized: "These plugins will stop working: \(list).")
         }

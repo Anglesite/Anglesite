@@ -52,7 +52,10 @@ public final class NewSiteWizardModel {
 
     /// For an EmDash site: connect an install the owner already has (#2106) rather than set up
     /// a new one. Ignored for an Anglesite site.
-    public var connectsExistingEmDash = false
+    public var connectsExistingEmDash = false {
+        // Switching away forgets the last look, so switching back searches afresh.
+        didSet { if !connectsExistingEmDash { emdashSearch.reset() } }
+    }
     /// The search for those installs, and the owner's pick.
     public let emdashSearch: EmDashInstallSearch
 

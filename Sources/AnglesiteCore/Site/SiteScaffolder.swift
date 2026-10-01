@@ -221,7 +221,11 @@ public actor SiteScaffolder {
         do { try writeWranglerConfig(siteName: projectSlug, configDir: configDir) }
         catch { emit(.warning(step: "writingContent", message: "Cloudflare Worker config not written: \(humanize(error))")) }
 
-        do { try appendSiteConfig(draft, logoPublicPath: logoPublicPath, metadataDescription: metadataDescription, siteDir: siteDir, cfProjectName: projectSlug) }
+        var siteConfigWritten = false
+        do {
+            try appendSiteConfig(draft, logoPublicPath: logoPublicPath, metadataDescription: metadataDescription, siteDir: siteDir, cfProjectName: projectSlug)
+            siteConfigWritten = true
+        }
         catch { emit(.warning(step: "writingContent", message: "Site metadata not written: \(humanize(error))")) }
 
         // 4a. An EmDash site connected to an install the owner already has (#2106): record it so
@@ -230,6 +234,14 @@ public actor SiteScaffolder {
         // Worker name. Fatal, and the package is removed: an EmDash site that silently set up a
         // second EmDash instead of the owner's own would publish an empty site.
         if draft.siteKind == .emdash, let install = draft.emdashInstall {
+            // The connection lives partly in `.site-config` (the Worker to publish to), so it can't
+            // be recorded on a site whose metadata couldn't be written.
+            guard siteConfigWritten else {
+                try? fileManager.removeItem(at: package.url)
+                return emit(.failed(
+                    step: "writingContent",
+                    message: "The website's settings couldn't be saved, so it wasn't connected to \(install.workerName)."))
+            }
             do {
                 try await EmDashConnection.connect(install, sourceDirectory: siteDir, configDirectory: configDir)
             } catch {

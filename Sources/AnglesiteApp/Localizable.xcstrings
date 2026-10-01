@@ -4595,6 +4595,9 @@
     "This comment can't be shown until your inbox is reachable." : {
 
     },
+    "This plugin will stop working: %@." : {
+
+    },
     "TLS report mailbox" : {
 
     },
