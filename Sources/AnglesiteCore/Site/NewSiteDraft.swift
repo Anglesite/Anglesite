@@ -137,6 +137,10 @@ public struct NewSiteDraft: Sendable, Equatable {
     /// starter posts — its articles live in EmDash, never in `Source/`
     /// (`docs/specs/2026-09-28-external-cms-content-source-decision.md`, decision 2).
     public var siteKind: AnglesitePackage.SiteKind
+    /// For an EmDash site, the install the owner already has and chose to connect (#2106):
+    /// the new site publishes to it instead of having a new one set up. `nil` sets up a new one.
+    /// Ignored for an Anglesite site.
+    public var emdashInstall: EmDashInstall?
 
     /// Creates a draft with everything but ``siteType`` and ``name`` defaulted, matching how
     /// the wizard starts: those two are the only values the first steps require. Passing
@@ -157,7 +161,8 @@ public struct NewSiteDraft: Sendable, Equatable {
         blurb: String = "",
         heroImagePrompt: String = "",
         heroImageURL: URL? = nil,
-        siteKind: AnglesitePackage.SiteKind = .anglesite
+        siteKind: AnglesitePackage.SiteKind = .anglesite,
+        emdashInstall: EmDashInstall? = nil
     ) {
         self.siteType = siteType
         self.name = name
@@ -176,6 +181,7 @@ public struct NewSiteDraft: Sendable, Equatable {
         self.heroImagePrompt = heroImagePrompt
         self.heroImageURL = heroImageURL
         self.siteKind = siteKind
+        self.emdashInstall = emdashInstall
     }
 }
 

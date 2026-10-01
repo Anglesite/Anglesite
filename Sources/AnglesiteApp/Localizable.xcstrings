@@ -366,6 +366,12 @@
     "Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later." : {
 
     },
+    "Anglesite can't tell where this EmDash site keeps its images, so it can't connect it." : {
+
+    },
+    "Anglesite couldn't find a Cloudflare account for this sign-in." : {
+
+    },
     "API token" : {
 
     },
@@ -986,6 +992,9 @@
     "Checks new comments on this Mac before they appear on your site and holds anything that looks like spam for you to review under Website › Moderation. The screening model is about 1 GB, stays on your Mac, and never sends your comments anywhere." : {
 
     },
+    "Cloudflare didn't accept the saved sign-in. Sign out in Settings ▸ Advanced ▸ Credentials, then sign in again here." : {
+
+    },
     "CMS Mode Not Available" : {
 
     },
@@ -1344,6 +1353,9 @@
     "Connect" : {
 
     },
+    "Connect One I Already Have" : {
+
+    },
     "Connect This Site" : {
 
     },
@@ -1378,6 +1390,9 @@
 
     },
     "Connect to GitHub" : {
+
+    },
+    "Connect “%@”?" : {
 
     },
     "Connected" : {
@@ -1635,6 +1650,9 @@
     "Couldn't publish this comment right now. It will be published the next time this site syncs." : {
 
     },
+    "Couldn't reach Cloudflare. Try again in a moment." : {
+
+    },
     "Couldn't reach this site" : {
 
     },
@@ -1766,6 +1784,9 @@
           }
         }
       }
+    },
+    "Couldn't sign in to Cloudflare. Try again in a moment." : {
+
     },
     "Couldn't start sign-in: %@" : {
 
@@ -1992,6 +2013,9 @@
 
     },
     "Duplicate & Modify" : {
+
+    },
+    "EmDash:" : {
 
     },
     "ESI Fragments" : {
@@ -2768,6 +2792,9 @@
     "Looking for this site's Micropub endpoint…" : {
 
     },
+    "Looking for your EmDash sites…" : {
+
+    },
     "Looking up registrar info…" : {
 
     },
@@ -2964,6 +2991,9 @@
 
     },
     "No DNS records found." : {
+
+    },
+    "No EmDash sites were found in your Cloudflare account." : {
 
     },
     "No Recent Sites" : {
@@ -3979,6 +4009,9 @@
     "Screen new comments for spam?" : {
 
     },
+    "Search Again" : {
+
+    },
     "SEO" : {
 
     },
@@ -4174,6 +4207,9 @@
     "Set Up" : {
 
     },
+    "Set Up a New One" : {
+
+    },
     "Set Up Brand Voice…" : {
 
     },
@@ -4303,6 +4339,12 @@
     "Sign In" : {
 
     },
+    "Sign in to Cloudflare so Anglesite can find your EmDash sites." : {
+
+    },
+    "Sign In to Cloudflare…" : {
+
+    },
     "Sign In…" : {
 
     },
@@ -4391,6 +4433,9 @@
 
     },
     "Site name" : {
+
+    },
+    "Site:" : {
 
     },
     "Sitemap" : {
@@ -4539,6 +4584,12 @@
 
     },
     "Syndication recorded" : {
+
+    },
+    "The website will switch to the design you chose here. Its articles, writers and settings stay in EmDash." : {
+
+    },
+    "These plugins will stop working: %@." : {
 
     },
     "This comment can't be shown until your inbox is reachable." : {
@@ -5178,6 +5229,9 @@
     "You'll need to add these yourself" : {
 
     },
+    "Your Cloudflare sign-in can't read your EmDash sites, so they can't be found. Sign out in Settings ▸ Advanced ▸ Credentials, then sign in again here." : {
+
+    },
     "Your Cloudflare token can't manage KV namespaces — recreate it from Settings → Tokens." : {
 
     },
@@ -5209,6 +5263,9 @@
 
     },
     "Your website was created, but something above needs attention before it can preview. You can open it anyway and fix it from the website window." : {
+
+    },
+    "Your writers keep signing in to your EmDash site as they do now. Its articles stay in EmDash, and the website shows them with the design you choose here, starting the first time you publish it." : {
 
     },
     "Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here, and Anglesite sets up EmDash for you the first time you publish the website." : {

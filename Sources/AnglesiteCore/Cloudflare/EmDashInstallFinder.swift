@@ -58,6 +58,11 @@ public struct EmDashInstall: Sendable, Equatable, Identifiable {
     /// Marketplace plugins that stop because the Worker has no Worker Loader to run them in.
     public var stoppedMarketplacePlugins: [String] { hasWorkerLoader ? [] : marketplacePlugins }
 
+    /// Every plugin that stops working when Anglesite takes over: those written into the
+    /// install's own code, and marketplace plugins with no Worker Loader to run in. What the
+    /// pre-connect notice names.
+    public var pluginsThatStop: [String] { (codePlugins + stoppedMarketplacePlugins).sorted() }
+
     /// The resources `EmDashDeployTarget` binds the Worker to; it creates only the session store
     /// if the install has none.
     public var resources: EmDashWorkerConfig.Resources {
@@ -285,11 +290,20 @@ public struct EmDashInstallFinder: Sendable {
 /// Worker and resources so the next Publish Site deploys to it through `EmDashDeployTarget`
 /// instead of provisioning new ones.
 public enum EmDashConnection {
-    public enum ConnectError: Error, Equatable {
+    public enum ConnectError: Error, Equatable, LocalizedError {
         case notConnectable(EmDashInstall.Problem)
         /// The site has already been published, or already publishes to another Worker.
         /// Connecting would silently point a live site at a different one.
         case alreadyPublished
+
+        public var errorDescription: String? {
+            switch self {
+            case .notConnectable(.mediaBucketUnclear):
+                return "Anglesite couldn't tell where that EmDash site keeps its images, so it wasn't connected."
+            case .alreadyPublished:
+                return "This website is already published on its own, so it can't be connected to another EmDash site."
+            }
+        }
     }
 
     /// Records `install` for the site whose `Source/` is `sourceDirectory`:

@@ -224,6 +224,20 @@ public actor SiteScaffolder {
         do { try appendSiteConfig(draft, logoPublicPath: logoPublicPath, metadataDescription: metadataDescription, siteDir: siteDir, cfProjectName: projectSlug) }
         catch { emit(.warning(step: "writingContent", message: "Site metadata not written: \(humanize(error))")) }
 
+        // 4a. An EmDash site connected to an install the owner already has (#2106): record it so
+        // the first publish deploys to that install rather than setting up a new one. Here, after
+        // `.site-config` exists and before the initial commit, so the commit carries the install's
+        // Worker name. Fatal, and the package is removed: an EmDash site that silently set up a
+        // second EmDash instead of the owner's own would publish an empty site.
+        if draft.siteKind == .emdash, let install = draft.emdashInstall {
+            do {
+                try await EmDashConnection.connect(install, sourceDirectory: siteDir, configDirectory: configDir)
+            } catch {
+                try? fileManager.removeItem(at: package.url)
+                return emit(.failed(step: "writingContent", message: humanize(error)))
+            }
+        }
+
         // 4b. Optional hero image (Image Playground, #92) — non-blocking. Only when the owner
         // generated one in the wizard; copies it into public/ and references it from the homepage.
         if let hero = draft.heroImageURL {
