@@ -39,7 +39,7 @@ struct NewSiteWizard: View {
                 Text("Choose a Template").font(.title2.bold())
                 if model.draft.siteKind == .emdash {
                     // Consequences for the owner's site, not mechanics (decision D1, #2050).
-                    Text("Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here. Publishing an EmDash website from Anglesite isn't available yet.")
+                    Text("Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here, and Anglesite sets up EmDash for you the first time you publish the website.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -175,8 +175,7 @@ struct NewSiteWizard: View {
 
     private static func siteKindLabel(_ kind: AnglesitePackage.SiteKind) -> String {
         switch kind {
-        // The caveat sits in the item itself, so it's read before the choice is made.
-        case .emdash: return String(localized: "A team, in EmDash (can't publish yet)")
+        case .emdash: return String(localized: "A team, in EmDash")
         case .anglesite, .unrecognized: return String(localized: "Me, in Anglesite")
         }
     }
