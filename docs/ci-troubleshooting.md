@@ -490,7 +490,15 @@ special CI-only behavior beyond the standard `npm run lint && npm run
 typecheck && npm test` cycle described in `CONTRIBUTING.md` ▸ Development
 setup — a red run here reproduces locally in the corresponding directory
 (`JS/wysiwyg-engine`, `JS/safari-extension`,
-`Resources/Template`, `Workers/<project>`). `help-book-links` is a
+`Resources/Template`, `Workers/<project>`). `template-worker`'s last step,
+`scripts/check-emdash-overlay.sh`, builds an EmDash site from the overlay
+and then boots it on workerd with a local D1
+(`scripts/check-emdash-gate-runtime.mjs`, #2089) to prove `anglesite-gate`
+cancels a publish; a red there prints the preview server's log under
+`--- astro preview log ---`, and reproduces with
+`scripts/check-emdash-overlay.sh /tmp/emdash-site` (keep the work dir, then
+re-run only the boot with
+`node scripts/check-emdash-gate-runtime.mjs /tmp/emdash-site/Source`). `help-book-links` is a
 plain-bash link checker (`scripts/check-help-links.sh`) kept as its own
 lane so a Help Book-only change doesn't pay for a full npm
 install/lint/typecheck/test cycle just to reach it.

@@ -113,7 +113,7 @@ jobs:
           matches 'JS/anglesite-gate/**' 'Resources/Template/scripts/gate-checks.ts' 'Resources/Template/scripts/emdash-gate/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && emdashGate=true
           # Resources/Template/** covers the EmDash overlay's own package.json/package-lock.json
           # (Resources/Template/emdash/), the input to the emdash-site attributions manifest.
-          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/check-emdash-overlay.sh' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
+          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/check-emdash-overlay.sh' 'scripts/check-emdash-gate-runtime.mjs' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
           matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
@@ -244,8 +244,10 @@ jobs:
       - run: npm run build:packs
       # #2050: an EmDash site is the template plus its emdash/ overlay, server-rendered. Build
       # one the way SiteScaffolder does, so a template or overlay change that breaks it fails
-      # here rather than in an owner's first build.
-      - name: Build an EmDash site from the overlay
+      # here rather than in an owner's first build. The script then boots that build on workerd
+      # with a local D1 (scripts/check-emdash-gate-runtime.mjs, #2089) and proves anglesite-gate
+      # cancels a publish that fails its checks and passes a clean one.
+      - name: Build an EmDash site from the overlay and check its publish gate
         working-directory: ${{ github.workspace }}
         run: scripts/check-emdash-overlay.sh
 
