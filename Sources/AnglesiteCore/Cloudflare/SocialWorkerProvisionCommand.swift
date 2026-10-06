@@ -105,6 +105,7 @@ public actor SocialWorkerProvisionCommand {
     private let customDomainAttachCommand: CustomDomainAttachCommand
     private let markdownForAgentsCommand: MarkdownForAgentsCommand
     private let domainConfigDriftSource: CloudflareDeployTarget.DomainConfigDriftSource
+    private let emdashEncryptionKeySource: EmDashDeployTarget.EncryptionKeySource
 
     /// Creates a provisioner. Every dependency defaults to its production conformer; tests (and
     /// `DeployModel`, which threads its own executor) override only the seams they need.
@@ -132,7 +133,9 @@ public actor SocialWorkerProvisionCommand {
         /// `CloudflareDeployTarget.domainConfigDriftSource`. This is the seam the "authorize
         /// checks domain-drift before provisioning" behavior (#1173) depends on; forwarding it is
         /// what lets a test's injected fake actually govern `provision()`'s internal target.
-        domainConfigDriftSource: @escaping CloudflareDeployTarget.DomainConfigDriftSource = CloudflareDeployTarget.defaultDomainConfigDriftSource
+        domainConfigDriftSource: @escaping CloudflareDeployTarget.DomainConfigDriftSource = CloudflareDeployTarget.defaultDomainConfigDriftSource,
+        /// An EmDash site's `EMDASH_ENCRYPTION_KEY` (#2103), for `EmDashDeployTarget`.
+        emdashEncryptionKeySource: @escaping EmDashDeployTarget.EncryptionKeySource = EmDashDeployTarget.defaultEncryptionKeySource
     ) {
         self.tokenSource = tokenSource
         self.executor = executor
@@ -145,6 +148,7 @@ public actor SocialWorkerProvisionCommand {
         self.customDomainAttachCommand = customDomainAttachCommand
         self.markdownForAgentsCommand = markdownForAgentsCommand
         self.domainConfigDriftSource = domainConfigDriftSource
+        self.emdashEncryptionKeySource = emdashEncryptionKeySource
     }
 
     /// Provisions every Cloudflare resource the active workers need (D1, KV, R2, Queues,
@@ -240,6 +244,13 @@ public actor SocialWorkerProvisionCommand {
         /// `needsKV`-flagged worker active still needs `SOCIAL_KV` when MCP is on, since
         /// `worker/mcp-server.ts`'s rate limiter binds to it.
         mcpEnabled: Bool = false,
+        /// Whether the composed Worker opts into Cloudflare Workers Issues (#2095,
+        /// `AppSettings.tracksWorkerIssues`). Forwarded to `WorkerComposition.generateWranglerToml`
+        /// unchanged; provisions nothing of its own.
+        issuesEnabled: Bool = false,
+        /// The Workers Issues relay domain proof (#2095 slice 5, `WorkerIssuesProof.valueForPublish`),
+        /// forwarded to `WorkerComposition.generateWranglerToml` unchanged.
+        issuesProof: String? = nil,
         /// The site's currently published route set, forwarded verbatim to `DeployCommand.deploy`.
         currentRoutes: [String] = [],
         /// Forwarded verbatim to `DeployCommand.deploy` so a caller (`DeployModel`) can observe
@@ -262,7 +273,11 @@ public actor SocialWorkerProvisionCommand {
         // already exist on the account, which Cloudflare rejects. Falling back to a best-effort
         // scrape of the site's own `wrangler.toml` — the same file `persistConfig` writes the
         // real ids into — is strictly safer than trusting the caller-supplied value alone.
-        let resources = knownResources == .init()
+        //
+        // #2103: an EmDash site publishes as its EmDash Worker instead, whose `Config/wrangler.toml`
+        // is EmDash's, so there is nothing of the social composition's to scrape from it.
+        let publishesEmDash = SiteEditingSurfaces.forSourceDirectory(siteDirectory).serverRenderedDeploy
+        let resources = knownResources == .init() && !publishesEmDash
             ? Self.readPersistedResources(configDirectory: configDirectory, sourceDirectory: siteDirectory)
             : knownResources
 
@@ -281,18 +296,45 @@ public actor SocialWorkerProvisionCommand {
             return .failed(reason: "invalid Worker name: \(siteName)", exitCode: nil, resources: resources)
         }
 
+        let cloudflareTarget = CloudflareDeployTarget(
+            tokenSource: { token }, workerScriptNamesSource: workerScriptNamesSource,
+            customDomainAttachCommand: customDomainAttachCommand,
+            markdownForAgentsCommand: markdownForAgentsCommand,
+            domainConfigDriftSource: domainConfigDriftSource,
+            accountIDSource: { apiToken in await self.accountIDSource(apiToken) })
+
+        // #2103: an EmDash site is its EmDash Worker, provisioned and published by
+        // `EmDashDeployTarget`. Routed here so the app's Publish Site and the headless App Intents
+        // deploy (both reach `deploy` through this method) take the same path. The social Workers
+        // aren't composed with it yet (#2052/#2053); the log says so rather than dropping them
+        // silently.
+        if publishesEmDash {
+            if !workers.isEmpty {
+                await LogCenter.shared.append(
+                    source: "emdash-provision:\(siteID)", stream: .stderr,
+                    text: "Social features (\(workers.map(\.id).sorted().joined(separator: ", "))) aren't published on an EmDash site yet.")
+            }
+            let target = EmDashDeployTarget(
+                cloudflareTarget: cloudflareTarget, siteName: siteName,
+                encryptionKeySource: emdashEncryptionKeySource, secretRunner: secretRunner)
+            let deployResult = await DeployCommand(target: target, executor: executor).deploy(
+                siteID: siteID, siteDirectory: siteDirectory, configDirectory: configDirectory,
+                currentRoutes: currentRoutes, wellKnownDynamicClaims: [],
+                onPreflight: onPreflight, onDomainAttach: onDomainAttach,
+                onMarkdownForAgents: onMarkdownForAgents, onProgress: onProgress)
+            // `resources` is the social composition's, passed straight back: an EmDash site has
+            // none (its own are in `SiteSettings.emdashResources`, recorded by the target).
+            return Self.result(deployResult, resources: resources)
+        }
+
         let target = SocialWorkerProvisionTarget(
-            cloudflareTarget: CloudflareDeployTarget(
-                tokenSource: { token }, workerScriptNamesSource: workerScriptNamesSource,
-                customDomainAttachCommand: customDomainAttachCommand,
-                markdownForAgentsCommand: markdownForAgentsCommand,
-                domainConfigDriftSource: domainConfigDriftSource,
-                accountIDSource: { apiToken in await self.accountIDSource(apiToken) }),
+            cloudflareTarget: cloudflareTarget,
             siteName: siteName, workers: workers, routeClaims: routeClaims, knownResources: resources,
             siteURL: siteURL, displayName: displayName, apUsername: apUsername, apIcon: apIcon,
             acknowledgesPaidPlan: acknowledgesPaidPlan, inboxCaptureEnabled: inboxCaptureEnabled,
             inboxForwardEmail: inboxForwardEmail, activityPubActorType: activityPubActorType,
             moderators: moderators, experiments: experiments, mcpEnabled: mcpEnabled,
+            issuesEnabled: issuesEnabled, issuesProof: issuesProof,
             keyPairSource: keyPairSource, solidOidcSigningKeySource: solidOidcSigningKeySource,
             webdavPepperSource: webdavPepperSource, secretRunner: secretRunner, accountIDSource: self.accountIDSource)
 
@@ -301,8 +343,13 @@ public actor SocialWorkerProvisionCommand {
             currentRoutes: currentRoutes, wellKnownDynamicClaims: wellKnownDynamicClaims,
             onPreflight: onPreflight, onDomainAttach: onDomainAttach,
             onMarkdownForAgents: onMarkdownForAgents, onProgress: onProgress)
-        let finalResources = await target.resources
+        return Self.result(deployResult, resources: await target.resources)
+    }
 
+    /// `DeployCommand`'s result, carrying the social resources provisioned so far.
+    private static func result(
+        _ deployResult: DeployCommand.Result, resources finalResources: WorkerComposition.ProvisionedResources
+    ) -> Result {
         switch deployResult {
         case .succeeded(let url, let duration):
             return .succeeded(url: url, resources: finalResources, duration: duration)

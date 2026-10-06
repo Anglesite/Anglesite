@@ -11,9 +11,11 @@ public struct AnglesitePackage: Sendable, Equatable {
     /// Filename extension and package UTI suffix.
     public static let packageExtension = "anglesite"
 
-    /// Current on-disk format. Bump when the layout changes in a way older builds can't safely
-    /// write; `Marker.formatVersion` is compared against this on open (see `compatibility(for:)`).
-    public static let currentFormatVersion = 1
+    /// The newest on-disk format this build reads and writes. Bump when the layout changes in a way
+    /// older builds can't safely write; `Marker.formatVersion` is compared against this on open (see
+    /// `compatibility(for:)`). Version 2 exists only for ``SiteKind/emdash`` packages (#2050); an
+    /// Anglesite-kind marker is still written as version 1, so older builds keep opening those.
+    public static let currentFormatVersion = 2
 
     /// The package directory (`…/Name.anglesite`).
     public let url: URL
@@ -85,6 +87,61 @@ public struct AnglesitePackage: Sendable, Equatable {
         sourceURL.deletingLastPathComponent()
     }
 
+    // MARK: - Site kind
+
+    /// Where a site's content lives, chosen once when the package is created and never toggled
+    /// afterwards: changing it is a migration (export from one, import into the other). See
+    /// docs/specs/2026-09-28-external-cms-content-source-decision.md (#2050).
+    public enum SiteKind: Sendable, Hashable, Codable {
+        /// Git-backed content in `Source/` — every package created before site kinds existed.
+        case anglesite
+        /// All authored content and media live in EmDash; `Source/` holds only code and theme,
+        /// and the site is server-rendered.
+        case emdash
+        /// A kind written by a newer build. Kept verbatim so the marker still round-trips; the
+        /// package opens read-only (``AnglesitePackage/compatibility(for:)``), because this build
+        /// can't know where such a site's content lives or how it deploys.
+        case unrecognized(String)
+
+        /// The `AnglesiteSiteKind` string stored in `Info.plist`.
+        public var rawValue: String {
+            switch self {
+            case .anglesite: "anglesite"
+            case .emdash: "emdash"
+            case .unrecognized(let value): value
+            }
+        }
+
+        public init(rawValue: String) {
+            switch rawValue {
+            case "anglesite": self = .anglesite
+            case "emdash": self = .emdash
+            default: self = .unrecognized(rawValue)
+            }
+        }
+
+        /// The oldest marker format that may carry this kind. An EmDash package must never open as
+        /// editable in a build that predates site kinds: that build would treat its content as
+        /// git-backed and could deploy a static build over the site, so EmDash markers are stamped
+        /// with a format those builds already refuse to edit.
+        public var minimumFormatVersion: Int {
+            switch self {
+            case .anglesite: 1
+            case .emdash: 2
+            case .unrecognized: AnglesitePackage.currentFormatVersion
+            }
+        }
+
+        public init(from decoder: Decoder) throws {
+            self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
+    }
+
     // MARK: - Marker
 
     /// The `Info.plist` marker: stable identity + format version + provenance. Encoded with
@@ -95,7 +152,8 @@ public struct AnglesitePackage: Sendable, Equatable {
         // change (a rename), so it stays `var`.
 
         /// The on-disk layout version this marker was written with (see
-        /// ``AnglesitePackage/currentFormatVersion``).
+        /// ``AnglesitePackage/currentFormatVersion``). ``AnglesitePackage/writeMarker(_:fileManager:)``
+        /// never writes one below ``kind``'s ``SiteKind/minimumFormatVersion``.
         public let formatVersion: Int
         /// The package's stable, path-independent identity — moving or renaming the package
         /// keeps the same site.
@@ -105,20 +163,29 @@ public struct AnglesitePackage: Sendable, Equatable {
         public var displayName: String
         /// When the package was created. Whole-second granularity (see `init`).
         public let createdDate: Date
+        /// Where the site's content lives. Immutable: changing it is a migration, not an edit.
+        /// Absent from markers written before site kinds existed, which decode as
+        /// ``SiteKind/anglesite``.
+        public let kind: SiteKind
 
         /// Creates a marker, minting a fresh identity by default — pass explicit values only
         /// when re-encoding an existing marker.
+        ///
+        /// `formatVersion` defaults to the oldest format that can carry `kind` (1 for an Anglesite
+        /// site, 2 for an EmDash one), so a new Anglesite package stays openable by older builds.
         ///
         /// `createdDate` is truncated to a whole second so an in-memory marker compares equal
         /// to the one decoded back from `Info.plist` (XML plist dates carry no sub-second
         /// precision).
         public init(
-            formatVersion: Int = AnglesitePackage.currentFormatVersion,
+            formatVersion: Int? = nil,
             siteID: UUID = UUID(),
             displayName: String,
-            createdDate: Date = Date()
+            createdDate: Date = Date(),
+            kind: SiteKind = .anglesite
         ) {
-            self.formatVersion = formatVersion
+            self.formatVersion = formatVersion ?? kind.minimumFormatVersion
+            self.kind = kind
             self.siteID = siteID
             self.displayName = displayName
             // XML property-list <date> values have whole-second granularity, so we truncate to
@@ -133,6 +200,19 @@ public struct AnglesitePackage: Sendable, Equatable {
             case siteID = "AnglesiteSiteID"
             case displayName = "AnglesiteDisplayName"
             case createdDate = "AnglesiteCreatedDate"
+            case kind = "AnglesiteSiteKind"
+        }
+
+        /// Decodes a marker as written, including an older one with no `AnglesiteSiteKind` key
+        /// (an Anglesite site). The stored format version is kept as-is, never raised: this is
+        /// what's on disk, and ``AnglesitePackage/compatibility(for:)`` judges it.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+            siteID = try container.decode(UUID.self, forKey: .siteID)
+            displayName = try container.decode(String.self, forKey: .displayName)
+            createdDate = try container.decode(Date.self, forKey: .createdDate)
+            kind = try container.decodeIfPresent(SiteKind.self, forKey: .kind) ?? .anglesite
         }
     }
 
@@ -161,9 +241,12 @@ public struct AnglesitePackage: Sendable, Equatable {
 
     /// Classifies `marker` against the format this build writes: an older-or-equal
     /// ``Marker/formatVersion`` is ``Compatibility/current`` (older layouts are always readable),
-    /// a newer one is ``Compatibility/readOnlyTooNew``.
+    /// a newer one is ``Compatibility/readOnlyTooNew``. So is a site kind this build doesn't know
+    /// (``SiteKind/unrecognized(_:)``), whatever its format version: editing a site without knowing
+    /// where its content lives could publish the wrong thing.
     public static func compatibility(for marker: Marker) -> Compatibility {
-        marker.formatVersion > currentFormatVersion ? .readOnlyTooNew : .current
+        if case .unrecognized = marker.kind { return .readOnlyTooNew }
+        return marker.formatVersion > currentFormatVersion ? .readOnlyTooNew : .current
     }
 
     /// Reads and decodes the `Info.plist` marker.
@@ -187,15 +270,23 @@ public struct AnglesitePackage: Sendable, Equatable {
     /// Refuses to overwrite a marker written by a newer build (`.readOnlyTooNew`) so we never
     /// silently downgrade a format we don't understand (spec §9). A fresh package has no marker
     /// yet — `readMarker` throws, the `try?` yields `nil`, and creation proceeds.
+    ///
+    /// A marker whose format version is below its kind's ``SiteKind/minimumFormatVersion`` is
+    /// written at that minimum instead, so no path can stamp an EmDash package with a format that
+    /// builds predating site kinds would open as editable.
     public func writeMarker(_ marker: Marker, fileManager: FileManager = .default) throws {
         if let existing = try? readMarker(fileManager: fileManager),
            AnglesitePackage.compatibility(for: existing) == .readOnlyTooNew {
             throw PackageError.markerTooNew(infoPlistURL)
         }
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        let floor = marker.kind.minimumFormatVersion
+        let stamped = marker.formatVersion >= floor ? marker : Marker(
+            formatVersion: floor, siteID: marker.siteID, displayName: marker.displayName,
+            createdDate: marker.createdDate, kind: marker.kind)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .xml
-        let data = try encoder.encode(marker)
+        let data = try encoder.encode(stamped)
         try data.write(to: infoPlistURL, options: [.atomic])
     }
 
@@ -203,11 +294,13 @@ public struct AnglesitePackage: Sendable, Equatable {
 
     /// Creates an empty package skeleton: the package dir, `Source/`, `Config/`, and a freshly
     /// stamped `Info.plist`. Does **not** scaffold the Astro project — that runs later with cwd =
-    /// `sourceURL` (P2). Returns the package and its new marker.
+    /// `sourceURL` (P2). Returns the package and its new marker. `kind` is fixed for the life of the
+    /// package (see ``SiteKind``).
     @discardableResult
     public static func createSkeleton(
         at url: URL,
         displayName: String,
+        kind: SiteKind = .anglesite,
         fileManager: FileManager = .default
     ) throws -> (AnglesitePackage, Marker) {
         // Refuse to scaffold over an existing path: overwriting would mint a new UUID and silently
@@ -222,7 +315,7 @@ public struct AnglesitePackage: Sendable, Equatable {
         defer { if !succeeded { try? fileManager.removeItem(at: url) } }
         try fileManager.createDirectory(at: pkg.sourceURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: pkg.configURL, withIntermediateDirectories: true)
-        let marker = Marker(displayName: displayName)
+        let marker = Marker(displayName: displayName, kind: kind)
         try pkg.writeMarker(marker, fileManager: fileManager)
         succeeded = true
         return (pkg, marker)

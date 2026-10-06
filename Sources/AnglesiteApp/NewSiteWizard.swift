@@ -13,6 +13,9 @@ struct NewSiteWizard: View {
     let onComplete: (String) -> Void
     let onCancel: () -> Void
 
+    /// The EmDash site to connect, while the owner confirms what connecting does (#2106).
+    @State private var confirmingConnect: EmDashInstall?
+
     var body: some View {
         VStack(spacing: 0) {
             content
@@ -22,6 +25,16 @@ struct NewSiteWizard: View {
         .frame(width: 720, height: 480)
         // The scaffold pipeline isn't cancellable — block Esc/interactive dismissal once it starts.
         .interactiveDismissDisabled(model.step == .building)
+        .alert(
+            String(localized: "Connect “\(confirmingConnect?.workerName ?? "")”?"),
+            isPresented: Binding(get: { confirmingConnect != nil }, set: { if !$0 { confirmingConnect = nil } }),
+            presenting: confirmingConnect
+        ) { _ in
+            Button("Connect") { startBuild() }
+            Button("Cancel", role: .cancel) {}
+        } message: { install in
+            Text(EmDashSetupRow.connectMessage(for: install))
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -37,6 +50,19 @@ struct NewSiteWizard: View {
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text("Choose a Template").font(.title2.bold())
+                if model.draft.siteKind == .emdash {
+                    // Consequences for the owner's site, not mechanics (decision D1, #2050).
+                    if model.connectsExistingEmDash {
+                        Text("Your writers keep signing in to your EmDash site as they do now. Its articles stay in EmDash, and the website shows them with the design you choose here, starting the first time you publish it.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here, and Anglesite sets up EmDash for you the first time you publish the website.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    EmDashSetupRow(model: model)
+                }
                 if model.filteredThemes.isEmpty {
                     emptyCategoryState
                 } else {
@@ -152,13 +178,37 @@ struct NewSiteWizard: View {
         }
     }
 
+    /// Who writes for the site (#2050): chosen once, at creation — the kind is recorded in the
+    /// package and can't be changed later, so it's asked here rather than in Website Settings.
+    private var siteKindPicker: some View {
+        Picker("Writers:", selection: $model.draft.siteKind) {
+            ForEach(NewSiteWizardModel.siteKindChoices, id: \.self) { kind in
+                Text(Self.siteKindLabel(kind)).tag(kind)
+            }
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help("Who writes this website's articles. This can't be changed after the website is created.")
+        // `.help` isn't reliably announced by VoiceOver, so the can't-change caveat goes here too.
+        .accessibilityHint("Who writes this website's articles. This can't be changed after the website is created.")
+    }
+
+    private static func siteKindLabel(_ kind: AnglesitePackage.SiteKind) -> String {
+        switch kind {
+        case .emdash: return String(localized: "A team, in EmDash")
+        case .anglesite, .unrecognized: return String(localized: "Me, in Anglesite")
+        }
+    }
+
     @ViewBuilder private var footer: some View {
         HStack {
-            Spacer()
+            if model.step != .chooser { Spacer() }
             // No Cancel once building starts: the scaffold pipeline isn't cancellable and
             // always reaches .done or .failed (failure shows Close below), so cancelling
             // mid-build would leak the in-flight work and the MAS security scope.
             if model.step == .chooser {
+                siteKindPicker
+                Spacer()
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Button("Create") { create() }
@@ -172,6 +222,17 @@ struct NewSiteWizard: View {
     }
 
     private func create() {
+        guard model.canCreate else { return }
+        // Connecting an EmDash site the owner already has changes that site, so they confirm
+        // what it does first (#2106).
+        if let install = model.emdashInstallToConnect {
+            confirmingConnect = install
+            return
+        }
+        startBuild()
+    }
+
+    private func startBuild() {
         guard model.canCreate else { return }
         // Auto-open only on a clean build; with warnings, stay put so the owner sees them (#229).
         Task {

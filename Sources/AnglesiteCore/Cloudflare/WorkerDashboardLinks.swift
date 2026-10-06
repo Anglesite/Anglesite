@@ -17,6 +17,12 @@ public enum WorkerDashboardLinks {
         deepLink(to: "/workers/services/view/\(encoded(workerName))/production/metrics")
     }
 
+    /// The worker's Workers Issues page (#2095), where the owner creates the automation that sends
+    /// issues to the relay.
+    public static func issuesURL(workerName: String) -> URL {
+        deepLink(to: "/workers/services/view/\(encoded(workerName))/production/issues")
+    }
+
     private static func deepLink(to path: String) -> URL {
         URL(string: "https://dash.cloudflare.com/?to=/:account\(path)")!
     }

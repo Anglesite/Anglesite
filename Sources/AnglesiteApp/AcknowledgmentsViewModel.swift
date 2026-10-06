@@ -2,11 +2,11 @@ import Foundation
 import AnglesiteCore
 
 /// Identifies one row in the Acknowledgments list. `OSSAttribution.id` (`name@version`) is not
-/// unique across sources on its own — the app-binary, container-image, and website-template
-/// manifests are independently-generated dependency trees that can (and do) share identical
-/// `name@version` pairs, e.g. npm packages common to both the container image and the website
-/// template. Pairing the id with its source keeps SwiftUI `List` selection/tagging unique and
-/// lookups unambiguous.
+/// unique across sources on its own — the app-binary, container-image, website-template, and
+/// emdash-site manifests are independently-generated dependency trees that can (and do) share
+/// identical `name@version` pairs, e.g. npm packages common to both the container image and the
+/// website template, or to the website template and the EmDash overlay built on it. Pairing the
+/// id with its source keeps SwiftUI `List` selection/tagging unique and lookups unambiguous.
 public struct SelectedAttribution: Hashable, Sendable {
     public let source: AttributionSource
     public let id: OSSAttribution.ID
@@ -41,8 +41,8 @@ public final class AcknowledgmentsViewModel {
         self.log = log
     }
 
-    /// Loads all three sources independently — one source failing to decode must not hide the
-    /// other two (see `AttributionCatalogError`). Each source's read + JSON-decode (potentially
+    /// Loads every source independently — one source failing to decode must not hide the
+    /// others (see `AttributionCatalogError`). Each source's read + JSON-decode (potentially
     /// ~MB-scale — see docs/superpowers/specs/2026-07-31-oss-attributions-design.md) is hopped
     /// off the main actor via `Task.detached` so opening the window never blocks it.
     public func loadAll() async {

@@ -41,7 +41,7 @@ public enum ContentClassifier {
     ///
     /// Items are classified using the following rule order:
     /// 1. `.wpPost` → `collection("blog", slug)`
-    /// 2. `.wpPage` → `page(route:)` from URL path
+    /// 2. `.wpPage` or `.page` → `page(route:)` from URL path
     /// 3. Microformat hints → `.bookmark` → bookmarks, `.like` → likes, `.reply` → replies,
     ///    `.photo` → photos, `.note` → notes, `.article` → blog
     /// 4. `.none` with blog/posts patterns or date paths → `collection("blog", slug)`
@@ -134,8 +134,11 @@ public enum ContentClassifier {
             return .collection(name: "blog", slug: slug)
         }
 
-        // Rule 2: .wpPage → page(route)
+        // Rule 2: .wpPage / .page → page(route)
         if case .wpPage = item.hint {
+            return .page(route: route)
+        }
+        if case .page = item.hint {
             return .page(route: route)
         }
 
@@ -153,7 +156,7 @@ public enum ContentClassifier {
             return .collection(name: "notes", slug: slug)
         case .article:
             return .collection(name: "blog", slug: slug)
-        case .wpPost, .wpPage, .none:
+        case .wpPost, .wpPage, .page, .none:
             break
         }
 

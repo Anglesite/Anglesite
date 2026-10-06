@@ -219,6 +219,7 @@ public struct ContentCreationWorkflow: ContentOperationsService {
         slug: String?,
         onProgress: ProgressHandler? = nil
     ) async -> ContentCreateResult {
+        if let refusal = await typedContentRefusal(siteID: siteID) { return refusal }
         let result = await operations.createPost(
             siteID: siteID,
             title: title,
@@ -238,6 +239,7 @@ public struct ContentCreationWorkflow: ContentOperationsService {
         title: String,
         onProgress: ProgressHandler? = nil
     ) async -> ContentCreateResult {
+        if let refusal = await typedContentRefusal(siteID: siteID) { return refusal }
         let result = await operations.createTyped(
             siteID: siteID,
             typeID: typeID,
@@ -279,6 +281,7 @@ public struct ContentCreationWorkflow: ContentOperationsService {
         fieldValues: [String: String] = [:],
         onProgress: ProgressHandler? = nil
     ) async -> ContentCreateResult {
+        if let refusal = await typedContentRefusal(siteID: siteID) { return refusal }
         let result: ContentCreateResult
         if let typedSlugCreator {
             result = await typedSlugCreator(siteID, typeID, title, slug, fieldValues, onProgress)
@@ -292,6 +295,19 @@ public struct ContentCreationWorkflow: ContentOperationsService {
         }
         await refreshContentGraphIfCreated(result, siteID: siteID)
         return result
+    }
+
+    /// The backstop for EmDash sites (#2050): their posts and collection entries live in EmDash,
+    /// so a typed-content write into `Source/` is refused here — below every UI gate, so
+    /// Shortcuts, AppleScript, drag-and-drop and paste are covered too. Pages, components and
+    /// per-site singletons (the h-card) are what git still holds, so they aren't gated. An
+    /// unknown site id falls through to the operation, which reports `.siteNotFound` as before.
+    private func typedContentRefusal(siteID: String) async -> ContentCreateResult? {
+        guard let root = await siteDirectory(siteID) else { return nil }
+        guard SiteEditingSurfaces.forSourceDirectory(root).typedContent else {
+            return .failed(reason: SiteEditingSurfaces.typedContentUnavailableReason)
+        }
+        return nil
     }
 
     private func refreshContentGraphIfCreated(_ result: ContentCreateResult, siteID: String) async {
@@ -359,6 +375,7 @@ public struct ContentCreationWorkflow: ContentOperationsService {
     /// refreshes the graph on success, like every create.
     public func duplicatePost(siteID: String, relativePath: String, collection: String, title: String) async -> ContentCreateResult {
         guard let postDuplicator else { return .failed(reason: "Duplicate is not configured for this workflow") }
+        if let refusal = await typedContentRefusal(siteID: siteID) { return refusal }
         let result = await postDuplicator(siteID, relativePath, collection, title)
         await refreshContentGraphIfCreated(result, siteID: siteID)
         return result
@@ -368,6 +385,7 @@ public struct ContentCreationWorkflow: ContentOperationsService {
     /// entry's draft badge updates everywhere at once.
     public func publish(siteID: String, relativePath: String, collection: String) async -> ContentCreateResult {
         guard let postPublisher else { return .failed(reason: "Publish is not configured for this workflow") }
+        if let refusal = await typedContentRefusal(siteID: siteID) { return refusal }
         let result = await postPublisher(siteID, relativePath, collection)
         await refreshContentGraphIfCreated(result, siteID: siteID)
         return result
@@ -377,6 +395,7 @@ public struct ContentCreationWorkflow: ContentOperationsService {
     /// mirroring ``publish(siteID:relativePath:collection:)``.
     public func unpublish(siteID: String, relativePath: String, collection: String) async -> ContentCreateResult {
         guard let postUnpublisher else { return .failed(reason: "Unpublish is not configured for this workflow") }
+        if let refusal = await typedContentRefusal(siteID: siteID) { return refusal }
         let result = await postUnpublisher(siteID, relativePath, collection)
         await refreshContentGraphIfCreated(result, siteID: siteID)
         return result

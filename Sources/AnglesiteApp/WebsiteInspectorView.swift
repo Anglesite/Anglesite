@@ -54,6 +54,18 @@ struct WebsiteInspectorView: View {
                         .foregroundStyle(.secondary)
                 }
                 LabeledContent("Domain", value: model.domain ?? "Not configured")
+                if let paid = model.workersPaidPlan {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("Workers Paid plan", isOn: Binding(
+                            get: { paid },
+                            set: { newValue in Task { await model.saveWorkersPaidPlan(newValue) } }
+                        ))
+                        .accessibilityIdentifier(AXID.websiteInspectorWorkersPaidPlan)
+                        Text("Turn on if your Cloudflare account is on the Workers Paid plan. Anglesite then keeps a ready copy of each article, so pages load faster. Takes effect the next time you publish.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if let saveError = model.saveError {
                     Label(saveError, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange).font(.callout)

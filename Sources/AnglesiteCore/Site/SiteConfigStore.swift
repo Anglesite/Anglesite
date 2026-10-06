@@ -146,6 +146,35 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// infrastructure, hence `Config/` (#1960).
     public var sourceBundleBucket: String?
 
+    /// The EmDash admin for an EmDash site (#2050) — where writers and editors work, and what
+    /// "Open EmDash" opens (via ``SiteEditingSurfaces/emdashAdminURL(settings:)``, which accepts
+    /// only `https`). Written when Anglesite provisions EmDash or connects an existing install
+    /// (decision 7 in `docs/specs/2026-09-28-external-cms-content-source-decision.md`); `nil`
+    /// until then, and always on an Anglesite site. Provisioned infrastructure, hence `Config/`.
+    public var emdashAdminURL: URL?
+
+    /// The id of an EmDash site's D1 database (EmDash's `DB` binding, #2050). The app reads the
+    /// render backstop's `anglesite_withheld_pages` table from it to tell the owner when a page
+    /// isn't showing to readers (#2097). Written alongside ``emdashAdminURL`` when Anglesite
+    /// provisions EmDash or connects an existing install; `nil` until then, and always on an
+    /// Anglesite site. Provisioned infrastructure, hence `Config/`.
+    public var emdashD1DatabaseID: String?
+
+    /// The Cloudflare resources a provisioned EmDash site's Worker is bound to (#2103): its D1
+    /// database, R2 media bucket and session KV namespace. Recorded as each is created, so a
+    /// failed publish resumes instead of creating them again; ``emdashD1DatabaseID`` is set from
+    /// it. `nil` until the first publish, and always on an Anglesite site.
+    public var emdashResources: EmDashWorkerConfig.Resources?
+
+    /// The owner's answer to whether this EmDash site's Cloudflare account is on the Workers Paid
+    /// plan (#2116), asked once at Publish Site. `true` turns on Workers Caching for the site's
+    /// Worker, which bills every request (static files included) but serves articles without
+    /// rendering them each time; on the Free plan that would only spend its daily request limit
+    /// faster, so `false` and `nil` (not asked yet, e.g. a background publish) leave it off. A
+    /// connected install that already has a Worker Loader, a Paid-plan feature, records `true`
+    /// without asking. `nil` on an Anglesite site.
+    public var emdashWorkersPaidPlan: Bool?
+
     /// Owner opt-in to checking off-site links during audits (#2001). `nil`/`false` (the default)
     /// means off: `BrokenLinkAuditRunner` only counts external links, never fetches them — probing
     /// needs the network, is slow, and trips bot challenges, so network-dependent findings stay
@@ -159,6 +188,11 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// dropped image — so existing sites get it without a migration, matching the
     /// `markdownForAgentsDisabled` precedent. `true` writes dropped images byte-for-byte.
     public var imageOptimisationDisabled: Bool?
+
+    /// The site's Workers Issues relay registration (#2095 slice 3), refreshed after every publish
+    /// by `WorkerIssuesReconciler`. `nil` when the feature is off or the site never registered.
+    /// Provisioned infrastructure state, hence `Config/`; the webhook secret is secret-store only.
+    public var workerIssuesRelay: WorkerIssuesRelayState?
 
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
@@ -186,8 +220,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         workerDeployed: Bool? = nil,
         workerProvisioned: Bool? = nil,
         sourceBundleBucket: String? = nil,
+        emdashAdminURL: URL? = nil,
+        emdashD1DatabaseID: String? = nil,
+        emdashResources: EmDashWorkerConfig.Resources? = nil,
+        emdashWorkersPaidPlan: Bool? = nil,
         externalLinkCheckEnabled: Bool? = nil,
-        imageOptimisationDisabled: Bool? = nil
+        imageOptimisationDisabled: Bool? = nil,
+        workerIssuesRelay: WorkerIssuesRelayState? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -211,8 +250,13 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.workerDeployed = workerDeployed
         self.workerProvisioned = workerProvisioned
         self.sourceBundleBucket = sourceBundleBucket
+        self.emdashAdminURL = emdashAdminURL
+        self.emdashD1DatabaseID = emdashD1DatabaseID
+        self.emdashResources = emdashResources
+        self.emdashWorkersPaidPlan = emdashWorkersPaidPlan
         self.externalLinkCheckEnabled = externalLinkCheckEnabled
         self.imageOptimisationDisabled = imageOptimisationDisabled
+        self.workerIssuesRelay = workerIssuesRelay
     }
 }
 

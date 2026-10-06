@@ -45,6 +45,20 @@ public final class NewSiteWizardModel {
     /// (`NewCommunityWizardModel`), not a chooser category.
     public static let chooserCategories: [SiteType] = [.business, .personal, .blog, .portfolio, .organization, .blank]
 
+    /// The site kinds the chooser offers (#2050), in menu order: an Anglesite site (the default)
+    /// or an EmDash site, for a team of writers who work in the browser. Owner-facing copy lives
+    /// in the app, not here.
+    public static let siteKindChoices: [AnglesitePackage.SiteKind] = [.anglesite, .emdash]
+
+    /// For an EmDash site: connect an install the owner already has (#2106) rather than set up
+    /// a new one. Ignored for an Anglesite site.
+    public var connectsExistingEmDash = false {
+        // Switching away forgets the last look, so switching back searches afresh.
+        didSet { if !connectsExistingEmDash { emdashSearch.reset() } }
+    }
+    /// The search for those installs, and the owner's pick.
+    public let emdashSearch: EmDashInstallSearch
+
     /// The sidebar category currently selected. Starts on ``SiteType/blank`` — today's
     /// default: all eight built-in CSS-var themes, no site type recorded.
     public private(set) var selectedCategory: SiteType = .blank
@@ -57,8 +71,15 @@ public final class NewSiteWizardModel {
     ///   - isNameTaken: Availability check for a candidate display name (e.g. "Untitled 2").
     ///     The caller decides what "taken" means — the launcher checks both the recents
     ///     registry and the sites root on disk. Non-escaping: consulted only here, at init.
-    public init(catalog: ThemeCatalog, isNameTaken: (String) -> Bool) {
+    ///   - emdashSearch: The search behind "Connect One I Already Have" for an EmDash site
+    ///     (#2106). Tests inject one with stubbed sources.
+    public init(
+        catalog: ThemeCatalog,
+        isNameTaken: (String) -> Bool,
+        emdashSearch: EmDashInstallSearch = EmDashInstallSearch()
+    ) {
         self.catalog = catalog
+        self.emdashSearch = emdashSearch
         let name = Self.untitledName(isTaken: isNameTaken)
         // headline "" on purpose (overriding NewSiteDraft's default of `name`): the scaffolder
         // skips the homepage write for a contentless draft, leaving the template's placeholder
@@ -85,9 +106,19 @@ public final class NewSiteWizardModel {
     }
 
     /// Gate for the chooser's Create button (and double-click): a real catalog theme is
-    /// selected and no build is running.
+    /// selected, no build is running, and an EmDash site connecting to an existing install has
+    /// one picked that can be connected.
     public var canCreate: Bool {
-        step == .chooser && catalog.theme(id: draft.themeID) != nil
+        guard step == .chooser, catalog.theme(id: draft.themeID) != nil else { return false }
+        return emdashInstallToConnect != nil || !connectsToExistingInstall
+    }
+
+    /// Whether this build connects an existing EmDash install.
+    public var connectsToExistingInstall: Bool { draft.siteKind == .emdash && connectsExistingEmDash }
+
+    /// The install the build will connect, when it connects one.
+    public var emdashInstallToConnect: EmDashInstall? {
+        connectsToExistingInstall ? emdashSearch.connectableSelection : nil
     }
 
     /// Catalog themes matching ``selectedCategory``: themes whose `category` equals the
@@ -126,6 +157,7 @@ public final class NewSiteWizardModel {
 
     /// Runs the scaffolder, accumulating progress. Returns the new site id on success.
     public func build(using scaffolder: SiteScaffolder) async -> String? {
+        draft.emdashInstall = emdashInstallToConnect
         step = .building
         for await s in scaffolder.scaffold(draft) {
             progress.append(s)
