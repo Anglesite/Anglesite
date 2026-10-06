@@ -251,15 +251,29 @@ struct SiteWindow: View {
 
     private func refreshNewContentActions() {
         guard model.site != nil, newContentActions == nil else { return }
-        newContentActions = NewContentActions(
-            newPage: { model.newPagePresented = true },
-            newCollection: { model.newCollectionPresented = true },
-            newPost: { model.newPostPresented = true },
-            newComponent: { model.newComponentPresented = true },
-            newLinkPost: {
+        // Built once per window; the typed-content gate (#2050) doesn't rely on that ordering —
+        // `onChange(of: model.editingSurfaces)` below rebuilds these if the surfaces change after
+        // the first build.
+        // Explicitly typed optionals rather than `cond ? { … } : nil` inline: the ternary form
+        // is more than the type checker can solve in one expression (it crashed the Xcode 27
+        // compile with "failed to produce diagnostic").
+        var newCollection: (@MainActor () -> Void)?
+        var newPost: (@MainActor () -> Void)?
+        var newLinkPost: (@MainActor () -> Void)?
+        if model.editingSurfaces.typedContent {
+            newCollection = { model.newCollectionPresented = true }
+            newPost = { model.newPostPresented = true }
+            newLinkPost = {
                 model.quickCaptureURL = QuickCapture.clipboardURLString()
                 model.quickCapturePresented = true
             }
+        }
+        newContentActions = NewContentActions(
+            newPage: { model.newPagePresented = true },
+            newCollection: newCollection,
+            newPost: newPost,
+            newComponent: { model.newComponentPresented = true },
+            newLinkPost: newLinkPost
         )
     }
 
@@ -304,6 +318,10 @@ struct SiteWindow: View {
                 toggleWebsite: { toggleWebsiteInspector() }
             ))
             .onChange(of: model.site?.id, initial: true) { _, _ in refreshNewContentActions() }
+            .onChange(of: model.editingSurfaces) { _, _ in
+                newContentActions = nil
+                refreshNewContentActions()
+            }
     }
 
     /// Shows the selection inspector, switching away from the website inspector if that's active;
@@ -473,7 +491,7 @@ struct SiteWindow: View {
     /// type-checking budget.
     @MainActor
     private static func shellInsertMenuItems(
-        actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry]
+        actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry], typedContent: Bool
     ) -> [NSMenuItem] {
         // `String(localized:)` throughout: an `NSMenuItem` title is an AppKit property, invisible
         // to Xcode's SwiftUI string extraction, so a bare literal here would ship untranslated
@@ -484,15 +502,19 @@ struct SiteWindow: View {
                 title: String(localized: "New Page…"),
                 action: #selector(ShellInsertMenuActions.newPage),
                 keyEquivalent: ""),
-            NSMenuItem(
+        ]
+        // An EmDash site's posts are written in EmDash (#2050), so its Insert menu offers pages
+        // and blocks only — the same items the SwiftUI toolbar menu hides.
+        if typedContent {
+            items.append(NSMenuItem(
                 title: String(localized: "New Post…"),
                 action: #selector(ShellInsertMenuActions.newPost),
-                keyEquivalent: ""),
-            NSMenuItem(
+                keyEquivalent: ""))
+            items.append(NSMenuItem(
                 title: String(localized: "New Collection Entry…"),
                 action: #selector(ShellInsertMenuActions.newCollection),
-                keyEquivalent: ""),
-        ]
+                keyEquivalent: ""))
+        }
         for item in items { item.target = actions }
         guard !blockPalette.isEmpty else { return items }
         items.append(NSMenuItem.sectionHeader(title: String(localized: "Blocks")))
@@ -521,8 +543,12 @@ struct SiteWindow: View {
         case .insert:
             Menu {
                 Button("New Page…") { newContentActions?.newPage() }
-                Button("New Post…") { newContentActions?.newPost() }
-                Button("New Collection Entry…") { newContentActions?.newCollection() }
+                if let newPost = newContentActions?.newPost {
+                    Button("New Post…") { newPost() }
+                }
+                if let newCollection = newContentActions?.newCollection {
+                    Button("New Collection Entry…") { newCollection() }
+                }
                 if let canvas = model.preview.wysiwygCanvas {
                     Section("Blocks") {
                         ForEach(canvas.blockPalette) { entry in
@@ -919,8 +945,8 @@ struct SiteWindow: View {
         // see `ShellInsertMenuActions`' doc comment.
         let actions = shellInsertActions
         actions.onNewPage = { newContentActions?.newPage() }
-        actions.onNewPost = { newContentActions?.newPost() }
-        actions.onNewCollection = { newContentActions?.newCollection() }
+        actions.onNewPost = { newContentActions?.newPost?() }
+        actions.onNewCollection = { newContentActions?.newCollection?() }
         actions.onInsertBlock = { entry in
             guard let canvas = model.preview.wysiwygCanvas else { return }
             Task { await canvas.insertBlock(entry) }
@@ -946,7 +972,8 @@ struct SiteWindow: View {
             insertMenuItems: {
                 Self.shellInsertMenuItems(
                     actions: actions,
-                    blockPalette: self.model.preview.wysiwygCanvas?.blockPalette ?? [])
+                    blockPalette: self.model.preview.wysiwygCanvas?.blockPalette ?? [],
+                    typedContent: self.model.editingSurfaces.typedContent)
             },
             searchItem: shellSearchItem
         ) {
@@ -981,6 +1008,16 @@ struct SiteWindow: View {
                     if let notice = model.siteUpdateNotice {
                         SiteUpdateNoticeBannerView(notice: notice, onDismiss: { model.dismissSiteUpdateNotice() })
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    }
+                    // EmDash sites (#2097): pages the render backstop is holding back from readers.
+                    if model.showsWithheldPagesNotice {
+                        WithheldPagesBannerView(
+                            pages: model.withheldPages,
+                            canOpenEmDash: model.canOpenEmDash,
+                            onOpenEmDash: { model.openEmDash() },
+                            onDismiss: { model.dismissWithheldPagesNotice() }
+                        )
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                     HStack(spacing: 0) {
                         // Leading tool panel (#1588 Task 20): same Divider + fixed-width +
@@ -1314,6 +1351,10 @@ struct SiteWindow: View {
         }
         .sheet(isPresented: $bindableModel.deploy.licenseGatePresented) {
             LicenseGateSheetView(model: model.deploy)
+                .interactiveDismissDisabled()
+        }
+        .sheet(isPresented: $bindableModel.deploy.workersPlanQuestionPresented) {
+            EmDashWorkersPlanSheetView(model: model.deploy)
                 .interactiveDismissDisabled()
         }
         .sheet(isPresented: $bindableModel.audit.sheetPresented) {
@@ -1659,6 +1700,14 @@ struct SiteWindow: View {
                 await model.createPage(title: title, route: route, template: template)
             }
         }
+        // One-time screening-model offer (#2068); Not Now is the cancel role so Escape and a
+        // stray Return both decline — a 1 GB download is never the default action.
+        .alert("Screen new comments for spam?", isPresented: $bindableModel.screeningModelOfferPresented) {
+            Button("Download (1 GB)") { KevModelDownloadModel.shared.download() }
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text("Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later.")
+        }
         .sheet(isPresented: $bindableModel.newCollectionPresented) {
             NewCollectionEntrySheet(
                 descriptors: contentTypeRegistry.all.filter { $0.collection != nil }
@@ -1709,8 +1758,10 @@ struct SiteWindow: View {
         // Drag a link anywhere onto the site window → quick capture for this site (#531).
         // File URLs (image drops onto the preview, .anglesite packages) don't match and
         // fall through to their existing handlers.
+        // Neither applies on an EmDash site, whose posts are written in EmDash (#2050).
         .dropDestination(for: URL.self) { urls, _ in
-            guard let web = QuickCapture.webURL(from: urls) else { return false }
+            guard model.editingSurfaces.typedContent,
+                  let web = QuickCapture.webURL(from: urls) else { return false }
             model.quickCaptureURL = web.absoluteString
             model.quickCapturePresented = true
             return true
@@ -1720,7 +1771,8 @@ struct SiteWindow: View {
         // pasting prose never hijacks (#531). Reads the pasteboard directly: the provider
         // payload and the pasteboard agree here, and clipboardURLString is the one gate.
         .onPasteCommand(of: [.url]) { _ in
-            guard let urlString = QuickCapture.clipboardURLString() else { return }
+            guard model.editingSurfaces.typedContent,
+                  let urlString = QuickCapture.clipboardURLString() else { return }
             model.quickCaptureURL = urlString
             model.quickCapturePresented = true
         }
@@ -1917,7 +1969,7 @@ struct SiteWindow: View {
         case .communities:
             CommunitiesView(communities: model.communities)
         case .moderation:
-            ModerationView(moderation: model.moderation)
+            ModerationView(moderation: model.moderation, showsCommunitySections: model.isHostedCommunity)
         case .contacts:
             ContactsView(
                 contacts: model.contacts,
@@ -2049,7 +2101,12 @@ struct SiteWindow: View {
 
                     let assetPath: String?
                     do {
-                        assetPath = try WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
+                        // #2019: `ingest` reads settings and may decode/re-encode a large photo
+                        // synchronously — keep that off the main actor this `Task` inherits.
+                        let dropped = bytes
+                        assetPath = try await Task.detached(priority: .userInitiated) {
+                            try WYSIWYGImageAssetIngestor.ingest(bytes: dropped, siteDirectory: siteDirectory)
+                        }.value
                     } catch {
                         await logCenter.append(
                             source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,

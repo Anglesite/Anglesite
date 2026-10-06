@@ -1,4 +1,5 @@
 import Foundation
+import AnglesiteSiteModel
 
 /// The kind of site the owner is creating. The wizard collects only these five broad
 /// categories; the plugin's fine-grained `bestFor` business types stay with the chat path.
@@ -131,6 +132,15 @@ public struct NewSiteDraft: Sendable, Equatable {
     /// scaffolder copies it into the site's asset dir and references it from the homepage. Nil
     /// when the owner skipped generation or Apple Intelligence is unavailable.
     public var heroImageURL: URL?
+    /// Anglesite site or EmDash site (#2050), fixed for the life of the package: recorded in its
+    /// marker at creation, never changed after. An EmDash site starts without the template's
+    /// starter posts — its articles live in EmDash, never in `Source/`
+    /// (`docs/specs/2026-09-28-external-cms-content-source-decision.md`, decision 2).
+    public var siteKind: AnglesitePackage.SiteKind
+    /// For an EmDash site, the install the owner already has and chose to connect (#2106):
+    /// the new site publishes to it instead of having a new one set up. `nil` sets up a new one.
+    /// Ignored for an Anglesite site.
+    public var emdashInstall: EmDashInstall?
 
     /// Creates a draft with everything but ``siteType`` and ``name`` defaulted, matching how
     /// the wizard starts: those two are the only values the first steps require. Passing
@@ -150,7 +160,9 @@ public struct NewSiteDraft: Sendable, Equatable {
         headline: String? = nil,
         blurb: String = "",
         heroImagePrompt: String = "",
-        heroImageURL: URL? = nil
+        heroImageURL: URL? = nil,
+        siteKind: AnglesitePackage.SiteKind = .anglesite,
+        emdashInstall: EmDashInstall? = nil
     ) {
         self.siteType = siteType
         self.name = name
@@ -168,6 +180,8 @@ public struct NewSiteDraft: Sendable, Equatable {
         self.blurb = blurb
         self.heroImagePrompt = heroImagePrompt
         self.heroImageURL = heroImageURL
+        self.siteKind = siteKind
+        self.emdashInstall = emdashInstall
     }
 }
 

@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+
+  "slug": "anglesite-gate",
+  "publisher": "did:web:anglesite.dwk.io",
+  "description": "Runs Anglesite's pre-deploy gate checks before an entry is published or scheduled.",
+  "repo": "https://github.com/Anglesite/Anglesite",
+
+  "license": "ISC",
+  "author": { "name": "Anglesite", "url": "https://github.com/Anglesite/Anglesite" },
+  "security": { "url": "https://github.com/Anglesite/Anglesite/security/advisories/new" },
+
+  // The trust contract (docs/specs/2026-09-28-external-cms-content-source-decision.md § Gate).
+  // The policy hooks hand the plugin the draft being published, so it needs no content, schema or
+  // network access. Widening this needs owner sign-off: it is the whole of the gate's authority.
+  "capabilities": ["hooks.content-policy:register"],
+  "allowedHosts": [],
+  "storage": {}
+}

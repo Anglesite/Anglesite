@@ -52,6 +52,9 @@ Resources/SafariExtension/content-script.js
 Resources/SafariExtension/background.js
 Resources/SafariExtension/popup.js
 node_modules/
+# Local `wrangler dev` state and secrets for the Workers/ projects (#2095).
+.wrangler/
+.dev.vars
 JS/wysiwyg-engine/e2e/.generated/
 JS/wysiwyg-engine/test-results/
 JS/wysiwyg-engine/playwright-report/
@@ -120,3 +123,7 @@ build-smoke/
 # xcconfig/Signing-Release.xcconfig) — machine-specific Apple Developer Team, never shared.
 xcconfig/Signing-Debug.local.xcconfig
 xcconfig/Signing-Release.local.xcconfig
+
+# Python bytecode caches (scripts/kev, scripts/*.py)
+__pycache__/
+*.pyc

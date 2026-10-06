@@ -45,6 +45,7 @@ jobs:
       swift: ${{ steps.filter.outputs.swift }}
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
       safariExt: ${{ steps.filter.outputs.safariExt }}
+      emdashGate: ${{ steps.filter.outputs.emdashGate }}
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
@@ -105,11 +106,14 @@ jobs:
             return 1
           }
 
-          swift=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
+          swift=false; wysiwyg=false; safariExt=false; emdashGate=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
-          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
+          matches 'JS/anglesite-gate/**' 'Resources/Template/scripts/gate-checks.ts' 'Resources/Template/scripts/emdash-gate/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && emdashGate=true
+          # Resources/Template/** covers the EmDash overlay's own package.json/package-lock.json
+          # (Resources/Template/emdash/), the input to the emdash-site attributions manifest.
+          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/check-emdash-overlay.sh' 'scripts/check-emdash-gate-runtime.mjs' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
           matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
@@ -117,6 +121,7 @@ jobs:
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "wysiwyg=$wysiwyg" >> "$GITHUB_OUTPUT"
           echo "safariExt=$safariExt" >> "$GITHUB_OUTPUT"
+          echo "emdashGate=$emdashGate" >> "$GITHUB_OUTPUT"
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
@@ -142,6 +147,31 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+  anglesite-gate:
+    name: JS anglesite-gate (EmDash plugin validate/typecheck/test/build)
+    # The EmDash publish-gate plugin (#2055). Its hooks and policy live in the pinned template
+    # (`Resources/Template/scripts/emdash-gate/`, unit-tested by the Template lane); this lane
+    # holds them to EmDash's real types, validates the manifest, runs them through EmDash's
+    # content pipeline via its runtime test host, and checks the plugin bundles.
+    needs: changes
+    if: needs.changes.outputs.emdashGate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: JS/anglesite-gate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: scripts/node-version.txt
+          cache: npm
+          cache-dependency-path: JS/anglesite-gate/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
 
   wysiwyg-engine:
     name: JS wysiwyg-engine (lint/typecheck/test/e2e)
@@ -196,10 +226,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: node --test scripts/generate-npm-attributions.test.mjs
 
-      # The website-template attributions manifest check lives in build-test (macos-26), not
-      # here (ubuntu-latest) — see that job's "Check website-template attributions manifest"
-      # step for why: the committed manifest is arm64-only and can never match a linux-x64
-      # npm ci install.
+      # The website-template and emdash-site attributions manifest checks live in build-test
+      # (macos-26), not here (ubuntu-latest) — see that job's "Check website-template
+      # attributions manifest" step for why: the committed manifests are arm64-only and can
+      # never match a linux-x64 npm ci install.
       # The template's node:test suites had no CI lane at all — the `.well-known` design doc
       # calls that out explicitly. `test:worker` is vitest/workerd only. `npm test` covers every
       # node:test suite (scripts/ plus src/); `test:scripts` stays in package.json as the fast
@@ -212,6 +242,14 @@ jobs:
       # contract or breaks astro build fails this lane.
       - run: npm run check:packs
       - run: npm run build:packs
+      # #2050: an EmDash site is the template plus its emdash/ overlay, server-rendered. Build
+      # one the way SiteScaffolder does, so a template or overlay change that breaks it fails
+      # here rather than in an owner's first build. The script then boots that build on workerd
+      # with a local D1 (scripts/check-emdash-gate-runtime.mjs, #2089) and proves anglesite-gate
+      # cancels a publish that fails its checks and passes a clean one.
+      - name: Build an EmDash site from the overlay and check its publish gate
+        working-directory: ${{ github.workspace }}
+        run: scripts/check-emdash-overlay.sh
 
   workers-tests:
     name: Workers (vitest)
@@ -226,7 +264,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [ControlWorker, anglesite-oauth-callback]
+        project: [ControlWorker, anglesite-oauth-callback, issues-relay]
     defaults:
       run:
         working-directory: Workers/${{ matrix.project }}
@@ -373,6 +411,11 @@ jobs:
       # forgot to regenerate WorkerCatalogPin.swift (or vice versa) fails here (#1961).
       - name: Test bump-worker-catalog.sh pin/lock/generated-Swift agreement
         run: scripts/bump-worker-catalog.test.sh
+
+      # No network, no fixtures: renders KevModelAssetPin.swift from scripts/kev/kev-assets.lock.json
+      # and fails if the committed file differs (#2068), the same drift guard as above.
+      - name: Check bump-kev-assets.sh lock/generated-Swift agreement
+        run: scripts/kev/bump-kev-assets.sh --check
 
       # Pure git grep/awk against the real tree — regression test for #1903 (sleep-lint
       # baseline drain, batch 2 of 2), no fixture or external dependency needed.
@@ -562,6 +605,19 @@ jobs:
           set -euo pipefail
           node scripts/generate-npm-attributions.mjs Resources/Template/node_modules /tmp/website-template.json scripts/attributions-overrides.json
           diff -u Resources/Attributions/website-template.json /tmp/website-template.json
+
+      # An EmDash site installs the overlay's own lockfile (Resources/Template/emdash/), not the
+      # template's, so its THIRD-PARTY-NOTICES.md comes from a separate emdash-site.json
+      # manifest (#2088) — same arm64-only reasoning as above, so it is checked here too.
+      - name: Install EmDash overlay dependencies
+        working-directory: Resources/Template/emdash
+        run: npm ci --no-audit --no-fund
+
+      - name: Check emdash-site attributions manifest
+        run: |
+          set -euo pipefail
+          node scripts/generate-npm-attributions.mjs Resources/Template/emdash/node_modules /tmp/emdash-site.json scripts/attributions-overrides.json
+          diff -u Resources/Attributions/emdash-site.json /tmp/emdash-site.json
 
       - name: Select latest available Xcode
         # CLAUDE.md mandates Xcode 27+ (macOS 27 SDK — LongRunningIntent / CancellableIntent /
@@ -1154,6 +1210,7 @@ jobs:
       - changes
       - wysiwyg-engine
       - safari-extension
+      - anglesite-gate
       - help-book-links
       - docs-index
       - workers-tests

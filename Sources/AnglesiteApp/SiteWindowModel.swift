@@ -259,6 +259,36 @@ final class SiteWindowModel {
     /// and deploying it in the same window session enables the menu item live, without requiring
     /// the owner to close and reopen the site.
     private(set) var isHostedCommunity = false
+    /// Which editing surfaces this site offers (#2050): an EmDash site hides the typed-content
+    /// editors (New Post / Link Post / collection entries, the typed inspector form, Publish and
+    /// Move to Drafts) and offers Website ▸ Open EmDash instead. Read from the package marker in
+    /// `loadAndStart()` *before* ``site`` is set, so `SiteWindow`'s `NewContentActions` are right
+    /// from their first build; `SiteWindow` also rebuilds them on any later change.
+    /// Cached rather than computed for the same synchronous-`.disabled(...)` reason as
+    /// ``isHostedCommunity``. `ContentCreationWorkflow` re-checks on every write, so this gate is
+    /// UX, not the enforcement point.
+    private(set) var editingSurfaces = SiteEditingSurfaces(kind: .anglesite)
+    /// The EmDash admin Website ▸ Open EmDash opens — `SiteSettings.emdashAdminURL`, accepted only
+    /// as `https` on an EmDash site (``SiteEditingSurfaces/emdashAdminURL(settings:)``). `nil`
+    /// until provisioning or connecting EmDash writes it. Refreshed alongside
+    /// ``isHostedCommunity``, so a deploy that provisions EmDash enables the item live.
+    private(set) var emdashAdminURL: URL?
+    /// Pages on an EmDash site the render backstop is holding back from readers (#2097), read
+    /// from the site's D1 database. Empty on an Anglesite site, or when the site isn't set up to
+    /// be read (no database id or token yet). Refreshed alongside ``isHostedCommunity``.
+    private(set) var withheldPages: [WithheldPage] = []
+    /// The owner hid the withheld-pages banner. It comes back when a page or a page's reasons
+    /// change (``EmDashWithheldPages/noticeKey(_:)``).
+    private var withheldPagesDismissedFor: [String]?
+    var showsWithheldPagesNotice: Bool {
+        !withheldPages.isEmpty && withheldPagesDismissedFor != EmDashWithheldPages.noticeKey(withheldPages)
+    }
+    /// Why Publish Site is unavailable for this site, or `nil` when it isn't (#2050, #2103) —
+    /// `SiteEditingSurfaces.publishRefusal`, read from the package marker in `loadAndStart()`
+    /// with no recents fallback. An Anglesite site publishes statically and an EmDash site as its
+    /// EmDash Worker; only a site whose kind can't be confirmed is refused, as `DeployCommand`
+    /// refuses it too.
+    private(set) var publishRefusal: String?
     var harden = HardenModel()
     var aiSearch = AISearchModel()
     var domainConfigAudit = DomainConfigAuditModel()
@@ -334,6 +364,11 @@ final class SiteWindowModel {
     /// when the delete actually succeeded. Never break an inbound URL a user didn't choose to
     /// abandon (#584).
     var pendingRedirectOfferRoute: String?
+    /// `true` ⟺ the one-time "Screen new comments for spam?" alert (#2068) is showing. Set by
+    /// ``offerScreeningModelIfNeeded()`` the first time this Mac opens or deploys a site with a
+    /// provisioned inbox while a screening-model download is pinned and none is installed;
+    /// `AppSettings.screeningModelOfferShown` makes it once per Mac, whatever the answer.
+    var screeningModelOfferPresented = false
     /// Carries a requested `SettingsTab` across `openFile`'s async model-construction `Task` for
     /// `openWebsiteSettings(landOn:)` (#975 follow-up: the security-reports badge's "View all in
     /// Security Reports" button), the same "record a request, the target consumes and clears it"
@@ -573,7 +608,62 @@ final class SiteWindowModel {
     /// single load isn't enough.
     private func refreshIsHostedCommunity() async {
         guard let site else { return }
-        isHostedCommunity = ((try? await SiteConfigStore(configDirectory: site.configDirectory).load())?.communityActorURL) != nil
+        let settings = try? await SiteConfigStore(configDirectory: site.configDirectory).load()
+        isHostedCommunity = settings?.communityActorURL != nil
+        emdashAdminURL = settings.flatMap { editingSurfaces.emdashAdminURL(settings: $0) }
+        // The second Moderation… gate (#2066) lives on the model that owns the queue, so the view
+        // and this menu item read one flag; the same deploy that provisions the inbox flips it.
+        await moderation.refreshCanReviewComments()
+        await offerScreeningModelIfNeeded(hasInbox: !(settings?.provisionedWorkerResources?.d1DatabaseID ?? "").isEmpty)
+        await refreshWithheldPages()
+    }
+
+    /// Re-reads the render backstop's withheld pages for an EmDash site (#2097). Pages the site
+    /// serves again are cleared by the loader, so a fixed article's notice goes away on its own.
+    /// A read that can't happen (no database or token, offline) leaves the last list in place.
+    private func refreshWithheldPages() async {
+        guard let site, editingSurfaces.externalContentEditor == .emdash else {
+            withheldPages = []
+            return
+        }
+        let sourceDirectory = site.sourceDirectory
+        let configDirectory = site.configDirectory
+        let pages = await Task.detached(priority: .utility) {
+            await EmDashWithheldPages.loadIfConfigured(sourceDirectory: sourceDirectory, configDirectory: configDirectory)
+        }.value
+        if let pages { withheldPages = pages }
+    }
+
+    /// Hides the withheld-pages banner until the withheld pages or their reasons change.
+    func dismissWithheldPagesNotice() {
+        withheldPagesDismissedFor = EmDashWithheldPages.noticeKey(withheldPages)
+    }
+
+    /// Reads the site kind from the package marker off the main actor (a plist read under the
+    /// package's security scope), falling back to the recents entry's kind if the marker can't
+    /// be read.
+    private static func loadEditingSurfaces(for site: SiteStore.Site) async -> SiteEditingSurfaces {
+        let sourceDirectory = site.sourceDirectory
+        let fallback = site.kind
+        return await Task.detached(priority: .userInitiated) {
+            SiteEditingSurfaces.forSourceDirectory(sourceDirectory, unreadableMarkerFallback: fallback)
+        }.value
+    }
+
+    /// The one-time offer to download the screening model (#2068): shown once per Mac, the
+    /// first time a site with a provisioned inbox opens or deploys while a download is pinned
+    /// (`KevModelAssetPin.isConfigured`) and no model is installed. Never a silent download —
+    /// the alert's Download button is the only thing that starts one, and Settings ▸ General
+    /// is the way back if the owner picks Not Now.
+    private func offerScreeningModelIfNeeded(hasInbox: Bool) async {
+        guard hasInbox, KevModelAssetPin.isConfigured, !AppSettings.shared.screeningModelOfferShown else { return }
+        // Five `fileExists` probes under Application Support; off the main actor.
+        let installed = await Task.detached { KevModelLocator.installedAssets() != nil }.value
+        // Re-checked after the suspension: two windows opening or deploying together both pass
+        // the guard above, and only the first to get here may show the alert.
+        guard !installed, !AppSettings.shared.screeningModelOfferShown else { return }
+        AppSettings.shared.screeningModelOfferShown = true
+        screeningModelOfferPresented = true
     }
 
     var activeEditorFile: FileRef? {
@@ -672,6 +762,9 @@ final class SiteWindowModel {
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }
             activeEditor = nil
             await moderation.reload()
+            // The held-comments queue is an inbox fetch (network), so it refreshes alongside the
+            // pane rather than holding it back — `ModerationModel.reload()`'s doc has the detail.
+            Task { await moderation.reloadHeldComments() }
             await clearInspectorThenSwitchPane(to: .moderation)
         }
     }
@@ -853,7 +946,21 @@ final class SiteWindowModel {
     /// after a successful deploy with a Group actor (Phase 2), not at creation time. Unlike
     /// Communities/Followers (always enabled once a site is focused), a personal site or an
     /// undeployed community never enables this — there's nothing to moderate yet.
-    var canOpenModeration: Bool { isHostedCommunity }
+    /// Since #2066 also enabled when the held-comments queue applies
+    /// (`ModerationModel.canReviewComments`: a decision model is installed *and* this site has a
+    /// provisioned inbox), so the queue is reachable on a personal site with an inbox — and a
+    /// site with neither never gets an item that opens an always-empty pane.
+    var canOpenModeration: Bool { isHostedCommunity || moderation.canReviewComments }
+
+    /// Website ▸ Open EmDash (#2050): shown on an EmDash site, enabled once its admin URL is known.
+    var showsOpenEmDash: Bool { editingSurfaces.externalContentEditor == .emdash }
+    var canOpenEmDash: Bool { emdashAdminURL != nil }
+
+    /// Opens this site's EmDash admin in the owner's browser, where writers and editors work.
+    func openEmDash() {
+        guard let emdashAdminURL else { return }
+        NSWorkspace.shared.open(emdashAdminURL)
+    }
 
     /// Presents the Review Copy sheet (#465). Reconstructs a `ProjectConventionsStore` from the
     /// site's `configDirectory` — the same expression `ProjectConventionsModel.init` uses for
@@ -1139,7 +1246,7 @@ final class SiteWindowModel {
         deploy.isRunning || backup.isRunning || audit.isRunning
     }
 
-    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
+    var canRunDeploy: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy && publishRefusal == nil }
     var canRunBackup: Bool { site?.isValid == true && !siteOperationRunning }
     var canRunAudit: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
     var canRunHarden: Bool { site?.isValid == true && !harden.isRunning }
@@ -1924,7 +2031,8 @@ final class SiteWindowModel {
         }
         let url = source.appendingPathComponent(relPath)
         let file = FileRef(url: url, group: group, name: displayName)
-        if let descriptor = ContentTypeResolver.descriptor(forRelativePath: relPath) {
+        // An EmDash site's posts are edited in EmDash (#2050), so its typed form never opens here.
+        if editingSurfaces.typedContent, let descriptor = ContentTypeResolver.descriptor(forRelativePath: relPath) {
             return .typed(TypedEntryEditorModel(
                 file: file, descriptor: descriptor, route: route, sourceDirectory: source,
                 configDirectory: site?.configDirectory, siteID: site?.id))
@@ -2661,6 +2769,11 @@ final class SiteWindowModel {
             dismissSiteWindow()
             return
         }
+        editingSurfaces = await Self.loadEditingSurfaces(for: resolved)
+        let sourceDirectory = resolved.sourceDirectory
+        publishRefusal = await Task.detached(priority: .userInitiated) {
+            SiteEditingSurfaces.publishRefusal(sourceDirectory: sourceDirectory)
+        }.value
         site = resolved
         await refreshIsHostedCommunity()
         // Reset alongside `annotationProvider` below: a restored `WindowGroup` can replay a
@@ -2716,10 +2829,12 @@ final class SiteWindowModel {
         // check doesn't re-run on every open; they surface as "kept as it is" under Details.
         var appliedDependencyOffers: DependencySyncOffers?
         if let templateURL = TemplateRuntime.bundledURL(), let runningVersion = AppVersion.current() {
+            // An EmDash site's dependencies track the template's EmDash overlay (#2050).
             let offers = DependencySyncChecker.check(
                 sourceDirectory: resolved.sourceDirectory,
                 configDirectory: resolved.configDirectory,
-                templateDirectory: templateURL,
+                templateDirectory: EmDashScaffold.packageTemplateDirectory(
+                    templateURL: templateURL, kind: editingSurfaces.kind),
                 runningAppVersion: runningVersion
             )
             dependencySyncOffers = offers
@@ -2836,6 +2951,7 @@ final class SiteWindowModel {
         // this creation and stop the freshly-made navigator instead.
         navigator?.stop()
         let navModel = SiteNavigatorModel(graph: contentGraph)
+        navModel.typedContentEnabled = editingSurfaces.typedContent
         // Rename is the one structural operation this model doesn't own (it's the navigator's
         // inline edit, also reached from File ▸ Rename…), so the navigator registers its own ⌘Z
         // record through this hook rather than duplicating the coordinator (#675).

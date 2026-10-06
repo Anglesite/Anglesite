@@ -140,6 +140,12 @@ export interface WorkerEnv extends IndieAuthEnv {
   WEBMENTION_INBOX?: D1Database;
   SITE_URL?: string;
   /**
+   * Domain proof for Anglesite's Workers Issues relay (#2095 slice 5): a one-way hash the relay
+   * fetches from `/.well-known/anglesite-issues-proof` to confirm this site's owner registered
+   * it. Set only while the owner has error reports turned on; the route 404s otherwise.
+   */
+  ANGLESITE_ISSUES_PROOF?: string;
+  /**
    * Micropub bindings (V-3.2, #360). Both optional: a site that hasn't provisioned Micropub has
    * neither bound, and `/micropub`/`/media` degrade gracefully (503) rather than throwing.
    * `AUTH_DB`/`TOKEN_SIGNING_KEY` are already required by `IndieAuthEnv` above — Micropub's
@@ -2116,6 +2122,19 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["GET", "HEAD"],
     handler: (request, env) => handlePrivateFeed(request, env),
+  },
+  {
+    // Workers Issues relay domain proof (#2095 slice 5) — see `WorkerEnv.ANGLESITE_ISSUES_PROOF`.
+    // Not cached, so turning error reports off or rotating the proof takes effect at once.
+    path: "/.well-known/anglesite-issues-proof",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (_request, env) =>
+      env.ANGLESITE_ISSUES_PROOF && /^[0-9a-f]{64}$/.test(env.ANGLESITE_ISSUES_PROOF)
+        ? new Response(`${env.ANGLESITE_ISSUES_PROOF}\n`, {
+            headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+          })
+        : notFound(),
   },
   {
     // Read-only MCP server (#1576): gated behind experimental.mcp, degrades to a plain 404

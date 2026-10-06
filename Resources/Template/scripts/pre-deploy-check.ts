@@ -22,6 +22,12 @@
  * With --strict: warnings are promoted into `failures` (both in the --json envelope and for
  * exit-code purposes) — used by `npm run build:ci`, the single entry point for non-interactive
  * runners (#799), where a warning-only issue must still block an automated bake/deploy.
+ *
+ * A server-rendered (EmDash) build puts its public files in `dist/client/` and its Worker in
+ * `dist/server/` (#2055 slice 2, the deploy layer of the re-scoped gate). The public files get
+ * every check above, reported under the same `dist/…` paths a static site uses, since that is
+ * where they are served from. The server bundle gets the secrets check, and must contain the
+ * site's pinned publish gate (`checkServerBuild`). See `anglesite-build-manifest.ts`.
  */
 
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -33,17 +39,34 @@ import { isMTAStsMarkerOwned, isSecurityTxtMarkerOwned, normalizeMTAStsMX, readL
 import { ANGLESITE_CONFIG_RECOGNIZED_VERSIONS } from "./anglesite-config";
 import { rslActive, rslFileUrl } from "../src/lib/rsl.ts";
 import { GOAL_BEACON_SCRIPT_PATH } from "./experiments-paths.ts";
+import { BUILD_MANIFEST_PATH, REQUIRED_GATE_MODULES, sha256 } from "./anglesite-build-manifest.ts";
+import type { Issue } from "./gate-checks";
+import {
+  checkSecrets,
+  checkBlockedScripts,
+  checkBlockedRoutes,
+  checkPII,
+  checkEmbedMedia,
+  checkMixedContent,
+  checkSRI,
+  checkExternalLinkRel,
+  checkNoRestrictedContentInSource,
+  checkNoRestrictedContentInDist,
+} from "./gate-checks";
 
-interface Issue {
-  severity: "error" | "warning";
-  category: string;
-  message: string;
-  file?: string;
-  /// The scan's suggested fix, when it has one — mirrors `PreDeployCheck.ScanFailure`/
-  /// `ScanWarning`'s optional `remediation` field on the Swift side (#742/#1173). No existing
-  /// check populates this yet; `checkAnglesiteConfig` is the first producer.
-  remediation?: string;
-}
+// Re-exported so existing callers and `pre-deploy-check.test.ts` keep importing from here.
+export {
+  checkSecrets,
+  checkBlockedScripts,
+  checkBlockedRoutes,
+  checkPII,
+  checkEmbedMedia,
+  checkMixedContent,
+  checkSRI,
+  checkExternalLinkRel,
+  checkNoRestrictedContentInSource,
+  checkNoRestrictedContentInDist,
+};
 
 interface ScanReport {
   version: 1;
@@ -56,79 +79,14 @@ const JSON_MODE = process.argv.includes("--json");
 const STRICT_MODE = process.argv.includes("--strict");
 const SOURCE_MODE = process.argv.includes("--source");
 const DIST_DIR = join(process.cwd(), "dist");
-const HEADERS_FILE = join(DIST_DIR, "_headers");
+// A server-rendered build (#2055 slice 2): dist/server/ (the Worker, entry.mjs) and dist/client/
+// (the public files the static checks read) instead of one static dist/.
+const SERVER_DIR = join(DIST_DIR, "server");
+const SERVER_ENTRY = join(SERVER_DIR, "entry.mjs");
+const CLIENT_DIR = join(DIST_DIR, "client");
 const CONFIG_FILE = join(process.cwd(), ".site-config");
 const ANGLESITE_CONFIG_FILE = join(process.cwd(), "anglesite.json");
 const SOURCE_CONTENT_DIR = join(process.cwd(), "src", "content");
-
-// The restricted-posting epic's audience tier (#963 §2.2): a `visibility: contacts` value on
-// Micropub's `visibility` mf2 property. Matches whether the value shows up YAML-style (Source/
-// frontmatter), JSON-string-style, or as a JSON mf2 property array (`"visibility":["contacts"]`,
-// the exact shape `MicropubPost.entry` stamps and `dist/` could echo back if a post-family JSON
-// export ever serialized raw properties).
-const RESTRICTED_VISIBILITY_PATTERN = /"?visibility"?\s*:\s*(\[\s*)?"?contacts"?/i;
-
-const PII_PATTERNS = [
-  { name: "email", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
-  { name: "phone", pattern: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g },
-  { name: "SSN", pattern: /\b\d{3}-\d{2}-\d{4}\b/g },
-];
-
-// Directories whose every byte is emitted by a dependency, never authored by the site owner.
-// Only the email pattern is relaxed for these, and only because shipped library bundles carry
-// their contributors' addresses as attribution (Pagefind's `thanks_to` translator credits,
-// #974) — a match there says nothing about the owner's own data, which is what this scan exists
-// to catch. Every other check still runs on these files: phone/SSN, secrets and tokens, blocked
-// trackers, mixed content, and admin routes.
-//
-// Anchored at the start of the relative path, so an owner-authored page that merely has
-// "pagefind" somewhere in its route is scanned normally.
-const VENDORED_EMAIL_EXEMPT = [/^dist\/pagefind\//];
-
-const SECRET_PATTERNS = [
-  { name: "API key", pattern: /(?:api[_-]?key|apikey)\s*[:=]\s*["']?[a-zA-Z0-9_-]{20,}/gi },
-  { name: "AWS key", pattern: /AKIA[0-9A-Z]{16}/g },
-  { name: "private key", pattern: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/g },
-];
-
-// Trackers with no first-party integration in this catalog. Google Analytics/Tag
-// Manager are deliberately absent — the `tracking` integration (ga4 provider) makes
-// them a supported, owner-opted-in choice, the same way Plausible/Fathom always were.
-const BLOCKED_SCRIPTS = [
-  /facebook\.net.*fbevents/i,
-  /hotjar\.com/i,
-];
-
-const BLOCKED_ROUTES = [/\/keystatic(?:\/|$)/i, /\/api\/keystatic/i];
-
-/**
- * Media hosts belonging to the platforms the embed snapshotter supports (#682). A reference to
- * one of these in built output means an embed is hotlinking rather than serving its snapshotted
- * copy, which leaks every visitor's IP and Referer to the platform — the tracking ADR-0008
- * exists to prevent. Anchor hrefs are excluded: a permalink back to the original post is the
- * point of a citation.
- *
- * Invariant: no entry may be a domain suffix of another entry here (e.g. don't add back
- * "scontent.cdninstagram.com" alongside "cdninstagram.com"). Matching is substring-based, and a
- * generic host already substring-matches every subdomain of it — a redundant, more-specific pair
- * doesn't catch anything extra, and previously caused a single hotlinked URL to be double-reported
- * once per matching entry (see the checkEmbedMedia doc comment for how that's guarded against now).
- *
- * Invariant: every entry must stay lower-case — checkEmbedMedia lower-cases the matched URL
- * value before comparing against this list (hostnames are case-insensitive by DNS definition,
- * but JS string `includes` is not), so an upper-case entry here would never match.
- */
-const EMBED_MEDIA_HOSTS = [
-  "pbs.twimg.com",
-  "video.twimg.com",
-  "abs.twimg.com",
-  "cdninstagram.com",
-  "cdn.bsky.app",
-  "i.ytimg.com",
-  "img.youtube.com",
-  /** Mastodon media is per-instance; files.* covers the common CDN shape. */
-  "files.mastodon.social",
-];
 
 async function* walk(dir: string): AsyncGenerator<string> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -137,19 +95,6 @@ async function* walk(dir: string): AsyncGenerator<string> {
     if (entry.isDirectory()) yield* walk(full);
     else yield full;
   }
-}
-
-/** One `exposed-token` error per secret pattern that matches `content`. Shared by the `dist/`
- * walk and the `--source` sweep so both scan for exactly the same shapes. */
-export function checkSecrets(content: string, file: string): Issue[] {
-  const issues: Issue[] = [];
-  for (const { name, pattern } of SECRET_PATTERNS) {
-    pattern.lastIndex = 0;
-    if (pattern.test(content)) {
-      issues.push({ severity: "error", category: "exposed-token", message: `Possible ${name} exposed`, file });
-    }
-  }
-  return issues;
 }
 
 /** `.env` and `.env.<anything>` — the same rule the app's publish preflight applies before staging. */
@@ -261,153 +206,6 @@ export function checkHeaders(headersContent: string | null, configContent: strin
         message: `Configured integration domain "${domain}" is missing from the CSP.`,
         file: "_headers",
       });
-    }
-  }
-  return issues;
-}
-
-/**
- * Scan built content for likely PII (email, phone, SSN). An email that appears only as a
- * `mailto:` link target is published intent — e.g. a contact-form fallback the site owner
- * deliberately configured — not accidental exposure, so it's stripped before the email check.
- * Files under a `VENDORED_EMAIL_EXEMPT` directory skip the email check entirely, for the same
- * reason at directory scale. Phone/SSN patterns are unaffected by either. One issue per pattern
- * per file, matching the prior inline scan's behavior.
- */
-export function checkPII(content: string, file: string): Issue[] {
-  const issues: Issue[] = [];
-  const withoutMailtoLinks = content.replace(
-    /mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-    "",
-  );
-  const normalized = file.replace(/\\/g, "/");
-  const emailExempt = VENDORED_EMAIL_EXEMPT.some((dir) => dir.test(normalized));
-  for (const { name, pattern } of PII_PATTERNS) {
-    if (name === "email" && emailExempt) continue;
-    pattern.lastIndex = 0;
-    const haystack = name === "email" ? withoutMailtoLinks : content;
-    if (pattern.test(haystack)) {
-      issues.push({
-        severity: "error",
-        category: `pii-${name.toLowerCase()}`,
-        message: `Possible ${name} found`,
-        file,
-      });
-    }
-  }
-  return issues;
-}
-
-/**
- * Hotlinked platform media in built output. Scans the resource-loading contexts a browser
- * actually fetches from — `src`/`srcset` attributes (double-quoted, single-quoted, or unquoted,
- * so hand-authored or pasted embed HTML is caught too, not just Astro's always-quoted compiled
- * output; `\bsrc` also matches `data-src`, which is desirable — a lazy-loaded image still
- * describes a real fetch) and CSS `url(...)` — for a value naming one of the
- * `EMBED_MEDIA_HOSTS`. `href` is never matched, so a citation permalink to the original post
- * passes even when it points at a listed host.
- *
- * Matching is per-occurrence, not per-host: each `src`/`srcset`/`url()` match is checked and
- * reported independently, so two distinct hotlinks in the same file are two issues even when
- * both happen to match the same generic host entry (e.g. two different `*.cdninstagram.com`
- * subdomains) — a file-wide "did this host appear anywhere" pass would only catch one of them.
- */
-export function checkEmbedMedia(content: string, file: string): Issue[] {
-  const issues: Issue[] = [];
-  const urlContextPattern =
-    /\b(?:src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))|url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]+))\s*\)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = urlContextPattern.exec(content)) !== null) {
-    const value = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? m[6] ?? "";
-    const host = EMBED_MEDIA_HOSTS.find((h) => value.toLowerCase().includes(h));
-    if (host) {
-      issues.push({
-        severity: "error",
-        category: "embed-media-hotlink",
-        message: `Embed media hotlinked from ${host} — run "npm run embed -- <url>" to snapshot it first-party.`,
-        file,
-      });
-    }
-  }
-  return issues;
-}
-
-/**
- * Insecure (http://) subresource references in built HTML/CSS. Targets resource
- * attributes (`src`) and CSS `url(...)` only — NOT `href` — so anchor links and
- * `xmlns="http://..."` declarations do not false-positive. Advisory: slice A's
- * `upgrade-insecure-requests` auto-upgrades these at runtime. One issue per file.
- */
-export function checkMixedContent(content: string, file: string): Issue[] {
-  const patterns = [/\bsrc\s*=\s*["']http:\/\//i, /url\(\s*["']?http:\/\//i];
-  for (const pattern of patterns) {
-    if (pattern.test(content)) {
-      return [{ severity: "warning", category: "mixed-content", message: "Mixed content: insecure http:// resource reference", file }];
-    }
-  }
-  return [];
-}
-
-/**
- * External (absolute or protocol-relative) <script> and stylesheet <link> tags
- * with a subresource-integrity problem: either missing `integrity`, or carrying
- * `integrity` without the `crossorigin` attribute it requires — the browser
- * blocks the response on CORS before integrity is evaluated, so the resource
- * silently fails to load. Heuristic tag-level regex match; multi-line tag
- * attributes are not matched. One issue per offending tag.
- *
- * No allowlist: this intentionally also warns on auto-updating, unversioned CDN
- * scripts (e.g. the Cloudflare Web Analytics beacon, legacy Google gtag.js) that
- * can't carry a stable `integrity` hash without breaking on the vendor's next
- * content rotation — for those, the warning firing is the expected, disposed
- * outcome (Cloudflare beacon: #1165), not a gap to fix. Advisory only
- * (`severity: "warning"`); doesn't block deploys unless `--strict` is passed.
- */
-export function checkSRI(content: string, file: string): Issue[] {
-  const issues: Issue[] = [];
-  const tagPattern = /<(script|link)\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = tagPattern.exec(content)) !== null) {
-    const tag = m[0];
-    const isScript = m[1].toLowerCase() === "script";
-    const urlAttr = isScript
-      ? /\bsrc\s*=\s*["'](?:https?:)?\/\//i
-      : /\bhref\s*=\s*["'](?:https?:)?\/\//i;
-    if (!urlAttr.test(tag)) continue;
-    if (!isScript && !/\brel\s*=\s*["'][^"']*stylesheet/i.test(tag)) continue;
-    const kind = isScript ? "script" : "stylesheet";
-    if (!/\bintegrity\s*=/i.test(tag)) {
-      issues.push({ severity: "warning", category: "sri-missing", message: `External ${kind} without subresource integrity (SRI)`, file });
-    } else if (!/\scrossorigin\b/i.test(tag)) {
-      issues.push({
-        severity: "warning",
-        category: "sri-missing",
-        message: `External ${kind} has integrity but is missing crossorigin (will fail CORS)`,
-        file,
-      });
-    }
-  }
-  return issues;
-}
-
-/**
- * Anchors that open a new tab (`target="_blank"`) without `rel="noopener"`,
- * which can expose `window.opener`. `rel="noreferrer"` also implies noopener
- * (per the HTML spec and all modern browsers), so either token is accepted.
- * Advisory — modern browsers imply noopener, but explicit is safer. One issue
- * per offending anchor.
- */
-export function checkExternalLinkRel(content: string, file: string): Issue[] {
-  const issues: Issue[] = [];
-  const anchorPattern = /<a\b[^>]*>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = anchorPattern.exec(content)) !== null) {
-    const tag = m[0];
-    if (!/\btarget\s*=\s*["']_blank["']/i.test(tag)) continue;
-    const relMatch = tag.match(/\brel\s*=\s*["']([^"']*)["']/i);
-    const rel = relMatch ? relMatch[1].toLowerCase() : "";
-    if (!/\bnoopener\b|\bnoreferrer\b/.test(rel)) {
-      issues.push({ severity: "warning", category: "external-link-rel", message: 'Link with target="_blank" missing rel="noopener"', file });
     }
   }
   return issues;
@@ -847,40 +645,6 @@ export function checkExperimentalSection(raw: string | null): Issue[] {
   }
 
   return [];
-}
-
-/**
- * Defense-in-depth backstop for the composer-only restricted-posting design (#963 §2.1, #1569): a
- * `visibility: contacts` post publishes straight into the Worker's D1 store via Micropub and must
- * never be written to `Source/` as content-collection frontmatter. This isn't the enforcement
- * mechanism — the composer never offers to write it there — it's a check that fires if a future
- * regression, sync bug, or manual edit did.
- */
-export function checkNoRestrictedContentInSource(relPath: string, content: string): Issue[] {
-  if (!RESTRICTED_VISIBILITY_PATTERN.test(content)) return [];
-  return [{
-    severity: "error",
-    category: "restricted-content-in-source",
-    message: 'Restricted (visibility: contacts) content found in Source/ — restricted posts must publish via Micropub straight to the Worker, never as Source/ content.',
-    file: relPath,
-    remediation: "Remove the restricted content from Source/; it belongs in the Worker's D1 post store, not the git-canonical site.",
-  }];
-}
-
-/**
- * Same backstop as `checkNoRestrictedContentInSource`, for the built `dist/` output: restricted
- * content must never reach the static build, since it's served exclusively through the Worker's
- * IndieAuth read gate (#1568), never the CDN-served static site.
- */
-export function checkNoRestrictedContentInDist(relPath: string, content: string): Issue[] {
-  if (!RESTRICTED_VISIBILITY_PATTERN.test(content)) return [];
-  return [{
-    severity: "error",
-    category: "restricted-content-in-dist",
-    message: 'Restricted (visibility: contacts) content found in the built dist/ output — it must be served only through the Worker\'s read gate, never the static build.',
-    file: relPath,
-    remediation: "Rebuild after removing the restricted content from Source/, and check for a regression in the composer/Micropub-to-D1 publish path.",
-  }];
 }
 
 const EXPERIMENT_ID_PATTERN = /^[A-Za-z0-9-]+$/;
@@ -1369,6 +1133,127 @@ export function checkExperiments(
   return issues;
 }
 
+/** The checks a public file in a vendored chunk skips: its bytes are a dependency's, not the owner's. */
+const VENDORED_PII_CATEGORIES = new Set(["pii-email", "pii-phone"]);
+
+/**
+ * `checkPII` for one public file, with the vendored relaxation applied: a chunk the build manifest
+ * lists as wholly dependency code (EmDash's admin UI) skips the email and phone patterns, which
+ * match its placeholder addresses and minified numeric constants. Its SSN check, and every other
+ * check, still run.
+ */
+export function checkPublicPII(content: string, rel: string, vendored: boolean): Issue[] {
+  const issues = checkPII(content, rel);
+  return vendored ? issues.filter((i) => !VENDORED_PII_CATEGORIES.has(i.category)) : issues;
+}
+
+/**
+ * The deploy layer's checks on a server-rendered build (#2055 slice 2). The publish gate is the
+ * site's real gate (ADR § Gate, layer 2), so a Worker that doesn't run it must not deploy:
+ *
+ * - The build manifest must exist and parse (it's written by the pinned
+ *   `anglesite-build-manifest.ts` integration, which the site's config registers).
+ * - Every `REQUIRED_GATE_MODULES` source must be in the server bundle, built from exactly the
+ *   file the site has now. `currentHashes` holds the SHA-256 of each on disk (null: missing). The
+ *   app's D5 hash pin holds those files to the app's own copies.
+ * - The manifest must record `gateRegistered: true`: the build saw EmDash's generated plugin list
+ *   register the `anglesite-gate` descriptor, not merely a bundled plugin module.
+ */
+export function checkServerBuild(manifestRaw: string | null, currentHashes: Record<string, string | null>): Issue[] {
+  const file = BUILD_MANIFEST_PATH;
+  const issues: Issue[] = [];
+  let manifest: { version?: unknown; gateModules?: unknown; gateRegistered?: unknown } | null = null;
+  if (manifestRaw !== null) {
+    try {
+      manifest = JSON.parse(manifestRaw);
+    } catch {
+      manifest = null;
+    }
+  }
+  const gateModules =
+    manifest && manifest.version === 1 && manifest.gateModules && typeof manifest.gateModules === "object"
+      ? (manifest.gateModules as Record<string, unknown>)
+      : null;
+  if (gateModules === null) {
+    issues.push({
+      severity: "error",
+      category: "publish-gate-missing",
+      message: manifestRaw === null
+        ? "The server build has no build manifest, so it can't show that the publishing safety check is built in."
+        : "The server build's manifest is unreadable, so it can't show that the publishing safety check is built in.",
+      file,
+      remediation: "Rebuild the site with its astro.config.ts registering anglesite-build-manifest.",
+    });
+    return issues;
+  }
+  for (const path of REQUIRED_GATE_MODULES) {
+    const built = gateModules[path];
+    const current = currentHashes[path] ?? null;
+    if (typeof built !== "string") {
+      issues.push({
+        severity: "error",
+        category: "publish-gate-missing",
+        message: `The server bundle doesn't include ${path}, so articles could be published without the safety check.`,
+        file,
+        remediation: "Register anglesite-gate in astro.config.ts from ./scripts/emdash-gate/plugin.ts and rebuild.",
+      });
+    } else if (current === null || built !== current) {
+      issues.push({
+        severity: "error",
+        category: "publish-gate-mismatch",
+        message: `The server bundle was built from a different ${path} than the site has now.`,
+        file,
+        remediation: "Rebuild the site so the Worker runs the pinned safety check.",
+      });
+    }
+  }
+  if (manifest?.gateRegistered !== true) {
+    issues.push({
+      severity: "error",
+      category: "publish-gate-missing",
+      message: "The server bundle doesn't register the anglesite-gate plugin, so articles could be published without the safety check.",
+      file,
+      remediation: "Register anglesite-gate in astro.config.ts's EmDash plugins and rebuild.",
+    });
+  }
+  return issues;
+}
+
+async function readOrNull(path: string): Promise<string | null> {
+  return readFile(path, "utf-8").catch((e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)));
+}
+
+/** The server bundle's share of the scan: secrets in every module, and the publish gate. */
+async function scanServerBuild(): Promise<Issue[]> {
+  const issues: Issue[] = [];
+  const serverFiles = await stat(SERVER_DIR).then(() => walk(SERVER_DIR), () => null);
+  for await (const file of serverFiles ?? []) {
+    if (!/\.(m?js|json)$/i.test(file)) continue;
+    issues.push(...checkSecrets(await readFile(file, "utf-8"), relative(process.cwd(), file)));
+  }
+  const currentHashes: Record<string, string | null> = {};
+  for (const path of REQUIRED_GATE_MODULES) {
+    // Raw bytes, as the build manifest hashes them.
+    const bytes = await readFile(join(process.cwd(), path)).catch((e: NodeJS.ErrnoException) =>
+      e.code === "ENOENT" ? null : Promise.reject(e),
+    );
+    currentHashes[path] = bytes === null ? null : sha256(bytes);
+  }
+  const manifestRaw = await readOrNull(join(process.cwd(), BUILD_MANIFEST_PATH));
+  issues.push(...checkServerBuild(manifestRaw, currentHashes));
+  return issues;
+}
+
+/** Vendored public chunks from the build manifest, as `dist/…` paths. Empty for a static site. */
+function vendoredPublicPaths(manifestRaw: string | null): Set<string> {
+  try {
+    const chunks = manifestRaw === null ? [] : JSON.parse(manifestRaw).vendoredClientChunks;
+    return new Set(Array.isArray(chunks) ? chunks.filter((c): c is string => typeof c === "string").map((c) => `dist/${c}`) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 async function scan(): Promise<Issue[]> {
   const issues: Issue[] = [];
 
@@ -1406,7 +1291,33 @@ async function scan(): Promise<Issue[]> {
     return issues;
   }
 
-  const headersContent = await readFile(HEADERS_FILE, "utf-8").catch((e: NodeJS.ErrnoException) =>
+  // Server-rendered: the static checks read the public files in dist/client/, and report them
+  // under the dist/… paths they're served at, so every check below applies unchanged. Any file
+  // only a server build writes marks the layout, so a renamed or missing Worker entry can't drop
+  // the build back to static mode (and past the publish-gate checks); it is a failure of its own.
+  // Bare dist/server/ or dist/client/ directories don't count: a static site's own /server/ page
+  // builds to dist/server/index.html.
+  const exists = (path: string) => stat(path).then(() => true, () => false);
+  const serverRendered = (
+    await Promise.all([SERVER_ENTRY, join(SERVER_DIR, "wrangler.json"), join(process.cwd(), BUILD_MANIFEST_PATH)].map(exists))
+  ).some(Boolean);
+  if (serverRendered && !(await exists(SERVER_ENTRY))) {
+    issues.push({
+      severity: "error",
+      category: "server-build-incomplete",
+      message: "The build is server-rendered but has no Worker entry at dist/server/entry.mjs.",
+      file: "dist/server/entry.mjs",
+      remediation: "Rebuild the site; if the adapter now names its entry differently, update pre-deploy-check.ts.",
+    });
+  }
+  const publicDir = serverRendered ? CLIENT_DIR : DIST_DIR;
+  const publicRel = (file: string) => (serverRendered ? join("dist", relative(publicDir, file)) : relative(process.cwd(), file));
+  const vendored = serverRendered
+    ? vendoredPublicPaths(await readOrNull(join(process.cwd(), BUILD_MANIFEST_PATH)))
+    : new Set<string>();
+  if (serverRendered) issues.push(...(await scanServerBuild()));
+
+  const headersContent = await readFile(join(publicDir, "_headers"), "utf-8").catch((e: NodeJS.ErrnoException) =>
     e.code === "ENOENT" ? null : Promise.reject(e),
   );
   const configContent = await readFile(CONFIG_FILE, "utf-8").catch((e: NodeJS.ErrnoException) =>
@@ -1414,19 +1325,19 @@ async function scan(): Promise<Issue[]> {
   );
   issues.push(...checkHeaders(headersContent, configContent));
 
-  const securityTxtContent = await readFile(join(DIST_DIR, ".well-known", "security.txt"), "utf-8").catch(
+  const securityTxtContent = await readFile(join(publicDir, ".well-known", "security.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   issues.push(...checkSecurityTxt(securityTxtContent, configContent, new Date()));
-  const mtaStsContent = await readFile(join(DIST_DIR, ".well-known", "mta-sts.txt"), "utf-8").catch(
+  const mtaStsContent = await readFile(join(publicDir, ".well-known", "mta-sts.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   issues.push(...checkMTAStsPolicy(mtaStsContent, configContent));
 
-  const robotsContent = await readFile(join(DIST_DIR, "robots.txt"), "utf-8").catch(
+  const robotsContent = await readFile(join(publicDir, "robots.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? "" : Promise.reject(e)),
   );
-  const rslXmlContent = await readFile(join(DIST_DIR, "rsl.xml"), "utf-8").catch(
+  const rslXmlContent = await readFile(join(publicDir, "rsl.xml"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   const { policy: licensingPolicy } = readLicensingPolicy(process.cwd());
@@ -1441,7 +1352,7 @@ async function scan(): Promise<Issue[]> {
     ),
   );
 
-  const sitemapContent = await readFile(join(DIST_DIR, "sitemap.xml"), "utf-8").catch(
+  const sitemapContent = await readFile(join(publicDir, "sitemap.xml"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   // Only ever two files' content is needed out of the whole walk below — the running
@@ -1456,13 +1367,13 @@ async function scan(): Promise<Issue[]> {
 
   const relPaths: string[] = [];
 
-  for await (const file of walk(DIST_DIR)) {
+  for await (const file of walk(publicDir)) {
     if (!/\.(html?|js|css|json|xml|txt)$/i.test(file)) continue;
     const content = await readFile(file, "utf-8");
-    const rel = relative(process.cwd(), file);
+    const rel = publicRel(file);
     relPaths.push(rel);
 
-    issues.push(...checkPII(content, rel));
+    issues.push(...checkPublicPII(content, rel, vendored.has(rel.replace(/\\/g, "/"))));
     issues.push(...checkNoRestrictedContentInDist(rel, content));
 
     const isHtmlOrCss = /\.(html?|css)$/i.test(file);
@@ -1479,27 +1390,8 @@ async function scan(): Promise<Issue[]> {
     }
 
     if (/\.html?$/i.test(file)) {
-      for (const pattern of BLOCKED_SCRIPTS) {
-        if (pattern.test(content)) {
-          issues.push({
-            severity: "warning",
-            category: "third-party-script",
-            message: `Third-party tracking script detected: ${pattern.source}`,
-            file: rel,
-          });
-        }
-      }
-
-      for (const pattern of BLOCKED_ROUTES) {
-        if (pattern.test(content)) {
-          issues.push({
-            severity: "error",
-            category: "keystatic-route",
-            message: "Keystatic admin route found in production output",
-            file: rel,
-          });
-        }
-      }
+      issues.push(...checkBlockedScripts(content, rel));
+      issues.push(...checkBlockedRoutes(content, rel));
 
       issues.push(...checkSRI(content, rel));
       issues.push(...checkExternalLinkRel(content, rel));

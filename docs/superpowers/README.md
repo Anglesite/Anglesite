@@ -26,6 +26,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-30 | [Developer features: Worker Issues → `@dwk/workers` auto-fix — design](specs/2026-09-30-worker-issues-autofix-design.md) | [#2095](https://github.com/Anglesite/Anglesite/issues/2095) | draft |
 | 2026-09-28 | [System One decision seam + received-interaction spam screen — design](specs/2026-09-28-system-one-decision-seam-design.md) | [#2058](https://github.com/Anglesite/Anglesite/issues/2058), [#2059](https://github.com/Anglesite/Anglesite/issues/2059) | current |
 | 2026-09-28 | [Startup screen tips & tricks — design](specs/2026-09-28-startup-tips-design.md) | — | current |
 | 2026-09-13 | [3D DOM exploder — exploded-layer view of the preview for debugging nested elements — design](specs/2026-09-13-3d-dom-exploder-design.md) | [#1999](https://github.com/Anglesite/Anglesite/issues/1999) | draft |
@@ -224,6 +225,8 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-10-01 | [EmDash import rung (Portable Text → Markdown) — plan](plans/2026-10-01-emdash-import-rung-plan.md) | [#2051](https://github.com/Anglesite/Anglesite/issues/2051), [#2050](https://github.com/Anglesite/Anglesite/issues/2050) | current |
+| 2026-09-28 | [Kev-0.5B on-device scorer — implementation plan](plans/2026-09-28-kev-coreml-scorer-plan.md) | [#2059](https://github.com/Anglesite/Anglesite/issues/2059), [#2058](https://github.com/Anglesite/Anglesite/issues/2058) | current |
 | 2026-09-06 | [Safari MCP: Sessionful HTTP Transport + Detect/Connect Implementation Plan](plans/2026-09-06-safari-mcp-sessionful-transport.md) | — | current |
 | 2026-09-04 | [Worker Provisioning Deploy Spine Implementation Plan](plans/2026-09-04-worker-provisioning-deploy-spine-plan.md) | — | current |
 | 2026-09-04 | [Cloudflare Core Transport Unification (Phase 1 of #1818) Implementation Plan](plans/2026-09-04-cloudflare-core-transport-unification.md) | [#1818](https://github.com/Anglesite/Anglesite/issues/1818) | historical |

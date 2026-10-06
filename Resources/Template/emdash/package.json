@@ -1,0 +1,75 @@
+{
+  "name": "anglesite-emdash-site",
+  "type": "module",
+  "version": "0.0.1",
+  "emdash": {
+    "seed": "seed/seed.json"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "prebuild": "npx tsx scripts/well-known.ts check && npx tsx scripts/csp.ts && npx tsx scripts/edge-artifacts.ts && npx tsx scripts/experiments-artifact.ts && npx tsx scripts/mcp-artifact.ts",
+    "build": "astro check && astro build && npx tsx scripts/validate-html.ts dist/client",
+    "postbuild": "npx pagefind --site dist/client",
+    "preview": "astro preview",
+    "check": "npx tsx scripts/pre-deploy-check.ts",
+    "check:packs": "tsx scripts/check-pack.ts",
+    "build:packs": "zsh scripts/build-packs.sh",
+    "a11y": "npx tsx scripts/a11y-audit.ts",
+    "links": "npx tsx scripts/broken-links.ts",
+    "weight": "npx tsx scripts/page-weight.ts",
+    "embed": "tsx scripts/embed-snapshot.ts",
+    "build:ci": "npm run build && npx tsx scripts/pre-deploy-check.ts --json --strict",
+    "test": "tsx --test \"scripts/**/*.test.ts\" \"src/**/*.test.ts\" && npm run test:astro",
+    "pretest:worker": "npx tsx scripts/experiments-artifact.ts && npx tsx scripts/mcp-artifact.ts",
+    "test:worker": "vitest run --config vitest.config.ts",
+    "test:scripts": "npx tsx --test scripts/*.test.ts scripts/embeds/*.test.ts src/lib/*.test.ts",
+    "test:astro": "vitest run --config vitest.astro.config.ts"
+  },
+  "dependencies": {
+    "@astroanimate/core": "0.1.2",
+    "@astrojs/cloudflare": "14.3.3",
+    "@astrojs/markdown-remark": "^7.3.1",
+    "@astrojs/react": "7.0.0",
+    "@astrojs/rss": "^4.0.0",
+    "@dwk/activitypub": "1.0.0-beta.5",
+    "@dwk/indieauth": "1.0.0-beta.2",
+    "@dwk/mcp": "1.0.0-beta.1",
+    "@dwk/micropub": "1.0.0-beta.3",
+    "@dwk/microsub": "1.0.0-beta.2",
+    "@dwk/solid-oidc": "1.0.0-beta.2",
+    "@dwk/solid-pod": "1.0.0-beta.3",
+    "@dwk/webfinger": "1.0.0-beta.2",
+    "@dwk/webmention": "1.0.0-beta.2",
+    "@dwk/websub": "1.0.0-beta.1",
+    "@emdash-cms/cloudflare": "1.0.1",
+    "@tgwf/co2": "^0.19.0",
+    "astro": "^7.3.4",
+    "astro-seo-schema": "^7.0.0",
+    "emdash": "1.0.1",
+    "kysely": "0.29.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/workers-types": "5.20260922.1",
+    "@keystatic/astro": "^6.0.0",
+    "@keystatic/core": "^0.6.9",
+    "@types/node": "^26.6.2",
+    "html-validate": "^11.16.0",
+    "impeccable": "4.1.0",
+    "microformats-parser": "^2.0.4",
+    "pagefind": "^1.5.2",
+    "schema-dts": "^1.1.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.136.3"
+  },
+  "overrides": {
+    "@astroanimate/core": {
+      "astro": "$astro"
+    }
+  }
+}

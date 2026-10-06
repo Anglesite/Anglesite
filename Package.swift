@@ -173,6 +173,10 @@ var packageTargets: [Target] = [
         name: "AnglesiteCorePortableTests",
         dependencies: ["AnglesiteCore"],
         path: "Tests/AnglesiteCorePortableTests",
+        // Tests/AnglesiteCorePortableTests/Fixtures/Kev/ holds the Kev tokenizer/packer golden
+        // fixtures (#2059), generated from the released checkpoint by scripts/kev/. `.copy` keeps
+        // them byte-for-byte, as the other targets' `Fixtures/` do.
+        resources: [.copy("Fixtures")],
         swiftSettings: strictConcurrency
     ),
     .testTarget(
@@ -575,7 +579,7 @@ if includeContainer {
     packageProducts.append(.library(name: "AnglesiteContainer", targets: ["AnglesiteContainer"]))
     packageProducts.append(.executable(name: "anglesite-container-probe", targets: ["AnglesiteContainerProbe"]))
     packageDependencies.append(
-        .package(url: "https://github.com/apple/containerization.git", .upToNextMinor(from: "0.35.0"))
+        .package(url: "https://github.com/apple/containerization.git", .upToNextMinor(from: "0.48.0"))
     )
 }
 

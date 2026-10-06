@@ -54,6 +54,18 @@ public enum SecretAccounts {
     /// during remote-runtime onboarding and never reaches api.cloudflare.com.
     public static let sandboxControlToken = "sandbox-control-token"
 
+    /// The relay-issued webhook secret for one site's Workers Issues automation (#2095). Site-scoped
+    /// like the POSSE slots below; the relay stores only its hash.
+    public static func workerIssuesWebhookSecret(siteID: String) -> String {
+        "worker-issues:\(siteID):webhook-secret"
+    }
+
+    /// The per-site domain-proof key for the Workers Issues relay (#2095 slice 5,
+    /// `WorkerIssuesProof`). Only its hash is ever published or sent anywhere but the relay.
+    public static func workerIssuesProofKey(siteID: String) -> String {
+        "worker-issues:\(siteID):proof-key"
+    }
+
     /// Site-scoped POSSE token slots. Account names include the stable site UUID so credentials
     /// never leak across two packages configured for different social accounts.
     public static func mastodonAccessToken(siteID: String) -> String {
@@ -107,6 +119,12 @@ public enum SecretAccounts {
     /// it's still generated once and persisted rather than regenerated per deploy.
     public static func webdavPepper(siteID: String) -> String {
         "webdav:\(siteID):pepper"
+    }
+
+    /// An EmDash site's `EMDASH_ENCRYPTION_KEY` (#2103), generated once by
+    /// `EmDashWorkerConfig.encryptionKey(siteID:secretStore:)`.
+    public static func emdashEncryptionKey(siteID: String) -> String {
+        "emdash:\(siteID):encryption-key"
     }
 
     /// The site's own IndieAuth-issued DPoP-bound access token (V-4.3, #365) — what

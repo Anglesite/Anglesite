@@ -159,9 +159,10 @@ public actor SafariMCPBridgeClient {
     }
 
     /// Fetches the server's tool catalog. Requires a prior successful
-    /// ``connect(clientName:clientVersion:timeout:)``.
-    public func listTools() async throws -> [ToolDescriptor] {
-        let result = try await sendRequest(method: "tools/list", params: .object([:]), timeout: NetworkTimeouts.mcpToolsListRequest)
+    /// ``connect(clientName:clientVersion:timeout:)``. `timeout` is injectable like `connect`'s,
+    /// so tests can outlast CI scheduling contention.
+    public func listTools(timeout: TimeInterval = NetworkTimeouts.mcpToolsListRequest) async throws -> [ToolDescriptor] {
+        let result = try await sendRequest(method: "tools/list", params: .object([:]), timeout: timeout)
         guard case .object(let dict) = result, case .array(let tools)? = dict["tools"] else {
             throw ClientError.invalidResponse("tools/list missing 'tools' array")
         }
@@ -174,7 +175,7 @@ public actor SafariMCPBridgeClient {
 
     /// Invokes a server tool and decodes its result content blocks. Requires a prior successful
     /// ``connect(clientName:clientVersion:timeout:)`` — replays the session's captured
-    /// `Mcp-Session-Id` exactly like ``listTools()``, since both go through the same private
+    /// `Mcp-Session-Id` exactly like ``listTools(timeout:)``, since both go through the same private
     /// `sendRequest(method:params:timeout:)`. A result with `isError: true` is thrown as
     /// ``ClientError/toolError(message:)`` rather than returned.
     public func callTool(

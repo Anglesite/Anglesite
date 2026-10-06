@@ -9,10 +9,18 @@
 #                                              # committed files; exits non-zero on any drift (CI mode).
 #
 # Requires: `swift package resolve` already run (app-binary), `npm ci` in Resources/Template
-# (website-template), and — only for the container-image bucket — a sidecar checkout with
+# (website-template) and in Resources/Template/emdash (emdash-site — the EmDash overlay's own
+# lockfile, #2088), and — only for the container-image bucket — a sidecar checkout with
 # `npm ci` already run at $ANGLESITE_SIDECAR_SRC (falls back to ../anglesite, same convention as
 # scripts/lib/stage-dev-image-context.sh). Missing sidecar is a warning, not a failure: this
 # script must still succeed for contributors who don't have the sidecar checked out.
+#
+# The two npm buckets must be generated from a darwin-arm64 install: `npm ci` resolves
+# platform-specific optional packages (@esbuild/darwin-arm64, workerd-darwin-arm64, …), so a
+# manifest generated on another platform never matches the committed one, and CI diffs both on
+# macOS. On another platform, `npm ci --os=darwin --cpu=arm64` installs the same tree.
+# Use the npm that CI's Node (scripts/node-version.txt) ships: npm 11 skips a lockfile entry
+# marked "extraneous", npm 10 still installs it, and the manifests must match CI's tree.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OVERRIDES="$ROOT/scripts/attributions-overrides.json"
@@ -38,6 +46,15 @@ if [[ ! -d "$ROOT/Resources/Template/node_modules" ]]; then
     exit 1
 fi
 node "$ROOT/scripts/generate-npm-attributions.mjs" "$ROOT/Resources/Template/node_modules" "$WORK_DIR/website-template.json" "$OVERRIDES"
+
+# An EmDash site installs the overlay's lockfile — the template's dependencies plus EmDash's,
+# resolved independently — so its notice needs its own manifest (#2088).
+echo "==> emdash-site (Resources/Template/emdash/node_modules)"
+if [[ ! -d "$ROOT/Resources/Template/emdash/node_modules" ]]; then
+    echo "error: Resources/Template/emdash/node_modules not found — run 'npm ci' in Resources/Template/emdash first." >&2
+    exit 1
+fi
+node "$ROOT/scripts/generate-npm-attributions.mjs" "$ROOT/Resources/Template/emdash/node_modules" "$WORK_DIR/emdash-site.json" "$OVERRIDES"
 
 SIDECAR_SRC="${ANGLESITE_SIDECAR_SRC:-${ANGLESITE_PLUGIN_SRC:-$(cd "$ROOT/.." && pwd)/anglesite}}"
 if [[ -d "$SIDECAR_SRC/node_modules" ]]; then
