@@ -37,18 +37,18 @@
     "@dwk/webmention": "1.0.0-beta.2",
     "@dwk/websub": "1.0.0-beta.1",
     "@tgwf/co2": "^0.19.0",
-    "astro": "^7.3.4",
+    "astro": "^7.3.5",
     "astro-seo-schema": "^7.0.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@astrojs/react": "^7.0.0",
     "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20260922.1",
+    "@cloudflare/workers-types": "5.20261002.1",
     "@keystatic/astro": "^6.0.0",
     "@keystatic/core": "^0.6.9",
-    "@types/node": "^26.6.2",
-    "html-validate": "^11.16.0",
+    "@types/node": "^26.6.4",
+    "html-validate": "^11.16.1",
     "impeccable": "4.1.0",
     "microformats-parser": "^2.0.4",
     "pagefind": "^1.5.2",
@@ -58,7 +58,7 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "4.1.11",
-    "wrangler": "4.136.3"
+    "wrangler": "4.147.0"
   },
   "overrides": {
     "@astroanimate/core": {

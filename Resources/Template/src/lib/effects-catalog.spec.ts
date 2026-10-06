@@ -56,10 +56,15 @@ describe("effects catalog (legacy)", () => {
         const mod = await import(
           /* @vite-ignore */ `@astroanimate/core/${entry.component}`
         );
-        const inner = await container.renderToString(mod.default, {
-          props: entry.props,
-          slots: { default: `${entry.title} demo` },
-        });
+        // Astro 7.3.5+ annotates dev-rendered markup with `data-astro-source-file` (the
+        // absolute path of the component on *this* machine) and `data-astro-source-loc`.
+        // Neither is portable across checkouts nor wanted in a shipped demo — strip them.
+        const inner = (
+          await container.renderToString(mod.default, {
+            props: entry.props,
+            slots: { default: `${entry.title} demo` },
+          })
+        ).replace(/\sdata-astro-source-(?:file|loc)="[^"]*"/g, "");
         // AstroContainer#renderToString only returns the component's own
         // markup (plus any define:vars inline styles) — it does not bundle
         // the component's scoped <style> block, since that extraction is
