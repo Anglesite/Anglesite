@@ -18,6 +18,7 @@
  *
  * - `anglesite-build-manifest` (pinned, under `scripts/`), which records the gate sources the
  *   server bundle was built from. The deploy gate refuses a server build without it.
+ * - EmDash's sandbox runner, for marketplace plugins, when the Worker has a `LOADER` binding.
  *
  * Keystatic edits git-backed content, which an EmDash site has none of, so it is left out.
  */
@@ -27,7 +28,7 @@ import type { AstroIntegration, AstroUserConfig } from "astro";
 import cloudflare from "@astrojs/cloudflare";
 import react from "@astrojs/react";
 import emdash from "emdash/astro";
-import { d1, r2 } from "@emdash-cms/cloudflare";
+import { d1, r2, sandbox } from "@emdash-cms/cloudflare";
 import anglesiteBuildManifest from "./scripts/anglesite-build-manifest.ts";
 import templateConfig from "./astro.anglesite.config.ts";
 
@@ -68,6 +69,12 @@ const config: AstroUserConfig = {
       database: d1({ binding: EMDASH_BINDINGS.database }),
       storage: r2({ binding: EMDASH_BINDINGS.media }),
       plugins: [anglesiteGate],
+      // Marketplace plugins run sandboxed, in their own isolates, when the Worker config has a
+      // `LOADER` Worker Loader binding (a paid-plan feature); `sandbox()` returns nothing without
+      // one, and they stay off. Plugins in `plugins` above always run in-process, so
+      // `anglesite-gate` is never sandboxed. Anglesite writes `LOADER` for a connected install
+      // that already had it (#2106).
+      sandboxRunner: sandbox(),
     }),
     anglesiteBuildManifest(),
   ],
