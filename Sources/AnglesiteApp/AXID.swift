@@ -60,6 +60,10 @@ enum AXID {
     static let settingsTabs = "settings.tabs"
     /// The Workers tab's Cloudflare-dashboard deep links.
     static let settingsWorkersLogs = "settings.workers.logs"
+    /// The Workers tab's "Issues" dashboard link (#2095), shown while Worker error tracking is on.
+    static let settingsWorkersIssues = "settings.workers.issues"
+    /// The Workers tab's one-time error-report setup guide (#2095 slice 3).
+    static let settingsWorkersIssuesSetup = "settings.workers.issuesSetup"
     static let settingsWorkersAnalytics = "settings.workers.analytics"
     /// A Workers-tab row's activation switch, keyed by the catalog's worker id
     /// (`WorkerDescriptor.id`, e.g. `solid-pod`) — stable and non-localized, unlike the
@@ -103,6 +107,9 @@ enum AXID {
     /// Settings ▸ Advanced ▸ "Show developer tools" — the one toggle behind which every code
     /// editor and the Safari bridge setup live (`DeveloperToolsVisibility`).
     static let settingsDeveloperToolsToggle = "settings.developerTools.toggle"
+    /// Settings ▸ Advanced ▸ Developer Tools ▸ "Track errors in your site's Workers" (#2095) —
+    /// shown only while developer tools are on (`DeveloperToolsVisibility.showsWorkerIssuesSetting`).
+    static let settingsWorkerIssuesToggle = "settings.developerTools.workerIssues"
 
     // MARK: Safari MCP Bridge (#1910)
 
@@ -123,11 +130,12 @@ enum AXID {
         withheldPagesBanner,
         mainPaneTakeoverHeader, mainPaneTakeoverDone,
         settingsTabs, settingsWorkersLogs, settingsWorkersAnalytics,
+        settingsWorkersIssues, settingsWorkersIssuesSetup,
         debugSourceFilter, debugStreamFilter, debugSearchField,
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,
         debugServerHeader, debugLocalWorkersHeader,
-        settingsDeveloperToolsToggle,
+        settingsDeveloperToolsToggle, settingsWorkerIssuesToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
     ]
 }

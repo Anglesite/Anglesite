@@ -141,7 +141,12 @@ public struct SiteOperations: Sendable {
         }
         // #1659: adds the app-owned RFC 9727 API Catalog claim whenever the social layer is
         // composed at all, before either downstream use below — see `withAPICatalogClaim`.
-        let effectiveRouteClaims = WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers)
+        // #2095 slice 5: the Workers Issues domain-proof route rides the same owner-attributed
+        // claim list, so the `.well-known` collision check sees it.
+        let tracksWorkerIssues = AppSettings.shared.tracksWorkerIssues
+        let effectiveRouteClaims = WorkerComposition.withIssuesProofClaim(
+            WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers),
+            workers: workers, enabled: tracksWorkerIssues)
 
         // Prefer the site's already-established Worker name (`.site-config`'s `CF_PROJECT_NAME`,
         // set at the first successful deploy or by a worker-name-conflict rename, #740) over
@@ -182,7 +187,13 @@ public struct SiteOperations: Sendable {
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
-            mcpEnabled: mcpEnabled
+            mcpEnabled: mcpEnabled,
+            // #2095: an app-wide Developer Tools opt-in, not a site setting — mirrors
+            // DeployModel.runDeploy so a headless redeploy doesn't switch Issues back off.
+            issuesEnabled: tracksWorkerIssues,
+            issuesProof: WorkerIssuesProof.valueForPublish(
+                siteID: site.id, enabled: tracksWorkerIssues && !workers.isEmpty,
+                secrets: PlatformSecretStore.make().withoutUserInteraction)
         )
         onProgress?(.deployFinalizing)
 
@@ -218,6 +229,16 @@ public struct SiteOperations: Sendable {
             }
         } catch {
             // Best-effort persistence; the provisioning result is still returned below.
+        }
+
+        // #2095 slice 3: mirrors DeployModel.runDeploy. This headless path never prompts, so the
+        // keychain is read without user interaction.
+        if case .succeeded(let deployedURL, _, _) = provisionResult {
+            await WorkerIssuesReconciler.reconcileAfterPublish(
+                siteID: site.id, configDirectory: site.configDirectory,
+                siteURL: DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL,
+                configStore: configStore,
+                secrets: PlatformSecretStore.make().withoutUserInteraction)
         }
 
         return provisionResult.asDeployCommandResult

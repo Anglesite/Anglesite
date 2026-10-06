@@ -160,10 +160,11 @@ public actor SiteScaffolder {
         do { try await gitInit(siteDir) }
         catch { emit(.warning(step: "copyingTemplate", message: "git init skipped: \(humanize(error))")) }
 
-        // 2c. Third-party notice for the template's own npm dependencies (non-fatal, same
+        // 2c. Third-party notice for the npm dependencies this site is scaffolded with — the
+        // overlay's set for an EmDash site (#2088), the template's own otherwise (non-fatal, same
         // handling as the dependency baseline above — the site is still viable without it).
         do {
-            let attributions = try attributionsLoader(.websiteTemplate)
+            let attributions = try attributionsLoader(.siteTemplate(for: draft.siteKind))
             let notice = ThirdPartyNoticeRenderer.render(attributions)
             try notice.write(to: siteDir.appendingPathComponent("THIRD-PARTY-NOTICES.md"), atomically: true, encoding: .utf8)
         } catch {

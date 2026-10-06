@@ -772,6 +772,9 @@
     "Ask the assistant…" : {
 
     },
+    "Asks Cloudflare to group repeated errors from your site's Workers, and sends errors that come from a Worker's own code to its authors so they can fix them. Only the kind of error and where in the Worker's code it happened are sent — never the error text, your visitors' requests, or your site's address. Takes effect the next time you publish, and only on sites with Workers turned on." : {
+
+    },
     "Assert nothing" : {
 
     },
@@ -1443,6 +1446,9 @@
     "Copy Actor URL" : {
 
     },
+    "Copy Address" : {
+
+    },
     "Copy Animation" : {
 
     },
@@ -1453,6 +1459,9 @@
 
     },
     "Copy Rewrite" : {
+
+    },
+    "Copy Secret" : {
 
     },
     "Copy Snippet" : {
@@ -2498,6 +2507,9 @@
     "Importing…" : {
 
     },
+    "In Cloudflare, open this site's Issues page, choose Automations ▸ Add automation, set it to run after 1 occurrence, and pick Generic Webhook as the destination. Paste the address and secret below, then turn it on." : {
+
+    },
     "In the dashboard: open this instance's Settings, locate \"NLWeb Worker\", and enable it." : {
 
     },
@@ -2547,6 +2559,9 @@
 
     },
     "Is this site ready for AI agents?" : {
+
+    },
+    "Issues" : {
 
     },
     "It contains something that looks like a password or access key." : {
@@ -3170,6 +3185,9 @@
     "On" : {
 
     },
+    "One more step to start sending error reports" : {
+
+    },
     "One per line, most preferred first. An email address, or an https:// page where reports are accepted." : {
 
     },
@@ -3198,6 +3216,9 @@
 
     },
     "Open Both…" : {
+
+    },
+    "Open Cloudflare" : {
 
     },
     "Open Cloudflare API tokens" : {
@@ -3979,6 +4000,9 @@
     "Screen new comments for spam?" : {
 
     },
+    "Send Worker errors to their authors?" : {
+
+    },
     "SEO" : {
 
     },
@@ -4547,6 +4571,9 @@
     "TLS report mailbox" : {
 
     },
+    "Track errors in your site's Workers" : {
+
+    },
     "TTL" : {
 
     },
@@ -5098,6 +5125,9 @@
 
     },
     "What's New in Anglesite" : {
+
+    },
+    "When a Worker on your site runs into an error in its own code, Anglesite reports it to the Worker's authors so they can fix it. The report is public and contains only the kind of error and where in the Worker's code it happened. The error text, your visitors' requests, and your site's address are never sent. You can turn this off at any time; it stops with your next publish." : {
 
     },
     "When an AI assistant asks for a page, Cloudflare serves it a markdown version instead of the full HTML — a fraction of the tokens your full page costs. Human visitors see no change. Takes effect on your next deploy to a custom domain." : {
