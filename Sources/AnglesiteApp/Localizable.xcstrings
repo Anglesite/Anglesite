@@ -582,6 +582,9 @@
     "Allowed MX hosts" : {
 
     },
+    "Also check links to other sites during audits" : {
+
+    },
     "Also publish RSL" : {
 
     },
@@ -613,6 +616,9 @@
 
     },
     "Anglesite already supports this — redeploy the site to pick it up." : {
+
+    },
+    "Anglesite can't preview this page's share card until the site preview is running." : {
 
     },
     "Anglesite couldn't build this site." : {
@@ -2324,9 +2330,6 @@
     "Format" : {
 
     },
-    "Found something worth sharing? Press ⇧⌘L to save it as a link post." : {
-
-    },
     "Forward" : {
 
     },
@@ -2334,6 +2337,9 @@
 
     },
     "Forward to email" : {
+
+    },
+    "Found something worth sharing? Press ⇧⌘L to save it as a link post." : {
 
     },
     "Free during open beta: 100 instances, 20,000 queries/month, 500 crawled pages/day. Reader queries run on Cloudflare's AI models — beyond free limits, usage is billed by Cloudflare." : {
@@ -2798,6 +2804,9 @@
     "Loading effects…" : {
 
     },
+    "Loading preview…" : {
+
+    },
     "Loading site…" : {
 
     },
@@ -2864,13 +2873,13 @@
     "Middle" : {
 
     },
+    "Miss the sound of a 56K modem? Turn on “Play dial-up sound while loading” in Settings." : {
+
+    },
     "Missing Reciprocal Links" : {
 
     },
     "Missing required files" : {
-
-    },
-    "Miss the sound of a 56K modem? Turn on “Play dial-up sound while loading” in Settings." : {
 
     },
     "Mode" : {
@@ -4285,6 +4294,9 @@
     "Share the published site's URL" : {
 
     },
+    "Shared as" : {
+
+    },
     "Share…" : {
 
     },
@@ -5037,12 +5049,6 @@
     "Use MX Records from DNS" : {
 
     },
-    "Use ⌃⌘← and ⌃⌘→ to go back and forward between pages in the preview." : {
-
-    },
-    "Use ⌘+ and ⌘− to zoom the preview. ⌘0 returns to actual size." : {
-
-    },
     "Use Selection for Find" : {
 
     },
@@ -5068,6 +5074,12 @@
 
     },
     "Use “%@” from Contacts for %@?" : {
+
+    },
+    "Use ⌃⌘← and ⌃⌘→ to go back and forward between pages in the preview." : {
+
+    },
+    "Use ⌘+ and ⌘− to zoom the preview. ⌘0 returns to actual size." : {
 
     },
     "Uses Apple Intelligence on your device. No content leaves your Mac without your say-so." : {
