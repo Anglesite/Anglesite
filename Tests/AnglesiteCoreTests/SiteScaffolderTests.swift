@@ -349,7 +349,12 @@ struct SiteScaffolderTests {
             gitCommit: { _ in },
             register: { pkg in try SiteStore.Site.make(package: pkg) },
             attributionsLoader: { source in
-                guard source == .websiteTemplate else { return [] }
+                // An Anglesite site's notice comes from the template's own set, never the EmDash
+                // overlay's (#2088) — EmDashNewSiteTests.scaffoldsKind covers the EmDash side.
+                guard source == .websiteTemplate else {
+                    return [OSSAttribution(name: "wrong-set-\(source.rawValue)", version: "0", licenseSPDXId: nil,
+                                           licenseText: "unexpected", homepage: nil)]
+                }
                 return [OSSAttribution(name: "astro", version: "7.1.3", licenseSPDXId: "MIT",
                                        licenseText: "MIT License text", homepage: "https://astro.build")]
             }
@@ -360,6 +365,7 @@ struct SiteScaffolderTests {
         let notice = try String(contentsOf: pkgURL.appendingPathComponent("Source/THIRD-PARTY-NOTICES.md"), encoding: .utf8)
         #expect(notice.contains("astro 7.1.3"))
         #expect(notice.contains("MIT License text"))
+        #expect(!notice.contains("wrong-set-"))
     }
 
     @Test("a missing attributions catalog warns but still registers")

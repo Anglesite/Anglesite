@@ -111,7 +111,9 @@ jobs:
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
           matches 'JS/anglesite-gate/**' 'Resources/Template/scripts/gate-checks.ts' 'Resources/Template/scripts/emdash-gate/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && emdashGate=true
-          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/check-emdash-overlay.sh' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
+          # Resources/Template/** covers the EmDash overlay's own package.json/package-lock.json
+          # (Resources/Template/emdash/), the input to the emdash-site attributions manifest.
+          matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/check-emdash-overlay.sh' 'scripts/check-emdash-gate-runtime.mjs' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
           matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
@@ -224,10 +226,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: node --test scripts/generate-npm-attributions.test.mjs
 
-      # The website-template attributions manifest check lives in build-test (macos-26), not
-      # here (ubuntu-latest) — see that job's "Check website-template attributions manifest"
-      # step for why: the committed manifest is arm64-only and can never match a linux-x64
-      # npm ci install.
+      # The website-template and emdash-site attributions manifest checks live in build-test
+      # (macos-26), not here (ubuntu-latest) — see that job's "Check website-template
+      # attributions manifest" step for why: the committed manifests are arm64-only and can
+      # never match a linux-x64 npm ci install.
       # The template's node:test suites had no CI lane at all — the `.well-known` design doc
       # calls that out explicitly. `test:worker` is vitest/workerd only. `npm test` covers every
       # node:test suite (scripts/ plus src/); `test:scripts` stays in package.json as the fast
@@ -242,8 +244,10 @@ jobs:
       - run: npm run build:packs
       # #2050: an EmDash site is the template plus its emdash/ overlay, server-rendered. Build
       # one the way SiteScaffolder does, so a template or overlay change that breaks it fails
-      # here rather than in an owner's first build.
-      - name: Build an EmDash site from the overlay
+      # here rather than in an owner's first build. The script then boots that build on workerd
+      # with a local D1 (scripts/check-emdash-gate-runtime.mjs, #2089) and proves anglesite-gate
+      # cancels a publish that fails its checks and passes a clean one.
+      - name: Build an EmDash site from the overlay and check its publish gate
         working-directory: ${{ github.workspace }}
         run: scripts/check-emdash-overlay.sh
 
@@ -601,6 +605,19 @@ jobs:
           set -euo pipefail
           node scripts/generate-npm-attributions.mjs Resources/Template/node_modules /tmp/website-template.json scripts/attributions-overrides.json
           diff -u Resources/Attributions/website-template.json /tmp/website-template.json
+
+      # An EmDash site installs the overlay's own lockfile (Resources/Template/emdash/), not the
+      # template's, so its THIRD-PARTY-NOTICES.md comes from a separate emdash-site.json
+      # manifest (#2088) — same arm64-only reasoning as above, so it is checked here too.
+      - name: Install EmDash overlay dependencies
+        working-directory: Resources/Template/emdash
+        run: npm ci --no-audit --no-fund
+
+      - name: Check emdash-site attributions manifest
+        run: |
+          set -euo pipefail
+          node scripts/generate-npm-attributions.mjs Resources/Template/emdash/node_modules /tmp/emdash-site.json scripts/attributions-overrides.json
+          diff -u Resources/Attributions/emdash-site.json /tmp/emdash-site.json
 
       - name: Select latest available Xcode
         # CLAUDE.md mandates Xcode 27+ (macOS 27 SDK — LongRunningIntent / CancellableIntent /
