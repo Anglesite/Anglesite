@@ -10,6 +10,10 @@
 # overlay's lockfile and the site's own `npm run build:ci`: the build, then the pre-deploy gate in
 # --strict mode, whose server-rendered checks (#2055 slice 2) must pass on a clean EmDash site.
 #
+# The built site is then booted on workerd with a local D1 (scripts/check-emdash-gate-runtime.mjs,
+# #2089) to prove `anglesite-gate` fires there: a draft with a secret in it is refused with the
+# gate's reason, and a clean one publishes.
+#
 # Usage: scripts/check-emdash-overlay.sh [work-dir]   (default: a fresh temp dir, removed on exit)
 
 set -euo pipefail
@@ -77,6 +81,10 @@ node -e 'const m = JSON.parse(require("fs").readFileSync("dist/anglesite-build.j
 [[ -f dist/anglesite-build.json ]] || { echo "no build manifest at dist/anglesite-build.json" >&2; exit 1; }
 node -e 'const m = JSON.parse(require("fs").readFileSync("dist/anglesite-build.json", "utf8"));
   if (m.gateRegistered !== true) { console.error("the build manifest does not record the gate as registered"); process.exit(1); }'
+# The gate is in the bundle; now prove it fires. Boots this build (astro preview on workerd, a
+# local D1 as `DB`) and publishes through EmDash's content API: a secret-bearing draft must be
+# cancelled with the gate's reason, a clean one must go live (#2089).
+node "$REPO_ROOT/scripts/check-emdash-gate-runtime.mjs" "$SITE"
 echo '{"version":1,"gateModules":{},"gateRegistered":false,"vendoredClientChunks":[]}' > dist/anglesite-build.json
 report=$(npx tsx scripts/pre-deploy-check.ts --json --strict || true)
 echo "$report"
