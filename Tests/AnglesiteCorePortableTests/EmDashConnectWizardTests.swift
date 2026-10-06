@@ -230,6 +230,8 @@ struct EmDashConnectWizardTests {
         let settings = try await SiteConfigStore(configDirectory: package.configURL).load()
         #expect(settings.emdashResources == install.resources)
         #expect(settings.workerProvisioned == true)
+        // No Worker Loader, so the plan is still the owner's to answer at Publish Site.
+        #expect(settings.emdashWorkersPaidPlan == nil)
 
         // An install that can't be connected fails the build and leaves no half-built site.
         let other = root.appendingPathComponent("Other", isDirectory: true)

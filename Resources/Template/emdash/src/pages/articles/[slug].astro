@@ -9,6 +9,7 @@ import { Schema } from "astro-seo-schema";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import LicenseLink from "../../components/LicenseLink.astro";
 import Interactions from "../../components/Interactions.astro";
+import { articleCacheOptions } from "../../lib/worker-cache.ts";
 import { articleView, unmappedFields, type EmDashArticleData } from "../../lib/emdash-articles.ts";
 import { entrySchema } from "../../lib/schema.ts";
 import { ownerName } from "../../lib/profile.ts";
@@ -30,7 +31,9 @@ const unmapped = unmappedFields(data);
 if (unmapped.length > 0) {
   console.warn(`[anglesite] /articles/${view.slug}/ doesn't show these EmDash fields: ${unmapped.join(", ")}`);
 }
-if (Astro.cache?.enabled && cacheHint) Astro.cache.set(cacheHint);
+// Only a page that renders is cached: a 404 for an article not published yet would otherwise
+// outlive its publish, which purges only the tags of pages that show the article.
+if (Astro.cache?.enabled) Astro.cache.set(articleCacheOptions(cacheHint));
 
 const permalink = `/articles/${view.slug}/`;
 const canonical = new URL(permalink, Astro.site ?? Astro.url).href;

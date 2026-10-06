@@ -97,4 +97,25 @@ REPORT="$report" node -e 'const r = JSON.parse(process.env.REPORT);
     process.exit(1);
   }'
 echo "✓ the pre-deploy gate refuses the build without the publish gate"
+
+# Workers Caching (#2116). The build above had no Worker config, as in local development, so it
+# must not have Cloudflare's route-cache provider (its `astro-version:` tag prefix marks it in the
+# bundle: `VERSION_TAG_PREFIX` in @astrojs/cloudflare's src/cache/provider.ts, upstream at
+# https://github.com/withastro/astro/blob/main/packages/integrations/cloudflare/src/cache/provider.ts),
+# or EmDash would purge a cache the Worker doesn't have. If the adapter renames the prefix, the
+# provider-present check below fails, so the rename can't make this check pass by accident. A Workers Paid site's config
+# (`EmDashWorkerConfig.toml(…, cache: true)`) turns the provider on, and the adapter carries the
+# setting into the deployed config.
+cache_provider_bundled() { grep -rqs 'astro-version:' dist/server; }
+! cache_provider_bundled || { echo "the route cache is on without a Worker config that enables it" >&2; exit 1; }
+printf 'name = "emdash-overlay-check"\nmain = "./src/worker.ts"\ncompatibility_date = "2026-07-15"\ncompatibility_flags = ["nodejs_compat"]\n\n[cache]\nenabled = true\n' > wrangler.toml
+npm run build
+cache_provider_bundled || { echo "a Worker config with [cache] enabled = true didn't turn the route cache on" >&2; exit 1; }
+node -e 'const c = JSON.parse(require("fs").readFileSync("dist/server/wrangler.json", "utf8"));
+  if (c.cache?.enabled !== true) { console.error("the deployed Worker config does not enable caching"); process.exit(1); }'
+sed -i.bak 's/^enabled = true$/enabled = false/' wrangler.toml && rm -f wrangler.toml.bak
+npm run build
+! cache_provider_bundled || { echo "a Worker config with [cache] enabled = false still turned the route cache on" >&2; exit 1; }
+rm wrangler.toml
+echo "✓ the route cache follows the Worker config's [cache] table"
 echo "✓ EmDash overlay site built"

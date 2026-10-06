@@ -1736,6 +1736,9 @@
     "Couldn't save MTA-STS policy: %@" : {
 
     },
+    "Couldn't save the Workers plan: %@" : {
+
+    },
     "Couldn't save UTM codes: %@" : {
 
     },
@@ -1773,6 +1776,9 @@
 
     },
     "Couldn't save website language: %@" : {
+
+    },
+    "Couldn't save your answer: %@" : {
 
     },
     "Couldn't save your change" : {
@@ -2333,6 +2339,9 @@
     "Free during open beta: 100 instances, 20,000 queries/month, 500 crawled pages/day. Reader queries run on Cloudflare's AI models — beyond free limits, usage is billed by Cloudflare." : {
 
     },
+    "Free Plan" : {
+
+    },
     "From %@" : {
 
     },
@@ -2583,6 +2592,9 @@
 
     },
     "Is this site ready for AI agents?" : {
+
+    },
+    "Is your Cloudflare account on the Workers Paid plan?" : {
 
     },
     "Issues" : {
@@ -3213,6 +3225,12 @@
 
     },
     "On" : {
+
+    },
+    "On the free plan, keeping copies would use up the plan's daily limit of visits sooner, so Anglesite leaves it off. If you're not sure, choose Free Plan. You can change this later in the Website inspector." : {
+
+    },
+    "On the Workers Paid plan, Anglesite keeps a ready copy of each article, so pages load faster and your site uses less of its computing time. Each change you publish replaces the copy right away." : {
 
     },
     "One more step to start sending error reports" : {
@@ -4631,6 +4649,9 @@
     "TTL" : {
 
     },
+    "Turn on if your Cloudflare account is on the Workers Paid plan. Anglesite then keeps a ready copy of each article, so pages load faster. Takes effect the next time you publish." : {
+
+    },
     "TXT %@" : {
 
     },
@@ -5227,6 +5248,12 @@
 
     },
     "Worker names can only contain lowercase letters, numbers, hyphens, and underscores." : {
+
+    },
+    "Workers Paid" : {
+
+    },
+    "Workers Paid plan" : {
 
     },
     "Workers Unavailable" : {

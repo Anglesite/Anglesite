@@ -19,18 +19,24 @@
  * - `anglesite-build-manifest` (pinned, under `scripts/`), which records the gate sources the
  *   server bundle was built from. The deploy gate refuses a server build without it.
  * - EmDash's sandbox runner, for marketplace plugins, when the Worker has a `LOADER` binding.
+ * - Cloudflare's route-cache provider, only when the Worker config Anglesite stages beside this
+ *   file turns Workers Caching on (`src/lib/worker-cache.ts`, #2116). EmDash then purges cached
+ *   pages on every publish; without it nothing is cached.
  *
  * Keystatic edits git-backed content, which an EmDash site has none of, so it is left out.
  */
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "astro/config";
 import type { AstroIntegration, AstroUserConfig } from "astro";
 import cloudflare from "@astrojs/cloudflare";
+import { cacheCloudflare } from "@astrojs/cloudflare/cache";
 import react from "@astrojs/react";
 import emdash from "emdash/astro";
 import { d1, r2, sandbox } from "@emdash-cms/cloudflare";
 import anglesiteBuildManifest from "./scripts/anglesite-build-manifest.ts";
 import templateConfig from "./astro.anglesite.config.ts";
+import { workerCacheEnabled } from "./src/lib/worker-cache.ts";
 
 const anglesite: AstroUserConfig = templateConfig;
 
@@ -52,6 +58,15 @@ export const anglesiteGate = {
   hooks: ["content:beforePublish", "content:beforeSchedule"],
 };
 
+/** The Worker config Anglesite stages before the build, or `undefined` (local development). */
+function stagedWorkerConfig(): string | undefined {
+  try {
+    return readFileSync(new URL("./wrangler.toml", import.meta.url), "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
 /** The template's own integrations, flattened, minus the git-backed content editor. */
 const templateIntegrations = [anglesite.integrations ?? []]
   .flat(2)
@@ -62,6 +77,7 @@ const templateIntegrations = [anglesite.integrations ?? []]
 const config: AstroUserConfig = {
   ...anglesite,
   adapter: cloudflare(),
+  ...(workerCacheEnabled(stagedWorkerConfig()) ? { cache: { provider: cacheCloudflare() } } : {}),
   integrations: [
     ...templateIntegrations,
     react(),
