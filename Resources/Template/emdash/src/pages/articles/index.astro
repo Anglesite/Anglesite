@@ -1,11 +1,13 @@
 ---
 // The article index on an EmDash site (#2050), rendered on request from EmDash's `articles`
 // collection with the same h-feed markup as the template's `CollectionIndex`. Only published
-// entries are returned to anonymous readers; the cache hint lets Workers Cache hold the page
-// until EmDash purges it on the next publish or unpublish (ADR decision 4). Older articles are
+// entries are returned to anonymous readers. Where the Worker caches (a Workers Paid account,
+// #2116), the cache hint lets it hold the page until EmDash purges it on the next publish or
+// unpublish, or for an hour at most (ADR decision 4). Older articles are
 // reached page by page through EmDash's keyset cursor (`?cursor=`), linked as `rel="next"`.
 import { getEmDashCollection } from "emdash";
 import BaseLayout from "../../layouts/BaseLayout.astro";
+import { articleCacheOptions } from "../../lib/worker-cache.ts";
 import { articleView, ARTICLES_PER_PAGE, type EmDashArticleData } from "../../lib/emdash-articles.ts";
 
 export const prerender = false;
@@ -16,7 +18,7 @@ const { entries, nextCursor, cacheHint } = await getEmDashCollection("articles",
   limit: ARTICLES_PER_PAGE,
   cursor,
 });
-if (Astro.cache?.enabled) Astro.cache.set(cacheHint);
+if (Astro.cache?.enabled) Astro.cache.set(articleCacheOptions(cacheHint));
 const items = entries
   .map((e) => articleView(e.data as unknown as EmDashArticleData))
   .filter((v) => v !== null);

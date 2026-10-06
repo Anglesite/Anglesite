@@ -7,6 +7,9 @@
  * A withheld page is logged and recorded in the site's D1 database (EmDash's `DB` binding) so the
  * app can tell the owner which page and why (#2097).
  *
+ * A withheld page is also taken out of the route cache (`context.cache`), which Workers Cache
+ * follows on a Workers Paid account (#2116).
+ *
  * Prerendered pages are skipped here because they are files the deploy gate already scanned
  * (ADR § Gate, layer 1), and a build-time 503 would otherwise be baked into `dist/`.
  */
@@ -25,5 +28,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
     response,
     d1WithheldReporter(db),
     cfContext ? (promise) => cfContext.waitUntil(promise) : undefined,
+    context.cache,
   );
 });

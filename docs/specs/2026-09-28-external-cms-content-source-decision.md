@@ -61,10 +61,10 @@ form of option B.
 
    New Site asks the question once, as **Writers: Me, in Anglesite / A team, in EmDash**
    (`NewSiteDraft.siteKind`). An EmDash site is scaffolded without the template's starter
-   entries (`EmDashScaffold`), per decision 2. Until the server-rendered template and
-   provisioning land, `DeployCommand` refuses the static deploy for it
-   (`SiteEditingSurfaces.staticDeploy`). A static build would replace the live site with one
-   that has none of its articles.
+   entries (`EmDashScaffold`), per decision 2. It publishes only as its EmDash Worker (decision 7):
+   `DeployCommand` refuses any target whose `rendersOnServer` doesn't match the site's kind
+   (`SiteEditingSurfaces.deployRefusal`), because a static build would replace the live site with
+   one that has none of its articles.
 2. **In an EmDash site, EmDash is canonical for content and media.** The app never copies
    articles or artwork into `Source/`. Git holds only what the site *is* (theme, templates,
    configuration the template reads). By the
@@ -77,6 +77,21 @@ form of option B.
    (`/.well-known/*`, `robots.txt`, `rsl.xml`, static pages) stay **prerendered**, so they remain
    files the deploy gate can scan. Corrections and retractions take effect when the cache is
    purged on publish or unpublish.
+
+   The cache is [Workers Caching](https://developers.cloudflare.com/workers/cache/), and only on
+   accounts on the Workers Paid plan (#2116, owner decision 2026-10-01). It bills every request
+   to the Worker, static files included, so on the Free plan it would only use up the daily
+   request limit sooner. Anglesite can't read an account's plan with the token it holds, so
+   Publish Site asks the owner once, in cost terms (`EmDashWorkersPlanSheetView`), and records
+   the answer in `SiteSettings.emdashWorkersPaidPlan`; the Website inspector's Workers Paid plan
+   toggle changes it later, from the next publish on. A connected install with a `LOADER`
+   (a Paid-plan feature) records it without asking, and a background publish never asks and
+   leaves the cache off. `EmDashWorkerConfig` writes `[cache] enabled` from the answer, and the
+   overlay's `astro.config.ts` gives Astro `cacheCloudflare()` only when that table is `true`,
+   since with a provider EmDash purges on every publish. The article pages set EmDash's tags plus
+   a one-hour max-age, and only for a page that renders, so a 404 is never cached. Astro adds
+   cache headers after middleware returns, so the render backstop opts a page it withholds out of
+   the route cache (`cache.set(false)`). Otherwise the 503 would reach the cache as `public`.
 
    The template's EmDash overlay ([`Resources/Template/emdash/`](../../Resources/Template/emdash/))
    is how a new EmDash site gets this. `EmDashScaffold.applyTemplateOverlay` renames the
@@ -109,11 +124,50 @@ form of option B.
    - **Provisioned.** Anglesite creates EmDash (Worker + D1 + R2) in the owner's account and deploys
      it with the template. The owner never configures it (decision D1). This is the default for a
      new EmDash site.
+
+     `EmDashDeployTarget` (#2103) does this on Publish Site. Before the build it creates
+     `<site>-cms` (D1, `DB`), `<site>-cms-media` (R2, `MEDIA`) and `<site>-cms-session` (KV, the
+     adapter's `SESSION`). Each is recorded in `SiteSettings.emdashResources` and looked up by name
+     before it's created, so an interrupted publish adopts what already exists. It then writes
+     `Config/wrangler.toml` (`EmDashWorkerConfig`: `main` is the overlay's `src/worker.ts`, with a
+     one-minute cron for scheduled publishing). It pushes `EMDASH_ENCRYPTION_KEY`, generated once
+     and held in the Keychain, only when the Worker doesn't already hold one, so publishing from a
+     second Mac never replaces the key EmDash's plugin secrets are encrypted with. Provisioning
+     comes before the pre-deploy gate because the build needs the ids. A first publish the gate
+     refuses therefore leaves the empty resources in place; nothing is published, and the next
+     publish reuses them. The container
+     stages that config before the build, because the Cloudflare adapter reads it then and copies
+     the bindings into `dist/server/wrangler.json`, which `wrangler deploy` follows. After deploy it
+     records `emdashAdminURL`, and `emdashD1DatabaseID` is recorded with the database. EmDash
+     applies its own migrations on first request, and the owner creates the first account at
+     `/_emdash/admin/setup`. Social Workers aren't composed with the EmDash Worker yet
+     (#2052/#2053).
    - **Bring your own.** The owner connects an existing EmDash install that runs in a Cloudflare
      account they control, through the same token onboarding Anglesite already uses for
      deploys. Anglesite then takes over the site's frontend deploy and registers `anglesite-gate`.
      The install's content, users, roles and other plugins are kept. Before connecting, the app
      says in plain terms that the site's design will switch to the Anglesite theme.
+
+     `EmDashInstallFinder` (#2106) finds installs in the account: a Worker is one when a D1
+     database it's bound to holds EmDash's schema (`_emdash_collections`). Its bindings come from
+     the Worker's settings, and its plugins from `_plugin_state`. `EmDashConnection` records the
+     install's database, media bucket, session store and `LOADER` binding in
+     `SiteSettings.emdashResources`, and its Worker name as `CF_PROJECT_NAME`. Publish Site then
+     deploys to that same Worker through `EmDashDeployTarget`, creating only a session store if
+     the install has none. Publishing to the same Worker keeps its secrets (EmDash's encryption
+     key is never overwritten), its custom domains and routes, and so its writers' passkeys.
+     Owner decisions (2026-10-01):
+     - Marketplace plugins are kept. The template registers EmDash's sandbox runner and exports
+       `PluginBridge`, so a Worker with a `LOADER` binding runs them sandboxed. Without one they
+       stay off, as they did before.
+     - Plugins written into the install's own code are replaced with it. The pre-connect notice
+       names them, and the owner confirms or cancels.
+     - The owner connects from the New Site wizard. After "A team, in EmDash" they choose
+       "Connect One I Already Have"; the wizard signs in to Cloudflare if needed
+       (`EmDashSearchSignIn`, the same credential Publish Site uses), lists the account's
+       installs (`EmDashInstallSearch`) and, before creating the site, asks the owner to confirm
+       that its design will switch and which plugins will stop. The scaffolder records the
+       install (`NewSiteDraft.emdashInstall`) before the site's first commit.
    - **Refused:** installs Anglesite can't deploy to, such as EmDash hosted by a third-party
      platform. Anglesite can't guarantee the gate there, so it offers #2051's import into a new
      site instead.

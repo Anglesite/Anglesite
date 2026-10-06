@@ -119,6 +119,21 @@ enum AXID {
     /// covers the reachability label and the "Check Again" button together.
     static let settingsSafariMCPBridgeStatus = "settings.safariMCPBridge.status"
 
+    // MARK: New Site (#2106)
+
+    /// The New Site chooser's EmDash choice: set up a new one, or connect one the owner has.
+    static let newSiteEmDashSetup = "newSite.emdashSetup"
+    /// The New Site chooser's picker of the owner's existing EmDash sites.
+    static let newSiteEmDashSite = "newSite.emdashSite"
+
+    // MARK: Publish Site (#2116)
+
+    /// The Workers plan question's answers, asked once the first time an EmDash site publishes.
+    static let deployWorkersPlanPaid = "deploy.workersPlan.paid"
+    static let deployWorkersPlanFree = "deploy.workersPlan.free"
+    /// The Website inspector's toggle that changes that answer later.
+    static let websiteInspectorWorkersPaidPlan = "websiteInspector.workersPaidPlan"
+
     /// Every hand-assigned identifier, for `AXIDTests`' uniqueness/format checks (the
     /// toolbar family is generated from `SiteToolbarItemID`, and the per-worker / per-site
     /// families above from their stable ids; each is frozen by its own formatting test).
@@ -137,5 +152,7 @@ enum AXID {
         debugServerHeader, debugLocalWorkersHeader,
         settingsDeveloperToolsToggle, settingsWorkerIssuesToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
+        newSiteEmDashSetup, newSiteEmDashSite,
+        deployWorkersPlanPaid, deployWorkersPlanFree, websiteInspectorWorkersPaidPlan,
     ]
 }

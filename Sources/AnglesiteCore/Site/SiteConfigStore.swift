@@ -160,6 +160,21 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// Anglesite site. Provisioned infrastructure, hence `Config/`.
     public var emdashD1DatabaseID: String?
 
+    /// The Cloudflare resources a provisioned EmDash site's Worker is bound to (#2103): its D1
+    /// database, R2 media bucket and session KV namespace. Recorded as each is created, so a
+    /// failed publish resumes instead of creating them again; ``emdashD1DatabaseID`` is set from
+    /// it. `nil` until the first publish, and always on an Anglesite site.
+    public var emdashResources: EmDashWorkerConfig.Resources?
+
+    /// The owner's answer to whether this EmDash site's Cloudflare account is on the Workers Paid
+    /// plan (#2116), asked once at Publish Site. `true` turns on Workers Caching for the site's
+    /// Worker, which bills every request (static files included) but serves articles without
+    /// rendering them each time; on the Free plan that would only spend its daily request limit
+    /// faster, so `false` and `nil` (not asked yet, e.g. a background publish) leave it off. A
+    /// connected install that already has a Worker Loader, a Paid-plan feature, records `true`
+    /// without asking. `nil` on an Anglesite site.
+    public var emdashWorkersPaidPlan: Bool?
+
     /// Owner opt-in to checking off-site links during audits (#2001). `nil`/`false` (the default)
     /// means off: `BrokenLinkAuditRunner` only counts external links, never fetches them — probing
     /// needs the network, is slow, and trips bot challenges, so network-dependent findings stay
@@ -207,6 +222,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         sourceBundleBucket: String? = nil,
         emdashAdminURL: URL? = nil,
         emdashD1DatabaseID: String? = nil,
+        emdashResources: EmDashWorkerConfig.Resources? = nil,
+        emdashWorkersPaidPlan: Bool? = nil,
         externalLinkCheckEnabled: Bool? = nil,
         imageOptimisationDisabled: Bool? = nil,
         workerIssuesRelay: WorkerIssuesRelayState? = nil
@@ -235,6 +252,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.sourceBundleBucket = sourceBundleBucket
         self.emdashAdminURL = emdashAdminURL
         self.emdashD1DatabaseID = emdashD1DatabaseID
+        self.emdashResources = emdashResources
+        self.emdashWorkersPaidPlan = emdashWorkersPaidPlan
         self.externalLinkCheckEnabled = externalLinkCheckEnabled
         self.imageOptimisationDisabled = imageOptimisationDisabled
         self.workerIssuesRelay = workerIssuesRelay

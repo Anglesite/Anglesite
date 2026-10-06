@@ -303,7 +303,7 @@
     "A BCP 47 language tag, e.g. \"en\", \"fr-CA\", \"es\". Screen readers and search engines use this to pronounce and index your content correctly." : {
 
     },
-    "A team, in EmDash (can't publish yet)" : {
+    "A team, in EmDash" : {
 
     },
     "A TXT record already exists for %@ with different content. Update it in Website → Manage Domain, then try again." : {
@@ -364,6 +364,12 @@
 
     },
     "Anglesite can check new comments on this Mac before they appear on your site and hold anything that looks like spam for you to review. The screening model stays on your Mac and never sends your comments anywhere. Progress shows in Settings › General, where you can also download or remove it later." : {
+
+    },
+    "Anglesite can't tell where this EmDash site keeps its images, so it can't connect it." : {
+
+    },
+    "Anglesite couldn't find a Cloudflare account for this sign-in." : {
 
     },
     "API token" : {
@@ -989,6 +995,9 @@
     "Checks new comments on this Mac before they appear on your site and holds anything that looks like spam for you to review under Website › Moderation. The screening model is about 1 GB, stays on your Mac, and never sends your comments anywhere." : {
 
     },
+    "Cloudflare didn't accept the saved sign-in. Sign out in Settings ▸ Advanced ▸ Credentials, then sign in again here." : {
+
+    },
     "CMS Mode Not Available" : {
 
     },
@@ -1347,6 +1356,9 @@
     "Connect" : {
 
     },
+    "Connect One I Already Have" : {
+
+    },
     "Connect This Site" : {
 
     },
@@ -1381,6 +1393,9 @@
 
     },
     "Connect to GitHub" : {
+
+    },
+    "Connect “%@”?" : {
 
     },
     "Connected" : {
@@ -1644,6 +1659,9 @@
     "Couldn't publish this comment right now. It will be published the next time this site syncs." : {
 
     },
+    "Couldn't reach Cloudflare. Try again in a moment." : {
+
+    },
     "Couldn't reach this site" : {
 
     },
@@ -1718,6 +1736,9 @@
     "Couldn't save MTA-STS policy: %@" : {
 
     },
+    "Couldn't save the Workers plan: %@" : {
+
+    },
     "Couldn't save UTM codes: %@" : {
 
     },
@@ -1757,6 +1778,9 @@
     "Couldn't save website language: %@" : {
 
     },
+    "Couldn't save your answer: %@" : {
+
+    },
     "Couldn't save your change" : {
 
     },
@@ -1775,6 +1799,9 @@
           }
         }
       }
+    },
+    "Couldn't sign in to Cloudflare. Try again in a moment." : {
+
     },
     "Couldn't start sign-in: %@" : {
 
@@ -2001,6 +2028,9 @@
 
     },
     "Duplicate & Modify" : {
+
+    },
+    "EmDash:" : {
 
     },
     "ESI Fragments" : {
@@ -2309,6 +2339,9 @@
     "Free during open beta: 100 instances, 20,000 queries/month, 500 crawled pages/day. Reader queries run on Cloudflare's AI models — beyond free limits, usage is billed by Cloudflare." : {
 
     },
+    "Free Plan" : {
+
+    },
     "From %@" : {
 
     },
@@ -2561,6 +2594,9 @@
     "Is this site ready for AI agents?" : {
 
     },
+    "Is your Cloudflare account on the Workers Paid plan?" : {
+
+    },
     "Issues" : {
 
     },
@@ -2783,6 +2819,9 @@
     "Looking for this site's Micropub endpoint…" : {
 
     },
+    "Looking for your EmDash sites…" : {
+
+    },
     "Looking up registrar info…" : {
 
     },
@@ -2979,6 +3018,9 @@
 
     },
     "No DNS records found." : {
+
+    },
+    "No EmDash sites were found in your Cloudflare account." : {
 
     },
     "No Recent Sites" : {
@@ -3183,6 +3225,12 @@
 
     },
     "On" : {
+
+    },
+    "On the free plan, keeping copies would use up the plan's daily limit of visits sooner, so Anglesite leaves it off. If you're not sure, choose Free Plan. You can change this later in the Website inspector." : {
+
+    },
+    "On the Workers Paid plan, Anglesite keeps a ready copy of each article, so pages load faster and your site uses less of its computing time. Each change you publish replaces the copy right away." : {
 
     },
     "One more step to start sending error reports" : {
@@ -4000,6 +4048,9 @@
     "Screen new comments for spam?" : {
 
     },
+    "Search Again" : {
+
+    },
     "Send Worker errors to their authors?" : {
 
     },
@@ -4198,6 +4249,9 @@
     "Set Up" : {
 
     },
+    "Set Up a New One" : {
+
+    },
     "Set Up Brand Voice…" : {
 
     },
@@ -4327,6 +4381,12 @@
     "Sign In" : {
 
     },
+    "Sign in to Cloudflare so Anglesite can find your EmDash sites." : {
+
+    },
+    "Sign In to Cloudflare…" : {
+
+    },
     "Sign In…" : {
 
     },
@@ -4415,6 +4475,9 @@
 
     },
     "Site name" : {
+
+    },
+    "Site:" : {
 
     },
     "Sitemap" : {
@@ -4565,7 +4628,16 @@
     "Syndication recorded" : {
 
     },
+    "The website will switch to the design you chose here. Its articles, writers and settings stay in EmDash." : {
+
+    },
+    "These plugins will stop working: %@." : {
+
+    },
     "This comment can't be shown until your inbox is reachable." : {
+
+    },
+    "This plugin will stop working: %@." : {
 
     },
     "TLS report mailbox" : {
@@ -4575,6 +4647,9 @@
 
     },
     "TTL" : {
+
+    },
+    "Turn on if your Cloudflare account is on the Workers Paid plan. Anglesite then keeps a ready copy of each article, so pages load faster. Takes effect the next time you publish." : {
 
     },
     "TXT %@" : {
@@ -5175,6 +5250,12 @@
     "Worker names can only contain lowercase letters, numbers, hyphens, and underscores." : {
 
     },
+    "Workers Paid" : {
+
+    },
+    "Workers Paid plan" : {
+
+    },
     "Workers Unavailable" : {
 
     },
@@ -5206,6 +5287,9 @@
 
     },
     "You'll need to add these yourself" : {
+
+    },
+    "Your Cloudflare sign-in can't read your EmDash sites, so they can't be found. Sign out in Settings ▸ Advanced ▸ Credentials, then sign in again here." : {
 
     },
     "Your Cloudflare token can't manage KV namespaces — recreate it from Settings → Tokens." : {
@@ -5241,7 +5325,10 @@
     "Your website was created, but something above needs attention before it can preview. You can open it anyway and fix it from the website window." : {
 
     },
-    "Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here. Publishing an EmDash website from Anglesite isn't available yet." : {
+    "Your writers keep signing in to your EmDash site as they do now. Its articles stay in EmDash, and the website shows them with the design you choose here, starting the first time you publish it." : {
+
+    },
+    "Your writers sign in to EmDash in their browser to write, edit, and publish articles. You keep the website's design here, and Anglesite sets up EmDash for you the first time you publish the website." : {
 
     },
     "Zone" : {

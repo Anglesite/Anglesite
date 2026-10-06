@@ -23,6 +23,10 @@ final class WebsiteInspectorModel {
     /// `nil` when the site has no `DOMAIN` configured. Read-only here — domain configuration
     /// lives in the deep Website Settings sheet, not this quick-glance inspector.
     private(set) var domain: String?
+    /// Whether an EmDash site's Cloudflare account is on the Workers Paid plan, which turns its
+    /// Worker's cache on from the next publish (#2116); `nil` for any other site, which has no such
+    /// setting. Publish Site asks once; this is where the owner changes the answer.
+    private(set) var workersPaidPlan: Bool?
     /// `SiteFileTree.scan`'s `.styles` group for this site, or empty if none.
     private(set) var stylesheets: [FileRef] = []
     private(set) var saveError: String?
@@ -56,6 +60,7 @@ final class WebsiteInspectorModel {
         let title: String
         let lang: String
         let domain: String?
+        let workersPaidPlan: Bool?
         let stylesheets: [FileRef]
     }
 
@@ -78,6 +83,7 @@ final class WebsiteInspectorModel {
             lang = result.lang
             savedLang = result.lang
             domain = result.domain
+            workersPaidPlan = result.workersPaidPlan
             stylesheets = result.stylesheets
         } catch {
             loadError = error.localizedDescription
@@ -98,8 +104,11 @@ final class WebsiteInspectorModel {
         let lang = SiteLanguageAsset.parseSettings(from: config).lang
         let host = WebsiteAnalyticsAsset.bestHost(from: config, fallback: "")
         let domain = host.isEmpty ? nil : host
+        let workersPaidPlan = layout.configDir.flatMap {
+            EmDashDeployTarget.workersPaidPlanSetting(sourceDirectory: layout.sourceDir, configDirectory: $0)
+        }
         let stylesheets = SiteFileTree.scan(siteRoot: packageURL)[.styles] ?? []
-        return LoadResult(title: title, lang: lang, domain: domain, stylesheets: stylesheets)
+        return LoadResult(title: title, lang: lang, domain: domain, workersPaidPlan: workersPaidPlan, stylesheets: stylesheets)
     }
 
     @discardableResult
@@ -141,6 +150,20 @@ final class WebsiteInspectorModel {
         let titleSaved = await saveTitle()
         let langSaved = await saveLang()
         return titleSaved && langSaved
+    }
+
+    /// Records a changed Workers plan answer for an EmDash site. Saved at once, like a toggle; the
+    /// Worker picks it up at the next publish, which writes its config from the answer.
+    func saveWorkersPaidPlan(_ paid: Bool) async {
+        guard workersPaidPlan != nil, workersPaidPlan != paid,
+              let configDir = SiteFileTree.layout(for: packageURL).configDir else { return }
+        saveError = nil
+        do {
+            try await EmDashDeployTarget.recordWorkersPlan(paid: paid, configDirectory: configDir)
+            workersPaidPlan = paid
+        } catch {
+            saveError = String(localized: "Couldn't save the Workers plan: \(error.localizedDescription)")
+        }
     }
 
     @discardableResult

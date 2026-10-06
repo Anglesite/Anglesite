@@ -80,7 +80,7 @@ struct EmDashNewSiteTests {
         #expect(offenders.isEmpty, "\(offenders)")
     }
 
-    @Test("Publish Site and the deploy share one refusal decision")
+    @Test("a static target refuses an EmDash site, and a site whose kind can't be confirmed")
     func sharedStaticDeployRefusal() throws {
         let root = try Self.tempDir()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -140,7 +140,12 @@ struct EmDashNewSiteTests {
             gitInit: { _ in },
             gitCommit: { _ in },
             register: { try SiteStore.Site.make(package: $0) },
-            attributionsLoader: { _ in [] },
+            // Tags each entry with the set it came from, so the notice shows which set the
+            // scaffolder asked for (#2088).
+            attributionsLoader: { source in
+                [OSSAttribution(name: "from-\(source.rawValue)", version: "1.0.0", licenseSPDXId: "MIT",
+                                licenseText: "MIT text", homepage: nil)]
+            },
             appVersion: { "1.0.0" },
             hostLanguage: { "en" }
         )
@@ -164,6 +169,12 @@ struct EmDashNewSiteTests {
         let read = { (path: String) in try? String(contentsOf: source.appendingPathComponent(path), encoding: .utf8) }
         let baseline = DependencyBaseline.load(from: package.configURL)
         #expect(read("README.md") == "# the site\n")
+        // The third-party notice discloses the set the site actually installs: the overlay's
+        // packages (EmDash, the Cloudflare adapter and their dependencies) for an EmDash site,
+        // the template's own for an Anglesite site (#2088).
+        let notice = read("THIRD-PARTY-NOTICES.md") ?? ""
+        #expect(notice.contains("## from-emdash-site 1.0.0") == (kind == .emdash))
+        #expect(notice.contains("## from-website-template 1.0.0") == (kind == .anglesite))
         if kind == .emdash {
             #expect(read("astro.config.ts") == "// overlay config\n")
             #expect(read(EmDashScaffold.templateConfigFileName) == "// template config\n")

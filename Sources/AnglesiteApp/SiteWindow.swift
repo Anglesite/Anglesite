@@ -1353,6 +1353,10 @@ struct SiteWindow: View {
             LicenseGateSheetView(model: model.deploy)
                 .interactiveDismissDisabled()
         }
+        .sheet(isPresented: $bindableModel.deploy.workersPlanQuestionPresented) {
+            EmDashWorkersPlanSheetView(model: model.deploy)
+                .interactiveDismissDisabled()
+        }
         .sheet(isPresented: $bindableModel.audit.sheetPresented) {
             AuditSheetView(
                 model: model.audit,
