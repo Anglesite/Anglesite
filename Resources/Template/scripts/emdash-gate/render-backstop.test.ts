@@ -7,10 +7,20 @@ const page = (body: string, headers: Record<string, string> = { "content-type": 
 
 const AWS_KEY = "AKIA" + "ABCDEFGHIJKLMNOP";
 
-test("only public HTML pages are checked", () => {
+test("only public HTML pages, feeds and sitemaps are checked", () => {
   assert.equal(shouldCheck("/articles/vote/", "text/html; charset=utf-8"), true);
   assert.equal(shouldCheck("/articles/vote/", "TEXT/HTML"), true);
-  assert.equal(shouldCheck("/articles/rss.xml", "application/rss+xml"), false);
+  // Feeds carry whole article bodies (#2133), and the sitemap renders on request too.
+  assert.equal(shouldCheck("/articles/rss.xml", "application/rss+xml"), true);
+  assert.equal(shouldCheck("/rss.xml", "application/xml"), true);
+  assert.equal(shouldCheck("/atom.xml", "application/atom+xml; charset=utf-8"), true);
+  assert.equal(shouldCheck("/feed.json", "application/feed+json; charset=utf-8"), true);
+  assert.equal(shouldCheck("/sitemap-articles.xml", "text/xml"), true);
+  // Anything else passes through: images, scripts, plain JSON.
+  assert.equal(shouldCheck("/logo.png", "image/png"), false);
+  assert.equal(shouldCheck("/x.js", "text/javascript"), false);
+  assert.equal(shouldCheck("/data.json", "application/json"), false);
+  assert.equal(shouldCheck("/articles/vote/", "text/htmlx"), false);
   assert.equal(shouldCheck("/articles/vote/", null), false);
   // EmDash's own admin and API are authenticated and not the owner's pages.
   assert.equal(shouldCheck("/_emdash/admin", "text/html"), false);
@@ -111,9 +121,9 @@ test("a page that can't be read is withheld (fails closed)", async () => {
   assert.deepEqual(reports.map((r) => r.categories), [["render-backstop-failed"]]);
 });
 
-test("non-HTML and admin responses are returned untouched, unread", async () => {
-  const feed = new Response("<rss/>", { headers: { "content-type": "application/rss+xml" } });
-  assert.equal(await applyRenderBackstop("/articles/rss.xml", feed), feed);
+test("responses it doesn't check, and admin responses, are returned untouched, unread", async () => {
+  const image = new Response("png-bytes", { headers: { "content-type": "image/png" } });
+  assert.equal(await applyRenderBackstop("/logo.png", image), image);
   const admin = page(`<p>${AWS_KEY}</p>`);
   assert.equal(await applyRenderBackstop("/_emdash/admin", admin), admin);
 });
@@ -209,4 +219,22 @@ test("a waitUntil that throws falls back to awaiting the report, and the page is
   );
   assert.equal(response.status, 503);
   assert.equal(reported, true);
+});
+
+test("a feed carrying a secret is withheld like a page (#2133)", async () => {
+  const feed = new Response(`<?xml version="1.0"?><rss><channel><item><description>&lt;p&gt;${AWS_KEY}&lt;/p&gt;</description></item></channel></rss>`, {
+    status: 200,
+    headers: { "content-type": "application/xml" },
+  });
+  const reports: unknown[] = [];
+  const response = await applyRenderBackstop("/rss.xml", feed, (r) => { reports.push(r); });
+  assert.equal(response.status, 503);
+  assert.equal(reports.length, 1);
+  assert.ok(!(await response.text()).includes(AWS_KEY));
+
+  const clean = await applyRenderBackstop("/feed.json", new Response(JSON.stringify({ items: [{ content_html: "<p>ok</p>" }] }), {
+    headers: { "content-type": "application/feed+json; charset=utf-8" },
+  }), () => { throw new Error("not withheld"); });
+  assert.equal(clean.status, 200);
+  assert.equal(clean.headers.get("content-type"), "application/feed+json; charset=utf-8");
 });

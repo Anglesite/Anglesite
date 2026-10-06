@@ -67,6 +67,29 @@ function stagedWorkerConfig(): string | undefined {
   }
 }
 
+/** A file at the site root as text, or `undefined` when there is none. */
+function siteFile(name: string): string | undefined {
+  try {
+    return readFileSync(new URL(`./${name}`, import.meta.url), "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The site files the template reads while rendering, captured into the server bundle (#2133).
+ * Pages and feeds that render on request run in a Worker, which has no site files, so
+ * `readConfig` (`.site-config`) and `readUTMCodes` (`utm-codes.json`) fall back to these. Vite
+ * treats a `define` value as an expression, hence the string literal. The deploy gate scans the
+ * server bundle, so a secret pasted into either file is refused like any other.
+ */
+function bundledSiteFiles(): Record<string, string> {
+  const files = { __ANGLESITE_SITE_CONFIG__: siteFile(".site-config"), __ANGLESITE_UTM_CODES__: siteFile("utm-codes.json") };
+  return Object.fromEntries(
+    Object.entries(files).map(([name, text]) => [name, text === undefined ? "undefined" : JSON.stringify(text)]),
+  );
+}
+
 /** The template's own integrations, flattened, minus the git-backed content editor. */
 const templateIntegrations = [anglesite.integrations ?? []]
   .flat(2)
@@ -77,6 +100,7 @@ const templateIntegrations = [anglesite.integrations ?? []]
 const config: AstroUserConfig = {
   ...anglesite,
   adapter: cloudflare(),
+  vite: { ...anglesite.vite, define: { ...anglesite.vite?.define, ...bundledSiteFiles() } },
   ...(workerCacheEnabled(stagedWorkerConfig()) ? { cache: { provider: cacheCloudflare() } } : {}),
   integrations: [
     ...templateIntegrations,

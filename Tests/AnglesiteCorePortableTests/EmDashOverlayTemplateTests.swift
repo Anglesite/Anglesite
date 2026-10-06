@@ -152,4 +152,45 @@ struct EmDashOverlayTemplateTests {
         #expect(manifest.contains(#""capabilities": ["hooks.content-policy:register"]"#))
         #expect(config.contains(#"capabilities: ["hooks.content-policy:register"]"#))
     }
+
+    /// Template routes that list articles, which an EmDash site keeps in EmDash rather than in git
+    /// collections (#2133). Each needs an overlay route that renders on request from EmDash, or it
+    /// would ship empty.
+    private static let articleListingRoutes = [
+        "rss.xml.ts", "atom.xml.ts", "feed.json.ts",
+        "articles/rss.xml.ts", "articles/atom.xml.ts", "articles/feed.json.ts",
+        "tags/index.astro", "tags/[tag]/index.astro",
+    ]
+
+    @Test("every template route that lists articles is replaced by one that renders from EmDash")
+    func articleListingRoutesRenderOnRequest() throws {
+        let pages = Self.overlay.appendingPathComponent("src/pages")
+        for route in Self.articleListingRoutes + ["sitemap-articles.xml.ts"] {
+            let source = try String(contentsOf: pages.appendingPathComponent(route), encoding: .utf8)
+            #expect(source.contains("export const prerender = false;"), "\(route) must render on request")
+            #expect(source.contains("../lib/article-sources.ts"), "\(route) must read EmDash's articles")
+            #expect(source.contains("articleCacheOptions("), "\(route) must carry EmDash's cache tags")
+        }
+        for route in Self.articleListingRoutes {
+            #expect(FileManager.default.fileExists(
+                atPath: Self.template.appendingPathComponent("src/pages/\(route)").path),
+                "the template has no \(route) for the overlay to replace")
+        }
+        // The sitemap index and the page sitemap list no articles, so they stay prerendered.
+        for route in ["sitemap.xml.ts", "sitemap-pages.xml.ts"] {
+            let source = try String(contentsOf: pages.appendingPathComponent(route), encoding: .utf8)
+            #expect(!source.contains("prerender = false"), "\(route) should be prerendered")
+        }
+    }
+
+    @Test("the overlay's config captures the site files a Worker-rendered page reads")
+    func configBundlesSiteFiles() throws {
+        let config = try String(contentsOf: Self.overlay.appendingPathComponent("astro.config.ts"), encoding: .utf8)
+        #expect(config.contains(#"__ANGLESITE_SITE_CONFIG__: siteFile(".site-config")"#))
+        #expect(config.contains(#"__ANGLESITE_UTM_CODES__: siteFile("utm-codes.json")"#))
+        let siteConfig = try String(contentsOf: Self.template.appendingPathComponent("scripts/config.ts"), encoding: .utf8)
+        #expect(siteConfig.contains("__ANGLESITE_SITE_CONFIG__"))
+        let utm = try String(contentsOf: Self.template.appendingPathComponent("src/lib/utm-codes.ts"), encoding: .utf8)
+        #expect(utm.contains("__ANGLESITE_UTM_CODES__"))
+    }
 }

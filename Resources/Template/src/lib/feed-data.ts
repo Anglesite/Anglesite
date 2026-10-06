@@ -2,20 +2,16 @@ import { getCollection } from "astro:content";
 import { createMarkdownProcessor, type MarkdownRenderer } from "@astrojs/markdown-remark";
 import {
   FEED_COLLECTIONS,
-  toFeedItem,
   sortAndLimit,
   escapeXml,
   type FeedEntry,
   type FeedItem,
-  type FeedAuthor,
-  type FeedRsl,
 } from "./feeds.ts";
-import { siteProfile, ownerName } from "./profile.ts";
-import { readConfig } from "../../scripts/config";
-import { assertsNothingExplicitly, type LicensableCollection } from "./licensing.ts";
-import { licensingPolicy, licenseFor } from "./licensing-data.ts";
-import { rslActive } from "./rsl.ts";
-import { readUTMCodes, activeCampaignFor } from "./utm-codes.ts";
+import { feedItemsFor } from "./feed-items.ts";
+
+// Split into `feed-items.ts` (#2133) so an EmDash site's feeds, rendered in its Worker, can map
+// their entries without bundling this module's markdown pipeline. Re-exported here unchanged.
+export { feedItemsFor, feedAuthor, feedRsl } from "./feed-items.ts";
 
 const PER_COLLECTION_LIMIT = 50;
 const COMBINED_LIMIT = 50;
@@ -51,19 +47,15 @@ async function renderContentHtml(entry: FeedEntry): Promise<string> {
 /// page routes above this filter is unconditional — dev or prod, a draft never appears in a feed.
 async function mapCollection(collection: string, site: string): Promise<FeedItem[]> {
   const entries = await getCollection(collection as any, (entry: any) => !entry.data.draft);
-  const policy = licensingPolicy();
-  const licensable = collection as LicensableCollection;
-  const licenseInfo = {
-    license: licenseFor(licensable),
-    assertsNothingExplicitly: assertsNothingExplicitly(policy, licensable),
-  };
-  const utmCampaign = activeCampaignFor(readUTMCodes(), collection);
-  return Promise.all(
-    entries.map(async (e: any) => {
-      const entry: FeedEntry = { id: e.id, collection, data: e.data, body: e.body };
-      const contentHtml = await renderContentHtml(entry);
-      return toFeedItem(collection, entry, site, contentHtml, licenseInfo, utmCampaign);
-    }),
+  return feedItemsFor(
+    collection,
+    site,
+    await Promise.all(
+      entries.map(async (e: any) => {
+        const entry: FeedEntry = { id: e.id, collection, data: e.data, body: e.body };
+        return { entry, contentHtml: await renderContentHtml(entry) };
+      }),
+    ),
   );
 }
 
@@ -81,30 +73,4 @@ export async function getCombinedItems(site: string, limit = COMBINED_LIMIT): Pr
     all.push(...(await mapCollection(collection, site)));
   }
   return sortAndLimit(all, limit);
-}
-
-/// Feed-level (channel/feed) author, derived from `siteProfile()` (`src/data/profile.json`).
-/// `siteProfile()` reads via `import.meta.glob`, which only resolves under Astro/Vite — this
-/// lookup belongs here (consumed by the 36 feed routes) rather than in `feeds.ts`, whose
-/// renderers take `author` as a plain parameter so pure node:test unit tests can inject it
-/// directly. Returns `undefined` when no name is configured (the default, unconfigured site),
-/// so every renderer omits author markup cleanly.
-export function feedAuthor(): FeedAuthor | undefined {
-  const profile = siteProfile();
-  const name = typeof profile.name === "string" && profile.name.length > 0 ? profile.name : undefined;
-  if (!name) return undefined;
-  const url = typeof profile.url === "string" && profile.url.length > 0 ? profile.url : undefined;
-  return url ? { name, url } : { name };
-}
-
-/// The site-wide RSL context to pass as `renderRss`/`renderAtom`'s `rsl` option (#992), or
-/// undefined when RSL isn't active for this build (`rslActive` in `rsl.ts` — the same gate
-/// `scripts/edge-artifacts.ts`, `scripts/csp.ts`, and `BaseLayout.astro` all use). `holder` uses
-/// the same `COPYRIGHT_HOLDER`/h-card fallback as `Rights.astro`'s footer statement, unlike
-/// `edge-artifacts.ts`'s `main()` (which has no Vite context to read `ownerName()` from).
-export function feedRsl(site: string): FeedRsl | undefined {
-  const policy = licensingPolicy();
-  if (!rslActive(policy, site)) return undefined;
-  const holder = readConfig("COPYRIGHT_HOLDER") ?? ownerName();
-  return { usage: policy.usage, holder };
 }

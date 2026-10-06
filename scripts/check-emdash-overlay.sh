@@ -61,11 +61,23 @@ rsync -a \
 
 cd "$SITE"
 git init -q
+# A distinctive .site-config value the runtime check looks for on a page the Worker renders:
+# the Worker has no site files, so it can only get there through the server bundle (#2133).
+printf 'PWA_THEME_COLOR=#213300\n' >> .site-config
 npm ci --no-audit --no-fund
 npm run build:ci
 
 # The article routes render on request, so they must not be prerendered files.
 [[ ! -e dist/client/articles/index.html ]] || { echo "the article index was prerendered" >&2; exit 1; }
+# So do the routes that list articles (#2133): the feeds, the article sitemap and the tag pages.
+# The sitemap index and the page sitemap list no articles, so they stay prerendered.
+for route in rss.xml atom.xml feed.json articles/rss.xml articles/atom.xml articles/feed.json \
+    sitemap-articles.xml tags/index.html; do
+    [[ ! -e "dist/client/$route" ]] || { echo "dist/client/$route was prerendered; it must render on request" >&2; exit 1; }
+done
+for route in sitemap.xml sitemap-pages.xml; do
+    [[ -f "dist/client/$route" ]] || { echo "dist/client/$route is missing; it should be prerendered" >&2; exit 1; }
+done
 [[ -f dist/server/entry.mjs ]] || { echo "no server bundle at dist/server/entry.mjs" >&2; exit 1; }
 # anglesite-gate is registered in code, so its id and its policy code (loaded from the site's own
 # scripts/emdash-gate/, not a stale copy) are always in the server bundle.

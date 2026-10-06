@@ -65,6 +65,11 @@ const astroBin = join(site, "node_modules", "astro", "bin", "astro.mjs");
 const wranglerBin = join(site, "node_modules", "wrangler", "bin", "wrangler.js");
 const tsxBin = join(site, "node_modules", "tsx", "dist", "cli.mjs");
 const policyModule = join(site, "scripts", "emdash-gate", "policy.ts");
+// The value check-emdash-overlay.sh writes into the site's .site-config before building (#2133).
+const siteConfigPath = join(site, ".site-config");
+const SITE_CONFIG_THEME_COLOR = existsSync(siteConfigPath)
+  ? readFileSync(siteConfigPath, "utf-8").match(/^PWA_THEME_COLOR=(.+)$/m)?.[1]?.trim()
+  : undefined;
 
 function fail(message) {
   console.error(`✗ ${message}`);
@@ -192,7 +197,7 @@ async function request(base, path, { method = "GET", token, body } = {}) {
   } catch {
     json = undefined;
   }
-  return { status: response.status, text, json };
+  return { status: response.status, text, json, contentType: response.headers.get("content-type") };
 }
 
 /** A Portable Text body the way EmDash stores one. */
@@ -289,6 +294,7 @@ async function main() {
   // A clean local store every run: D1 (migrations + seed run again on first request), R2, KV.
   rmSync(localStateDir, { recursive: true, force: true });
 
+  if (!SITE_CONFIG_THEME_COLOR) fail("the site's .site-config has no PWA_THEME_COLOR to look for (check-emdash-overlay.sh sets one)");
   const base = await bootPreview(await freePort());
   console.log(`✓ astro preview is serving the EmDash site at ${base}`);
 
@@ -342,9 +348,52 @@ async function main() {
   check(published.status === 200 && published.json?.data?.item?.status === "published", `publishing it succeeds (HTTP ${published.status})`);
   const cleanPage = await request(base, "/articles/council-vote/");
   check(cleanPage.status === 200 && cleanPage.text.includes("Council approves budget") && cleanPage.text.includes("h-entry"), "the published article renders as an h-entry");
+  // The Worker has no site files, so a `.site-config` value reaches the page only through the copy
+  // captured into the server bundle (#2133). check-emdash-overlay.sh sets this one before the build.
+  check(cleanPage.text.includes(`<meta name="theme-color" content="${SITE_CONFIG_THEME_COLOR}">`), "a .site-config value reaches a page rendered in the Worker");
+
+  // 3. The routes that list articles render the published one from EmDash on request (#2133),
+  //    and never the refused draft.
+  // Feed and sitemap links use the site's configured URL, not the preview's address.
+  const articlePath = "/articles/council-vote/";
+  for (const [path, mediaType] of [
+    ["/rss.xml", "application/xml"],
+    ["/atom.xml", "application/atom+xml"],
+    ["/feed.json", "application/feed+json"],
+    ["/articles/rss.xml", "application/xml"],
+    ["/articles/atom.xml", "application/atom+xml"],
+    ["/articles/feed.json", "application/feed+json"],
+  ]) {
+    const feed = await request(base, path);
+    const listed = feed.status === 200 && (feed.contentType ?? "").startsWith(mediaType) && feed.text.includes("Council approves budget") && new RegExp(`${articlePath}[<"]`).test(feed.text) && feed.text.includes("voted 5–2");
+    if (!listed) console.error(`${path} returned:\n${feed.text.slice(0, 2000)}`);
+    check(
+      listed,
+      `${path} lists the published article, with its body (HTTP ${feed.status}, ${feed.contentType})`,
+    );
+    check(!feed.text.includes("Leaked key"), `${path} doesn't list the refused draft`);
+  }
+  const index = await request(base, "/sitemap.xml");
+  check(index.status === 200 && index.text.includes("<sitemapindex") && index.text.includes("/sitemap-pages.xml") && index.text.includes("/sitemap-articles.xml"), "/sitemap.xml indexes the page and article sitemaps");
+  const articleSitemap = await request(base, "/sitemap-articles.xml");
+  check(articleSitemap.status === 200 && articleSitemap.text.includes(`${articlePath}</loc>`) && !articleSitemap.text.includes("leaked-key"), "/sitemap-articles.xml lists the published article only");
+  const pageSitemap = await request(base, "/sitemap-pages.xml");
+  check(pageSitemap.status === 200 && pageSitemap.text.includes("<urlset"), "/sitemap-pages.xml lists the site's pages");
+  // Tag the published article through EmDash's API, the way its editor does.
+  const term = await request(base, "/_emdash/api/taxonomies/tag/terms", { method: "POST", token, body: { label: "Local Politics" } });
+  const termID = term.json?.data?.term?.id ?? term.json?.data?.id;
+  check(term.status === 201 && typeof termID === "string", `EmDash creates a "Local Politics" tag (HTTP ${term.status}: ${term.text.slice(0, 200)})`);
+  const tagged = await request(base, `/_emdash/api/content/articles/${cleanID}/terms/tag`, { method: "POST", token, body: { termIds: [termID] } });
+  check(tagged.status === 200, `the published article is tagged with it (HTTP ${tagged.status}: ${tagged.text.slice(0, 200)})`);
+  const tags = await request(base, "/tags/");
+  check(tags.status === 200 && tags.text.includes('href="/tags/local-politics/"') && tags.text.includes("Local Politics</a> (1)"), "/tags/ lists the tag, linked at the slug the article page uses, with its count");
+  const tagPage = await request(base, "/tags/local-politics/");
+  check(tagPage.status === 200 && tagPage.text.includes(`href="${articlePath}"`) && tagPage.text.includes("Council approves budget"), "/tags/local-politics/ lists the tagged article");
+  const unknownTag = await request(base, "/tags/no-such-tag/");
+  check(unknownTag.status === 404, "a tag no published article carries is a 404");
 
   await stopServer();
-  console.log("✓ anglesite-gate cancels a failing publish and passes a clean one on the built EmDash site");
+  console.log("✓ anglesite-gate cancels a failing publish and passes a clean one on the built EmDash site, and its feeds, sitemap and tag pages list what it published");
 }
 
 main().catch((error) => fail(error instanceof Error ? (error.stack ?? error.message) : String(error)));

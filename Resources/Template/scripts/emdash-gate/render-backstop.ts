@@ -6,7 +6,7 @@
  * reach a rendered page without passing through a publish hook: a direct API or database write,
  * a template change that starts rendering a field nobody checked, or a plugin misconfiguration.
  * So every page the Worker renders on request is checked again, as rendered HTML, before it is
- * served or cached. Only the error-severity checks run here (secrets, restricted-audience
+ * served or cached, and so is every feed and sitemap it renders on request (#2133). Only the error-severity checks run here (secrets, restricted-audience
  * content, blocked admin routes), which keeps the per-render cost small.
  *
  * A failing page is withheld: the reader gets a plain 503 that no cache may store, and the page
@@ -32,10 +32,27 @@ const EMDASH_ROUTE_PREFIX = "/_emdash/";
 /** The log line's marker, so the owner's alerting can find withheld pages in the Worker's logs. */
 export const WITHHELD_LOG_EVENT = "anglesite.render-backstop.withheld";
 
-/** Whether a response is a public HTML page the backstop must check. */
+/**
+ * The media types the backstop checks: HTML pages, and the feeds and sitemaps that render on
+ * request (#2133). A feed carries whole article bodies, so it can expose what a page would, and
+ * is checked the same way. The restricted-audience check reads attribute markup, which a feed
+ * carries escaped, so on a feed it is the secrets check that matters; EmDash sites offer no
+ * audience-limited posts in any case (ADR § Consequences).
+ */
+const CHECKED_MEDIA_TYPES = new Set([
+  "text/html",
+  "application/xml",
+  "text/xml",
+  "application/rss+xml",
+  "application/atom+xml",
+  "application/feed+json",
+]);
+
+/** Whether a response is a public page or feed the backstop must check. */
 export function shouldCheck(pathname: string, contentType: string | null): boolean {
   if (pathname === "/_emdash" || pathname.startsWith(EMDASH_ROUTE_PREFIX)) return false;
-  return (contentType ?? "").toLowerCase().startsWith("text/html");
+  const mediaType = (contentType ?? "").split(";")[0].trim().toLowerCase();
+  return CHECKED_MEDIA_TYPES.has(mediaType);
 }
 
 /** The error-severity gate findings for one rendered page. */
