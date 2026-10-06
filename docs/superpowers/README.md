@@ -225,6 +225,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-10-01 | [EmDash import rung (Portable Text → Markdown) — plan](plans/2026-10-01-emdash-import-rung-plan.md) | [#2051](https://github.com/Anglesite/Anglesite/issues/2051), [#2050](https://github.com/Anglesite/Anglesite/issues/2050) | current |
 | 2026-09-28 | [Kev-0.5B on-device scorer — implementation plan](plans/2026-09-28-kev-coreml-scorer-plan.md) | [#2059](https://github.com/Anglesite/Anglesite/issues/2059), [#2058](https://github.com/Anglesite/Anglesite/issues/2058) | current |
 | 2026-09-06 | [Safari MCP: Sessionful HTTP Transport + Detect/Connect Implementation Plan](plans/2026-09-06-safari-mcp-sessionful-transport.md) | — | current |
 | 2026-09-04 | [Worker Provisioning Deploy Spine Implementation Plan](plans/2026-09-04-worker-provisioning-deploy-spine-plan.md) | — | current |

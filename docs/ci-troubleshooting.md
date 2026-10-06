@@ -48,8 +48,8 @@ in this repo's Swift code.
 
 **What it runs:** checks out the sibling `anglesite-skills` plugin (pinned to
 a specific tag — see `ref: v1.9.0` in the job), installs its deps, verifies
-the `container-image.json` and `website-template.json` attributions
-manifests, builds the package in debug, runs the full `swift test --parallel`
+the `container-image.json`, `website-template.json` and `emdash-site.json`
+attributions manifests, builds the package in debug, runs the full `swift test --parallel`
 (skipping the timing-sensitive filter), then runs the timing-sensitive
 suites in their own isolated `swift test` process (see below), checks for
 leaked test `UserDefaults` suites, builds the DocC documentation for the
@@ -81,14 +81,17 @@ See [#644](https://github.com/Anglesite/Anglesite/issues/644) /
 
 **What a red usually means, and what to check first:**
 
-- **Fails at "Check container-image attributions manifest" or "Check
-  website-template attributions manifest":** you added/removed/upgraded an
-  npm dependency in the sidecar's `node_modules` or `Resources/Template/`
-  without regenerating the committed manifest. Run
-  `scripts/generate-npm-attributions.mjs` locally against the same input and
-  commit the diff. The website-template manifest is arm64-only (`npm ci`
-  pulls `@esbuild/darwin-arm64` and friends), which is why this check lives
-  here (macos-26) and not in the Linux `template-worker` lane.
+- **Fails at "Check container-image attributions manifest", "Check
+  website-template attributions manifest" or "Check emdash-site attributions
+  manifest":** you added/removed/upgraded an npm dependency in the sidecar's
+  `node_modules`, `Resources/Template/` or the EmDash overlay
+  (`Resources/Template/emdash/package-lock.json`, #2088) without regenerating
+  the committed manifest. Run `scripts/generate-npm-attributions.mjs` locally
+  against the same input and commit the diff. The website-template and
+  emdash-site manifests are arm64-only (`npm ci` pulls `@esbuild/darwin-arm64`
+  and friends), which is why these checks live here (macos-26) and not in the
+  Linux `template-worker` lane; on another platform,
+  `npm ci --os=darwin --cpu=arm64` installs the same tree.
 - **Fails at "Check app-binary attributions manifest":** same idea, but for
   the full macOS app's Swift Package dependency graph. This step restores
   `Package.resolved` from git and re-resolves rather than deleting the lock

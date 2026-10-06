@@ -78,6 +78,31 @@ struct EmDashOverlayTemplateTests {
         #expect(Self.section(root, "devDependencies") == Self.section(manifest, "devDependencies"))
     }
 
+    /// #2088: an EmDash site's `THIRD-PARTY-NOTICES.md` is written from the overlay's own
+    /// attribution set, so that set must exist, decode, and disclose the EmDash-only packages at
+    /// the versions the overlay pins. (AttributionCatalogTests covers decoding of every committed
+    /// manifest on macOS; this is the one that runs on the Linux leg.)
+    @Test("the overlay's packages are attributed in the committed emdash-site manifest")
+    func overlayPackagesAreAttributed() throws {
+        let attributions = Self.template.deletingLastPathComponent().appendingPathComponent("Attributions", isDirectory: true)
+        for source in AttributionSource.allCases {
+            let url = attributions.appendingPathComponent("\(source.rawValue).json")
+            let entries = try AttributionCatalog.decode(Data(contentsOf: url), source: source)
+            #expect(!entries.isEmpty, "\(source.rawValue).json")
+        }
+        let manifest = try Self.json(Self.overlay.appendingPathComponent("package.json"))
+        let pinned = Self.section(manifest, "dependencies")
+        let emdashSite = try AttributionCatalog.decode(
+            Data(contentsOf: attributions.appendingPathComponent("emdash-site.json")), source: .emdashSite)
+        for name in Self.emdashOnlyDependencies {
+            let version = try #require(pinned[name])
+            #expect(emdashSite.contains { $0.name == name && $0.version == version }, "\(name)@\(version)")
+            #expect(emdashSite.contains { $0.name == name && !$0.licenseText.isEmpty }, "\(name) license text")
+        }
+        #expect(AttributionSource.siteTemplate(for: .emdash) == .emdashSite)
+        #expect(AttributionSource.siteTemplate(for: .anglesite) == .websiteTemplate)
+    }
+
     @Test("an Anglesite site never gets the overlay, and the template's checks skip it")
     func overlayStaysOutOfAnglesiteSites() throws {
         let scaffold = try String(contentsOf: Self.template.appendingPathComponent("scripts/scaffold.sh"), encoding: .utf8)

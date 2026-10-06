@@ -29,8 +29,16 @@ webhook, because the relay holds no owner token. The question is whether that pa
 
 ## Kit
 
-`Workers/issues-spike/` is a throwaway Worker with three routes. CI runs its vitest suite in the
-`Workers (vitest)` lane.
+`Workers/issues-spike/` was a throwaway Worker with three routes. It was removed from the tree
+before the capture ran, and it is kept in git history at `2d43c50025`. Restore it to run the
+runbook below:
+
+```sh
+git checkout 2d43c50025 -- Workers/issues-spike
+```
+
+The relay doesn't depend on the kit: payload parsing is confined to
+`Workers/issues-relay/src/extract.ts` and enforces "no stack, no filing".
 
 | Route | Purpose |
 |---|---|
@@ -78,8 +86,8 @@ openssl rand -hex 32 | tee /dev/stderr | npx wrangler secret put WEBHOOK_SECRET
    `curl -s -H "Authorization: Bearer <secret>" https://<worker>.workers.dev/captures | jq .`.
    Paste the output here, or into a comment on #2095.
 4. **Teardown.** Once the findings below are recorded, run `npx wrangler delete`. Then delete the
-   automation and destination in the dashboard, and remove `Workers/issues-spike/` and its CI
-   matrix entry in the slice 2 PR.
+   automation and destination in the dashboard, and discard the restored `Workers/issues-spike/`.
+   Don't commit it again.
 
 ## Findings
 
