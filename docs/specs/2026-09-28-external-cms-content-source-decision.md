@@ -228,7 +228,7 @@ server-rendered build it does the following:
   as vendored.
 
 **Layer 3 on an EmDash site (#2055 slice 4).** The pinned
-`scripts/emdash-gate/render-backstop.ts` checks every page, feed and sitemap the Worker renders on
+`scripts/emdash-gate/render-backstop.ts` checks every page and feed the Worker renders on
 request, before a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
 - It runs the error-severity checks from the shared module: secrets, restricted-audience
   content and blocked admin routes. PII stays a publish-time and deploy-time check, so a
@@ -236,8 +236,9 @@ request, before a reader or a cache gets it. The overlay's `src/middleware.ts` w
 - A failing page is replaced by a plain `503` with `Cache-Control: no-store` that says nothing
   about why. If the page can't be read or checked, it is withheld too, so the backstop fails
   closed.
-- Feeds and sitemaps rendered on request are checked like pages (#2133): a feed carries whole
-  article bodies, so it can expose what a page would. One article that fails withholds the whole
+- Feeds rendered on request are checked like pages (#2133): a feed carries whole article
+  bodies, so it can expose what a page would. Sitemaps are not: they carry only URLs and dates,
+  and an article sitemap can list 50,000 of them. One article that fails withholds the whole
   feed, which fails closed like a page. The restricted-audience check reads attribute markup,
   which a feed carries escaped, so on a feed it is the secrets check that matters; EmDash sites
   offer no audience-limited posts in any case (§ Consequences).

@@ -29,7 +29,7 @@ and 4):
   page rendered in the Worker has no site files to read, so `readConfig` and `readUTMCodes` fall
   back to that copy (#2133).
 - `src/middleware.ts`: wires in the render backstop (`scripts/emdash-gate/render-backstop.ts`,
-  #2055 slice 4). Every page, feed and sitemap rendered on request is checked for secrets,
+  #2055 slice 4). Every page and feed rendered on request is checked for secrets,
   restricted-audience content and admin routes before it is served, and withheld with a `503`
   if it fails. The whole response is read before it is sent, so these aren't streamed.
 - `src/worker.ts`: the Worker entry. It adds EmDash's cron handler, which publishes scheduled

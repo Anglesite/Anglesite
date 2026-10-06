@@ -3,7 +3,8 @@
 // (`src/pages/tags/[tag]/index.astro`). `params.tag` is the template's tag slug, the one the
 // article pages link to; every EmDash term whose label maps to it is listed here. A slug no
 // published article carries is a 404, and that 404 is never cached, so it can't outlive the
-// publish that gives the tag its first article.
+// publish that gives the tag its first article. Probing unknown slugs stays cheap: EmDash serves
+// the term list from its object cache, not a database query per request.
 import BaseLayout from "../../../layouts/BaseLayout.astro";
 import { tagGroups, taggedArticles } from "../../../lib/article-sources.ts";
 import { mergeCacheHints } from "../../../lib/article-listings.ts";

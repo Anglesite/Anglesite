@@ -103,31 +103,37 @@ export interface TagTermGroup {
   labels: string[];
   /** The terms' own EmDash slugs, to query their articles by. */
   termSlugs: string[];
-  /** Published articles across the terms. An article carrying two of them counts twice. */
-  count: number;
+  /**
+   * The term's published articles. Left out when the group merges several terms: EmDash counts
+   * per term, so an article carrying two of them would count twice, and the tag page lists it
+   * once.
+   */
+  count?: number;
 }
 
 /**
  * Groups EmDash `tag` terms by the template's tag slug (`tagSlug` in `tags.ts`, passed in), the
  * slug an article page's tag links use, so `/tags/<slug>/` answers for exactly the links the
  * site renders. Terms with no published article (`count === 0`) are left out. Sorted by slug.
+ * Each group keeps its term's count when it has a single term (see `TagTermGroup.count`).
  */
 export function tagTermGroups(terms: TagTerm[], tagSlug: (label: string) => string): TagTermGroup[] {
-  const groups = new Map<string, TagTermGroup>();
+  const groups = new Map<string, Omit<TagTermGroup, "count"> & { counts: Array<number | undefined> }>();
   for (const term of terms) {
     if (!term.label || term.count === 0) continue;
     const slug = tagSlug(term.label);
-    let group = groups.get(slug);
-    if (!group) {
-      group = { slug, labels: [], termSlugs: [], count: 0 };
-      groups.set(slug, group);
-    }
+    const group = groups.get(slug) ?? { slug, labels: [], termSlugs: [], counts: [] };
+    groups.set(slug, group);
     if (!group.labels.includes(term.label)) group.labels.push(term.label);
     group.termSlugs.push(term.slug);
-    group.count += term.count ?? 0;
+    group.counts.push(term.count);
   }
   return [...groups.values()]
-    .map((g) => ({ ...g, labels: g.labels.sort((a, b) => a.localeCompare(b)) }))
+    .map(({ counts, ...g }) => ({
+      ...g,
+      labels: g.labels.sort((a, b) => a.localeCompare(b)),
+      ...(counts.length === 1 && counts[0] !== undefined ? { count: counts[0] } : {}),
+    }))
     .sort((a, b) => a.slug.localeCompare(b.slug));
 }
 

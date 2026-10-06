@@ -95,7 +95,9 @@ test("tag terms group by the template's tag slug, skipping terms with no publish
     tagSlug,
   );
   assert.deepEqual(groups, [
-    { slug: "local-politics", labels: ["local politics", "Local Politics"], termSlugs: ["local-politics", "local-politics-2"], count: 4 },
+    // Two terms share the slug: EmDash's per-term counts can't be summed (an article may carry
+    // both), so the merged group has no count.
+    { slug: "local-politics", labels: ["local politics", "Local Politics"], termSlugs: ["local-politics", "local-politics-2"] },
     { slug: "weather", labels: ["Weather"], termSlugs: ["weather"], count: 2 },
   ]);
 });

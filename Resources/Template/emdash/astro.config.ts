@@ -82,6 +82,11 @@ function siteFile(name: string): string | undefined {
  * `readConfig` (`.site-config`) and `readUTMCodes` (`utm-codes.json`) fall back to these. Vite
  * treats a `define` value as an expression, hence the string literal. The deploy gate scans the
  * server bundle, so a secret pasted into either file is refused like any other.
+ *
+ * The copy is taken when this config loads, so it is only a fallback: a dev server, and the
+ * `astro build` prerender, still read the files themselves, and a Worker sees an edit after the
+ * next build and deploy. Each module that reads a value declares its global (`declare const` in
+ * `scripts/config.ts` and `src/lib/utm-codes.ts`), so `astro check` passes in the site too.
  */
 function bundledSiteFiles(): Record<string, string> {
   const files = { __ANGLESITE_SITE_CONFIG__: siteFile(".site-config"), __ANGLESITE_UTM_CODES__: siteFile("utm-codes.json") };

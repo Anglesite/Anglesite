@@ -6,6 +6,8 @@ import type { APIContext } from "astro";
 import { siteFrom } from "../lib/feeds.ts";
 import { renderSitemapIndex } from "../lib/sitemap.ts";
 
+export const prerender = true;
+
 export async function GET(context: APIContext) {
   const site = siteFrom(context);
   return renderSitemapIndex([

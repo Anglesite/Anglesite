@@ -89,22 +89,22 @@ export async function tagGroups(): Promise<{ groups: TagTermGroup[]; cacheHint: 
 
 /**
  * One tag page's articles: every published article carrying any of the group's terms, newest
- * first, each listed once. A tag page is a listing of links, so it has no page size; a tag with
- * more articles than the sitemap limit lists the newest that many.
+ * first, each listed once. Usually one term; several (spellings sharing a slug) are walked in
+ * parallel. A tag page is a listing of links, so it has no page size; a tag with more articles
+ * than the sitemap limit lists the newest that many.
  */
 export async function taggedArticles(group: TagTermGroup): Promise<{ entries: TaggedEntry[]; cacheHint: CacheHint }> {
+  const walks = await Promise.all(group.termSlugs.map((termSlug) => eachArticle(SITEMAP_ARTICLE_LIMIT, { tag: termSlug })));
   const seen = new Set<string>();
   const entries: TaggedEntry[] = [];
-  const hints: CacheHint[] = [];
-  for (const termSlug of group.termSlugs) {
-    const { articles, cacheHint } = await eachArticle(SITEMAP_ARTICLE_LIMIT, { tag: termSlug });
-    hints.push(cacheHint);
+  for (const { articles } of walks) {
     for (const entry of articles.map(articleTaggedEntry).filter(present)) {
       if (seen.has(entry.id)) continue;
       seen.add(entry.id);
       entries.push(entry);
     }
   }
+  const hints: CacheHint[] = walks.map((w) => w.cacheHint);
   entries.sort((a, b) => b.publishDate.valueOf() - a.publishDate.valueOf());
   return { entries, cacheHint: mergeCacheHints(hints) };
 }

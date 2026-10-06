@@ -7,15 +7,19 @@ const page = (body: string, headers: Record<string, string> = { "content-type": 
 
 const AWS_KEY = "AKIA" + "ABCDEFGHIJKLMNOP";
 
-test("only public HTML pages, feeds and sitemaps are checked", () => {
+test("only public HTML pages and feeds are checked", () => {
   assert.equal(shouldCheck("/articles/vote/", "text/html; charset=utf-8"), true);
   assert.equal(shouldCheck("/articles/vote/", "TEXT/HTML"), true);
-  // Feeds carry whole article bodies (#2133), and the sitemap renders on request too.
+  // Feeds carry whole article bodies (#2133).
   assert.equal(shouldCheck("/articles/rss.xml", "application/rss+xml"), true);
   assert.equal(shouldCheck("/rss.xml", "application/xml"), true);
   assert.equal(shouldCheck("/atom.xml", "application/atom+xml; charset=utf-8"), true);
   assert.equal(shouldCheck("/feed.json", "application/feed+json; charset=utf-8"), true);
-  assert.equal(shouldCheck("/sitemap-articles.xml", "text/xml"), true);
+  assert.equal(shouldCheck("/articles/feed.xml", "text/xml"), true);
+  // Sitemaps carry only URLs and dates, and an article sitemap can be 50,000 entries long.
+  assert.equal(shouldCheck("/sitemap.xml", "application/xml"), false);
+  assert.equal(shouldCheck("/sitemap-articles.xml", "application/xml"), false);
+  assert.equal(shouldCheck("/articles/sitemap.xml", "application/xml"), true);
   // Anything else passes through: images, scripts, plain JSON.
   assert.equal(shouldCheck("/logo.png", "image/png"), false);
   assert.equal(shouldCheck("/x.js", "text/javascript"), false);
