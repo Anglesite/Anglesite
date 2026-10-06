@@ -147,7 +147,12 @@ form of option B.
        stay off, as they did before.
      - Plugins written into the install's own code are replaced with it. The pre-connect notice
        names them, and the owner confirms or cancels.
-     - The owner connects from the New Site wizard.
+     - The owner connects from the New Site wizard. After "A team, in EmDash" they choose
+       "Connect One I Already Have"; the wizard signs in to Cloudflare if needed
+       (`EmDashSearchSignIn`, the same credential Publish Site uses), lists the account's
+       installs (`EmDashInstallSearch`) and, before creating the site, asks the owner to confirm
+       that its design will switch and which plugins will stop. The scaffolder records the
+       install (`NewSiteDraft.emdashInstall`) before the site's first commit.
    - **Refused:** installs Anglesite can't deploy to, such as EmDash hosted by a third-party
      platform. Anglesite can't guarantee the gate there, so it offers #2051's import into a new
      site instead.
