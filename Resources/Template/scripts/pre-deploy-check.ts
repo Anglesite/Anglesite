@@ -1352,9 +1352,13 @@ async function scan(): Promise<Issue[]> {
     ),
   );
 
-  const sitemapContent = await readFile(join(publicDir, "sitemap.xml"), "utf-8").catch(
-    (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
-  );
+  // An EmDash site's `/sitemap.xml` is a sitemap index rendered on request, and its pages are
+  // listed in the prerendered `sitemap-pages.xml` (#2133), so that is the file to check there.
+  const readSitemap = (name: string) =>
+    readFile(join(publicDir, name), "utf-8").catch((e: NodeJS.ErrnoException) =>
+      e.code === "ENOENT" ? null : Promise.reject(e),
+    );
+  const sitemapContent = (await readSitemap("sitemap-pages.xml")) ?? (await readSitemap("sitemap.xml"));
   // Only ever two files' content is needed out of the whole walk below — the running
   // experiment's own (control) page and its variant page, if there is one — so these are
   // computed up front rather than retaining every built HTML file's content in memory (#1513

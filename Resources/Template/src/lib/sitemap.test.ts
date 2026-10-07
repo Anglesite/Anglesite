@@ -5,6 +5,7 @@ import {
   excludeNoindexed,
   lastmodFor,
   renderSitemap,
+  renderSitemapIndex,
   routePathForPage,
 } from "./sitemap.ts";
 
@@ -125,3 +126,15 @@ test("excludeNoindexed keeps every path when there are no noindex entries", () =
   const paths = ["/", "/about/"];
   assert.deepEqual(excludeNoindexed(paths, []), paths);
 });
+
+test("renderSitemapIndex lists each sitemap in a sitemapindex, with lastmod when known", async () => {
+  const xml = await renderSitemapIndex([
+    { loc: "https://example.com/sitemap-pages.xml" },
+    { loc: "https://example.com/sitemap-articles.xml?a=1&b=2", lastmod: new Date("2026-10-01T00:00:00Z") },
+  ]).text();
+  assert.match(xml, /<sitemapindex xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+  assert.match(xml, /<sitemap>\n    <loc>https:\/\/example\.com\/sitemap-pages\.xml<\/loc>\n  <\/sitemap>/);
+  assert.match(xml, /<loc>https:\/\/example\.com\/sitemap-articles\.xml\?a=1&amp;b=2<\/loc>\n    <lastmod>2026-10-01T00:00:00\.000Z<\/lastmod>/);
+  assert.doesNotMatch(xml, /<urlset/);
+});
+

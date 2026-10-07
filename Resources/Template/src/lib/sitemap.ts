@@ -119,3 +119,25 @@ ${entries}
     headers: { "Content-Type": "application/xml; charset=utf-8" },
   });
 }
+
+/**
+ * A sitemap index (#2133): the sitemaps that together list one site. An EmDash site's pages are
+ * prerendered while its articles come from EmDash on request, so `/sitemap.xml` names one sitemap
+ * for each, and `robots.txt` keeps pointing at `/sitemap.xml` either way.
+ */
+export function renderSitemapIndex(sitemaps: SitemapUrl[]): Response {
+  const entries = sitemaps
+    .map((sitemap) => {
+      const lastmod = sitemap.lastmod ? `\n    <lastmod>${sitemap.lastmod.toISOString()}</lastmod>` : "";
+      return `  <sitemap>\n    <loc>${escapeXml(sitemap.loc)}</loc>${lastmod}\n  </sitemap>`;
+    })
+    .join("\n");
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${entries}
+</sitemapindex>
+`;
+  return new Response(xml, {
+    headers: { "Content-Type": "application/xml; charset=utf-8" },
+  });
+}

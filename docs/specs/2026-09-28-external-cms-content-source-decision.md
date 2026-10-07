@@ -99,7 +99,12 @@ form of option B.
    overlay's config adds the Cloudflare adapter and the EmDash integration (D1 `DB`, R2 `MEDIA`)
    and keeps Astro's default static output, so only routes that opt out render on request: the
    article index and article pages, rendered from EmDash's `articles` collection with the
-   template's h-entry markup, and EmDash's own admin and API. `seed/seed.json` maps that
+   template's h-entry markup; the routes that list articles (the site and article feeds, the
+   article sitemap and the tag pages, #2133), with the template's renderers; and EmDash's own
+   admin and API. `/sitemap.xml` is a prerendered index of the article sitemap and of the
+   template's page sitemap (`sitemap-pages.xml`). A page rendered in the Worker has no site files,
+   so the overlay's config captures `.site-config` and `utm-codes.json` into the server bundle for
+   `readConfig` and `readUTMCodes`. `seed/seed.json` maps that
    collection's fields onto Anglesite's `articles` type. The overlay brings its own
    `package.json` and lockfile (the extra packages are approved for EmDash sites only), and
    dependency sync tracks it for EmDash sites. The Worker config stays out of `Source/`:
@@ -223,16 +228,23 @@ server-rendered build it does the following:
   as vendored.
 
 **Layer 3 on an EmDash site (#2055 slice 4).** The pinned
-`scripts/emdash-gate/render-backstop.ts` checks every page the Worker renders on request, before
-a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
+`scripts/emdash-gate/render-backstop.ts` checks every page and feed the Worker renders on
+request, before a reader or a cache gets it. The overlay's `src/middleware.ts` wires it in.
 - It runs the error-severity checks from the shared module: secrets, restricted-audience
   content and blocked admin routes. PII stays a publish-time and deploy-time check, so a
   reporter's published contact line doesn't take a page down.
 - A failing page is replaced by a plain `503` with `Cache-Control: no-store` that says nothing
   about why. If the page can't be read or checked, it is withheld too, so the backstop fails
   closed.
-- EmDash's own authenticated routes (`/_emdash/…`) and non-HTML responses are skipped.
-  Prerendered pages are skipped too: the deploy layer already scanned them as files.
+- Feeds rendered on request are checked like pages (#2133): a feed carries whole article
+  bodies, so it can expose what a page would. Sitemaps are not: they carry only URLs and dates,
+  and an article sitemap can list 50,000 of them. One article that fails withholds the whole
+  feed, which fails closed like a page. The restricted-audience check reads attribute markup,
+  which a feed carries escaped, so on a feed it is the secrets check that matters; EmDash sites
+  offer no audience-limited posts in any case (§ Consequences).
+- EmDash's own authenticated routes (`/_emdash/…`) and other responses (images, scripts, plain
+  JSON) are skipped. Prerendered pages are skipped too: the deploy layer already scanned them as
+  files.
 - The deploy layer lists the backstop in `REQUIRED_GATE_MODULES`, so a server build without it
   is refused.
 - The owner is alerted in two places. The Worker's log gets one

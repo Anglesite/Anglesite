@@ -9,11 +9,22 @@ export function readConfigFromString(content: string, key: string): string | und
 const _defaultConfigPath = resolve(process.cwd(), ".site-config");
 let _cache: Record<string, string> | null = null;
 
+/**
+ * The site's `.site-config` as it was when the server bundle was built, for code that renders on
+ * request in a Worker, which has no site files to read (#2133). An EmDash site's Astro config
+ * defines it; anywhere else it is undefined and the file is read instead.
+ */
+declare const __ANGLESITE_SITE_CONFIG__: string | undefined;
+
+function bundledConfig(): string | undefined {
+  return typeof __ANGLESITE_SITE_CONFIG__ === "string" ? __ANGLESITE_SITE_CONFIG__ : undefined;
+}
+
 function loadDefaultConfig(): Record<string, string> {
   if (_cache !== null) return _cache;
   const result: Record<string, string> = {};
-  if (existsSync(_defaultConfigPath)) {
-    const content = readFileSync(_defaultConfigPath, "utf-8");
+  const content = existsSync(_defaultConfigPath) ? readFileSync(_defaultConfigPath, "utf-8") : bundledConfig();
+  if (content !== undefined) {
     for (const line of content.split("\n")) {
       const eq = line.indexOf("=");
       if (eq > 0) {
