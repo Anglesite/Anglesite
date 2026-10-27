@@ -12,6 +12,9 @@
  *    `scripts/emdash-gate/policy.ts` computes for that draft; it stays a draft and its page is
  *    not served.
  * 2. A clean draft (one the same policy allows) publishes and its page renders.
+ * 3. When the build was given Anglesite's composed Worker config (check-emdash-overlay.sh stages
+ *    one), the site's social endpoints run in the same Worker (#2162): a social route answers
+ *    from the template Worker's handler, and the pages advertise it.
  *
  * Headless EmDash: the site's `package.json` names `seed/seed.json`, which EmDash applies on the
  * first request (the `articles` collection), and its migrations run then too. EmDash's setup
@@ -152,6 +155,8 @@ for (const required of [join(site, "dist", "server", "entry.mjs"), wranglerConfi
   if (!existsSync(required)) fail(`not a built EmDash site: missing ${required}`);
 }
 originalWranglerConfig = readFileSync(wranglerConfigPath, "utf8");
+/** Whether the build carries the social endpoints' bindings (a staged composed config, #2162). */
+const composesSocial = (JSON.parse(originalWranglerConfig).queues?.producers ?? []).some((queue) => queue.binding === "WEBMENTION_QUEUE");
 
 async function freePort() {
   return new Promise((resolvePort, reject) => {
@@ -164,10 +169,18 @@ async function freePort() {
   });
 }
 
-/** Stages the Worker config the way the app does: EmDash's D1 and R2 bindings next to the build. */
+/**
+ * Stages the Worker config the way the app does: EmDash's D1 and R2 bindings next to the build.
+ * A build that already carries them (from a staged `wrangler.toml`, with the social bindings
+ * beside them) keeps its own.
+ */
 function stageWorkerConfig() {
   const config = JSON.parse(originalWranglerConfig);
   config.compatibility_flags = [...new Set([...(config.compatibility_flags ?? []), "nodejs_compat"])];
+  if ((config.d1_databases ?? []).some((database) => database.binding === DB_BINDING)) {
+    writeFileSync(wranglerConfigPath, JSON.stringify(config));
+    return;
+  }
   config.d1_databases = [
     { binding: DB_BINDING, database_name: `${config.name}-social`, database_id: "00000000-0000-4000-8000-000000002089" },
   ];
@@ -351,6 +364,15 @@ async function main() {
   // The Worker has no site files, so a `.site-config` value reaches the page only through the copy
   // captured into the server bundle (#2133). check-emdash-overlay.sh sets this one before the build.
   check(cleanPage.text.includes(`<meta name="theme-color" content="${SITE_CONFIG_THEME_COLOR}">`), "a .site-config value reaches a page rendered in the Worker");
+
+  // The social endpoints, when the build was given them (#2162). `/webmention` takes only POST, so
+  // the template Worker's router answers a GET with 405 and an Allow header; Astro would 404.
+  if (composesSocial) {
+    const webmention = await fetch(new URL("/webmention", base), { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    await webmention.text();
+    check(webmention.status === 405 && (webmention.headers.get("allow") ?? "").includes("POST"), `a social route reaches the social endpoints in the same Worker (HTTP ${webmention.status})`);
+    check(cleanPage.text.includes('<link rel="webmention" href="/webmention"'), "pages rendered in the Worker advertise its Webmention endpoint");
+  }
 
   // 3. The routes that list articles render the published one from EmDash on request (#2133),
   //    and never the refused draft.

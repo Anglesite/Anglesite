@@ -39,6 +39,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
     private let webdavPepperSource: SocialWorkerProvisionCommand.WebdavPepperSource
     private let secretRunner: SocialWorkerProvisionCommand.SecretRunner
     private let accountIDSource: SocialWorkerProvisionCommand.AccountIDSource
+    private let composeInto: ComposeInto?
     public private(set) var resources: WorkerComposition.ProvisionedResources
 
     public init(
@@ -64,7 +65,8 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
         solidOidcSigningKeySource: @escaping SocialWorkerProvisionCommand.SolidOidcSigningKeySource,
         webdavPepperSource: @escaping SocialWorkerProvisionCommand.WebdavPepperSource,
         secretRunner: @escaping SocialWorkerProvisionCommand.SecretRunner,
-        accountIDSource: @escaping SocialWorkerProvisionCommand.AccountIDSource
+        accountIDSource: @escaping SocialWorkerProvisionCommand.AccountIDSource,
+        composeInto: ComposeInto? = nil
     ) {
         self.cloudflareTarget = cloudflareTarget
         self.siteName = siteName
@@ -89,7 +91,13 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
         self.webdavPepperSource = webdavPepperSource
         self.secretRunner = secretRunner
         self.accountIDSource = accountIDSource
+        self.composeInto = composeInto
     }
+
+    /// Writes the Worker config an EmDash site's social endpoints are composed into (#2162):
+    /// given the social bindings (`WorkerComposition.generateWranglerToml(host: .emdash)`),
+    /// returns the whole `wrangler.toml`. `nil`, the default, writes the social Worker's own file.
+    public typealias ComposeInto = @Sendable (WorkerComposition.WranglerConfiguration) throws -> String
 
     /// Delegates to `CloudflareDeployTarget.authorize(siteDirectory:configDirectory:)` for the full pre-build gate
     /// (token resolution, worker-name-conflict, domain-config-drift), then — only once that gate
@@ -116,6 +124,23 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
     /// the top of `SocialWorkerProvisionCommand.provision` is superseded by `authorize` above, so
     /// it isn't repeated here.
     public func publish(context: DeployTargetContext) async -> DeployCommand.Result {
+        if let failure = await provision(context: context) {
+            return failure
+        }
+        // Every resource/secret/migration step is done — hand off to the inner Cloudflare
+        // target for the actual `wrangler deploy` and its post-publish effects (URL extraction,
+        // custom-domain attach, Markdown for Agents, `.site-config` persistence). `context` here
+        // already reflects the one shared build+`PreDeployCheck` spine run this `publish` call is
+        // itself part of, so this must NOT go through `DeployCommand.deploy` again — that would
+        // re-run `authorize`/build/`PreDeployCheck` a second time.
+        return await cloudflareTarget.publish(context: context)
+    }
+
+    /// Every provisioning step of ``publish(context:)`` short of the deploy: resources, secrets,
+    /// `wrangler.toml` and D1 migrations. `nil` once they're all done, otherwise the result that
+    /// stopped them. `EmDashDeployTarget` runs it from its `prepare`, before the build, because
+    /// an EmDash site's build copies these bindings into its server bundle (#2162).
+    public func provision(context: DeployTargetContext) async -> DeployCommand.Result? {
         var environment = context.baseEnvironment
         environment["CLOUDFLARE_API_TOKEN"] = context.credential
         let source = "worker-provision:\(context.siteID)"
@@ -363,12 +388,17 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
             return failure
         }
 
+        // Composed into an EmDash Worker (#2162), a previous build's `.wrangler/deploy/config.json`
+        // would redirect wrangler to that build's server config, which may not have these bindings
+        // yet: name the config this run just wrote instead.
+        let configArguments = composeInto == nil ? [] : ["--config", "wrangler.toml"]
+
         // @dwk/indieauth deliberately keeps schema deployment outside its request handler. Apply
         // the committed D1 migrations after wrangler.toml contains the concrete database id and
         // before publishing code that can receive authorization requests.
         if workers.contains(where: { $0.id == WorkerComposition.indieauthWorkerID }) {
             let result = await runWranglerSubcommand(
-                context: context, arguments: ["d1", "migrations", "apply", "AUTH_DB", "--remote"], environment: environment, source: source)
+                context: context, arguments: ["d1", "migrations", "apply", "AUTH_DB", "--remote"] + configArguments, environment: environment, source: source)
             if case .failure(let failure) = result {
                 return failure
             }
@@ -380,19 +410,13 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
         // experiment events.
         if hasRunningExperiment {
             let result = await runWranglerSubcommand(
-                context: context, arguments: ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"], environment: environment, source: source)
+                context: context, arguments: ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"] + configArguments, environment: environment, source: source)
             if case .failure(let failure) = result {
                 return failure
             }
         }
 
-        // Every resource/secret/migration step above is done — hand off to the inner Cloudflare
-        // target for the actual `wrangler deploy` and its post-publish effects (URL extraction,
-        // custom-domain attach, Markdown for Agents, `.site-config` persistence). `context` here
-        // already reflects the one shared build+`PreDeployCheck` spine run this `publish` call is
-        // itself part of, so this must NOT go through `DeployCommand.deploy` again — that would
-        // re-run `authorize`/build/`PreDeployCheck` a second time.
-        return await cloudflareTarget.publish(context: context)
+        return nil
     }
 
     // MARK: - Wrangler subcommand seam
@@ -446,9 +470,10 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                 moderators: moderators,
                 apUsername: apUsername, apIcon: apIcon,
                 experiments: experiments, mcpEnabled: mcpEnabled,
-                issuesEnabled: issuesEnabled, issuesProof: issuesProof
+                issuesEnabled: issuesEnabled, issuesProof: issuesProof,
+                host: composeInto == nil ? .staticAssets : .emdash
             )
-            try WranglerConfigFile.write(configuration.toml, configDirectory: configDirectory)
+            try WranglerConfigFile.write(composeInto?(configuration) ?? configuration.toml, configDirectory: configDirectory)
             // Reflects "the receiver is actually live" (webmention worker active AND its Queue
             // exists), not just "webmention worker is in the active set" — and is written
             // unconditionally on every call (not gated behind `if hasWebmentionReceive`), so a

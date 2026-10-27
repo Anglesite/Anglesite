@@ -22,8 +22,9 @@ import Foundation
 /// where Open EmDash goes. EmDash applies its own database migrations on first request, and the
 /// owner creates the first EmDash account on its setup page.
 ///
-/// Social Workers (Webmention, ActivityPub, IndieAuth) aren't composed on an EmDash site yet: the
-/// EmDash Worker is the public site, and composing them with it is #2052/#2053.
+/// The site's social endpoints (Webmention, ActivityPub, IndieAuth…) run in the same Worker
+/// (#2162): `prepare` provisions them through a ``SocialWorkerProvisionTarget`` whose config is
+/// composed into the EmDash Worker's, and the overlay's `src/worker.ts` routes to them.
 public actor EmDashDeployTarget: DeployTarget {
     public static let id = "cloudflare-emdash"
 
@@ -34,17 +35,30 @@ public actor EmDashDeployTarget: DeployTarget {
     private let siteName: String
     private let encryptionKeySource: EncryptionKeySource
     private let secretRunner: SocialWorkerProvisionCommand.SecretRunner
+    private let makeSocial: SocialProvisioner?
+
+    /// The social endpoints' resources once `prepare` has provisioned them (#2162), recorded by
+    /// the caller as `SiteSettings.provisionedWorkerResources`. `nil` for a site with none.
+    public private(set) var socialResources: WorkerComposition.ProvisionedResources?
+
+    /// Builds the provisioner for the site's social endpoints, given the function that composes
+    /// their bindings into this Worker's config. `nil` when the site has no social endpoints.
+    public typealias SocialProvisioner = @Sendable (
+        _ composeInto: @escaping SocialWorkerProvisionTarget.ComposeInto
+    ) -> SocialWorkerProvisionTarget
 
     public init(
         cloudflareTarget: CloudflareDeployTarget,
         siteName: String,
         encryptionKeySource: @escaping EncryptionKeySource = EmDashDeployTarget.defaultEncryptionKeySource,
-        secretRunner: @escaping SocialWorkerProvisionCommand.SecretRunner
+        secretRunner: @escaping SocialWorkerProvisionCommand.SecretRunner,
+        social: SocialProvisioner? = nil
     ) {
         self.cloudflareTarget = cloudflareTarget
         self.siteName = siteName
         self.encryptionKeySource = encryptionKeySource
         self.secretRunner = secretRunner
+        self.makeSocial = social
     }
 
     /// The production key source: the platform secret store (Keychain on macOS).
@@ -175,7 +189,26 @@ public actor EmDashDeployTarget: DeployTarget {
             return .failed(reason: "couldn't write the EmDash Worker's configuration: \(error)", exitCode: nil)
         }
 
-        return await pushEncryptionKeyIfMissing(context: context, environment: environment, source: source)
+        if let failure = await pushEncryptionKeyIfMissing(context: context, environment: environment, source: source) {
+            return failure
+        }
+        return await provisionSocial(context: context, resources: resources, cache: workersPaidPlan)
+    }
+
+    /// Provisions the site's social endpoints into this Worker (#2162), after EmDash's own
+    /// resources, so every write of the config carries both. Their resources, secrets and D1
+    /// migrations are the social Worker's, and are created the same way; only the config differs.
+    private func provisionSocial(
+        context: DeployTargetContext, resources: EmDashWorkerConfig.Resources, cache: Bool
+    ) async -> DeployCommand.Result? {
+        guard let makeSocial else { return nil }
+        let siteName = siteName
+        let social = makeSocial { configuration in
+            try EmDashWorkerConfig.toml(workerName: siteName, resources: resources, cache: cache, social: configuration)
+        }
+        let failure = await social.provision(context: context)
+        socialResources = await social.resources
+        return failure
     }
 
     /// Pushes `EMDASH_ENCRYPTION_KEY` only when the Worker doesn't already hold it. The key lives

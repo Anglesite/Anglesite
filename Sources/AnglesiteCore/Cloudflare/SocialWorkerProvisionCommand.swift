@@ -305,26 +305,48 @@ public actor SocialWorkerProvisionCommand {
 
         // #2103: an EmDash site is its EmDash Worker, provisioned and published by
         // `EmDashDeployTarget`. Routed here so the app's Publish Site and the headless App Intents
-        // deploy (both reach `deploy` through this method) take the same path. The social Workers
-        // aren't composed with it yet (#2052/#2053); the log says so rather than dropping them
-        // silently.
+        // deploy (both reach `deploy` through this method) take the same path. Its social
+        // endpoints run in that same Worker (#2162), less the features an EmDash site doesn't
+        // offer; the log names those rather than dropping them silently.
         if publishesEmDash {
-            if !workers.isEmpty {
+            let composable = EmDashSocialComposition.composableWorkers(workers)
+            let leftOff = EmDashSocialComposition.leftOff(
+                workers: workers, inboxCaptureEnabled: inboxCaptureEnabled,
+                experiments: experiments, mcpEnabled: mcpEnabled)
+            if !leftOff.isEmpty {
                 await LogCenter.shared.append(
                     source: "emdash-provision:\(siteID)", stream: .stderr,
-                    text: "Social features (\(workers.map(\.id).sorted().joined(separator: ", "))) aren't published on an EmDash site yet.")
+                    text: "Not published on an EmDash site: \(leftOff.joined(separator: ", ")).")
+            }
+            var social: EmDashDeployTarget.SocialProvisioner?
+            if !composable.isEmpty {
+                let keyPairSource = keyPairSource, solidOidcSigningKeySource = solidOidcSigningKeySource
+                let webdavPepperSource = webdavPepperSource, secretRunner = secretRunner
+                let accountIDSource = accountIDSource
+                social = { (composeInto: @escaping SocialWorkerProvisionTarget.ComposeInto) -> SocialWorkerProvisionTarget in
+                    SocialWorkerProvisionTarget(
+                        cloudflareTarget: cloudflareTarget,
+                        siteName: siteName, workers: composable, routeClaims: routeClaims, knownResources: resources,
+                        siteURL: siteURL, displayName: displayName, apUsername: apUsername, apIcon: apIcon,
+                        acknowledgesPaidPlan: acknowledgesPaidPlan,
+                        activityPubActorType: activityPubActorType, moderators: moderators,
+                        keyPairSource: keyPairSource, solidOidcSigningKeySource: solidOidcSigningKeySource,
+                        webdavPepperSource: webdavPepperSource, secretRunner: secretRunner,
+                        accountIDSource: accountIDSource, composeInto: composeInto)
+                }
             }
             let target = EmDashDeployTarget(
                 cloudflareTarget: cloudflareTarget, siteName: siteName,
-                encryptionKeySource: emdashEncryptionKeySource, secretRunner: secretRunner)
+                encryptionKeySource: emdashEncryptionKeySource, secretRunner: secretRunner, social: social)
             let deployResult = await DeployCommand(target: target, executor: executor).deploy(
                 siteID: siteID, siteDirectory: siteDirectory, configDirectory: configDirectory,
-                currentRoutes: currentRoutes, wellKnownDynamicClaims: [],
+                currentRoutes: currentRoutes,
+                wellKnownDynamicClaims: composable.isEmpty ? [] : wellKnownDynamicClaims,
                 onPreflight: onPreflight, onDomainAttach: onDomainAttach,
                 onMarkdownForAgents: onMarkdownForAgents, onProgress: onProgress)
-            // `resources` is the social composition's, passed straight back: an EmDash site has
-            // none (its own are in `SiteSettings.emdashResources`, recorded by the target).
-            return Self.result(deployResult, resources: resources)
+            // EmDash's own resources are in `SiteSettings.emdashResources`, recorded by the
+            // target; these are the social endpoints'.
+            return Self.result(deployResult, resources: await target.socialResources ?? resources)
         }
 
         let target = SocialWorkerProvisionTarget(

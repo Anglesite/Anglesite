@@ -33,7 +33,11 @@ and 4):
   restricted-audience content and admin routes before it is served, and withheld with a `503`
   if it fails. The whole response is read before it is sent, so these aren't streamed.
 - `src/worker.ts`: the Worker entry. It adds EmDash's cron handler, which publishes scheduled
-  articles when they come due.
+  articles when they come due. It also runs the site's social endpoints (Webmention, IndieAuth,
+  ActivityPub…) in the same Worker (#2162). A request for one of the template Worker's routes
+  (`ROUTES` in `worker/worker.ts`) goes to that Worker's handler, and so do its queues and crons.
+  Everything else goes to Astro. Publish Site writes their bindings into the same
+  `Config/wrangler.toml`.
 - `seed/seed.json`: the EmDash schema a new site starts with. It maps the `articles` collection
   onto Anglesite's `articles` content type.
 - `package.json` / `package-lock.json`: the template's dependencies plus EmDash's. The owner

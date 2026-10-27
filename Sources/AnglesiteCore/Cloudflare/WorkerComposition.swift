@@ -29,6 +29,25 @@ public enum WorkerComposition {
         /// the defense-in-depth backstop so an unvalidated path can never be interpolated into
         /// the generated file).
         case invalidRouteClaim(path: String, reason: String)
+        /// A feature asked of an ``Host/emdash`` composition that an EmDash site doesn't offer
+        /// (#2162): Micropub (it writes posts into git, and its `MEDIA` binding is EmDash's media
+        /// bucket), a running experiment, MCP or Inbox Capture. Callers leave them out; this is
+        /// the backstop, so EmDash's own bindings can never be shadowed.
+        case notComposableOnEmDash(String)
+    }
+
+    /// Where the composed social endpoints run (#2162).
+    public enum Host: Sendable, Equatable {
+        /// Their own Worker, in front of the site's static assets: the file is the whole
+        /// `wrangler.toml`.
+        case staticAssets
+        /// Inside an EmDash site's Worker (decision 7 of the external-CMS ADR,
+        /// `docs/specs/2026-09-28-external-cms-content-source-decision.md`): the file holds only
+        /// the social bindings, and the crons go to ``WranglerConfiguration/cronSchedules``.
+        /// `EmDashWorkerConfig` writes the Worker's name, entry, assets and observability and
+        /// merges these in. The generic `DB` binding is left out, because EmDash's database holds
+        /// that name and no social endpoint reads it.
+        case emdash
     }
 
     /// `@dwk/indieauth`'s catalog id — a magic string composition keys off directly (its binding
@@ -243,11 +262,16 @@ public enum WorkerComposition {
         public let toml: String
         public let resources: ProvisionedResources
         public let effectiveRoutes: [String]
+        /// The cron schedules the social endpoints need. In the file's `[triggers]` table for a
+        /// ``Host/staticAssets`` composition; for ``Host/emdash``, left for `EmDashWorkerConfig`
+        /// to merge with EmDash's own.
+        public let cronSchedules: [String]
 
-        public init(toml: String, resources: ProvisionedResources, effectiveRoutes: [String]) {
+        public init(toml: String, resources: ProvisionedResources, effectiveRoutes: [String], cronSchedules: [String] = []) {
             self.toml = toml
             self.resources = resources
             self.effectiveRoutes = effectiveRoutes
+            self.cronSchedules = cronSchedules
         }
     }
 
@@ -356,12 +380,15 @@ public enum WorkerComposition {
     ///     config file's own directory (not the process's CWD), can never find the real
     ///     `worker/worker.ts` at `/workspace/site` with a bare relative path. Pass
     ///     `"/workspace/site"` there to root every such field absolutely instead.
+    ///   - host: Where the endpoints run (#2162). ``Host/staticAssets`` (the default) writes the
+    ///     whole file; ``Host/emdash`` writes only the bindings, for `EmDashWorkerConfig` to merge.
     /// - Returns: A ``WranglerConfiguration`` carrying the complete wrangler.toml string, the
     ///   resources it was composed with, and the effective `run_worker_first` route set.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` fails wrangler's lowercase
     ///   `name` rule, ``ConfigError/invalidR2BucketName(_:)`` if an emitted `bucket_name` fails
     ///   wrangler's bucket rule, or ``ConfigError/invalidRouteClaim(path:reason:)`` for a claim
-    ///   that never passed `WorkerRouteClaims` validation.
+    ///   that never passed `WorkerRouteClaims` validation, or
+    ///   ``ConfigError/notComposableOnEmDash(_:)`` for a feature an EmDash site doesn't offer.
     public static func generateWranglerToml(
         siteName: String,
         workers: [WorkerDescriptor],
@@ -380,10 +407,21 @@ public enum WorkerComposition {
         mcpEnabled: Bool = false,
         issuesEnabled: Bool = false,
         issuesProof: String? = nil,
-        projectRoot: String? = nil
+        projectRoot: String? = nil,
+        host: Host = .staticAssets
     ) throws -> WranglerConfiguration {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
+        }
+        if host == .emdash {
+            if workers.contains(where: { $0.id == micropubWorkerID }) {
+                throw ConfigError.notComposableOnEmDash(micropubWorkerID)
+            }
+            if experiments.contains(where: { $0.status == "running" }) {
+                throw ConfigError.notComposableOnEmDash("experiments")
+            }
+            if mcpEnabled { throw ConfigError.notComposableOnEmDash("mcp") }
+            if inboxCaptureEnabled { throw ConfigError.notComposableOnEmDash("inbox-capture") }
         }
         var patterns: Set<String> = []
         var effectiveClaims = routeClaims
@@ -462,32 +500,38 @@ public enum WorkerComposition {
         let hasWebdav = workers.contains(where: { $0.id == webdavWorkerID })
 
         var lines: [String] = []
-        lines.append("name = \"\(siteName)\"")
-        lines.append("compatibility_date = \"2026-07-15\"")
-        lines.append("compatibility_flags = [\"nodejs_compat\"]")
+        if host == .staticAssets {
+            lines.append("name = \"\(siteName)\"")
+            lines.append("compatibility_date = \"2026-07-15\"")
+            lines.append("compatibility_flags = [\"nodejs_compat\"]")
+        }
 
         let hasSocialFeatures = !workers.isEmpty
         // #1270 slice 3: a running experiment is the third enabler of Worker composition,
         // alongside an active catalog worker and inbox capture — a static-only site's first
         // running experiment gets a Worker for exactly its paths and nothing else (design §3).
         let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment || mcpEnabled
-        if composesWorker {
+        if composesWorker, host == .staticAssets {
             lines.append("main = \"\(rooted("worker/worker.ts", projectRoot: projectRoot))\"")
         }
-        lines.append("")
-        lines.append("[assets]")
-        lines.append("directory = \"\(rooted("dist", projectRoot: projectRoot))\"")
-        if composesWorker {
-            lines.append("binding = \"ASSETS\"")
-            patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
-            patterns.formUnion(experimentRoutes.map(\.path))
-            if !patterns.isEmpty {
-                let list = patterns.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
-                lines.append("run_worker_first = [\(list)]")
+        // An EmDash Worker's assets are the Cloudflare adapter's, and every social path reaches
+        // that Worker: no static file sits at one, so there is nothing to route around.
+        if host == .staticAssets {
+            lines.append("")
+            lines.append("[assets]")
+            lines.append("directory = \"\(rooted("dist", projectRoot: projectRoot))\"")
+            if composesWorker {
+                lines.append("binding = \"ASSETS\"")
+                patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
+                patterns.formUnion(experimentRoutes.map(\.path))
+                if !patterns.isEmpty {
+                    let list = patterns.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+                    lines.append("run_worker_first = [\(list)]")
+                }
             }
         }
 
-        if workers.contains(where: { $0.resources.needsD1 }) {
+        if workers.contains(where: { $0.resources.needsD1 }), host == .staticAssets {
             lines.append(contentsOf: d1Block(
                 binding: "DB", siteName: siteName, id: resources.d1DatabaseID, projectRoot: projectRoot))
         }
@@ -582,7 +626,7 @@ public enum WorkerComposition {
         var cronSchedules: [String] = []
         if hasMicrosub { cronSchedules.append("*/15 * * * *") }
         if hasSolidPod { cronSchedules.append("*/5 * * * *") }
-        if !cronSchedules.isEmpty {
+        if !cronSchedules.isEmpty, host == .staticAssets {
             lines.append("")
             lines.append("[triggers]")
             let list = cronSchedules.map { "\"\($0)\"" }.joined(separator: ", ")
@@ -758,7 +802,7 @@ public enum WorkerComposition {
             lines.append("# WEBDAV_PEPPER")
         }
 
-        if composesWorker {
+        if composesWorker, host == .staticAssets {
             lines.append("")
             lines.append("[observability]")
             lines.append("enabled = true")
@@ -774,7 +818,8 @@ public enum WorkerComposition {
         return WranglerConfiguration(
             toml: lines.joined(separator: "\n"),
             resources: resources,
-            effectiveRoutes: patterns.sorted())
+            effectiveRoutes: patterns.sorted(),
+            cronSchedules: cronSchedules)
     }
 
     /// One `[[d1_databases]]` block bound to the shared per-site `\(siteName)-social` database.
