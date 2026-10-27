@@ -579,7 +579,7 @@ if includeContainer {
     packageProducts.append(.library(name: "AnglesiteContainer", targets: ["AnglesiteContainer"]))
     packageProducts.append(.executable(name: "anglesite-container-probe", targets: ["AnglesiteContainerProbe"]))
     packageDependencies.append(
-        .package(url: "https://github.com/apple/containerization.git", .upToNextMinor(from: "0.35.0"))
+        .package(url: "https://github.com/apple/containerization.git", .upToNextMinor(from: "0.48.0"))
     )
 }
 

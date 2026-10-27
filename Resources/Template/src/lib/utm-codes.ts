@@ -1,6 +1,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+/**
+ * `utm-codes.json` as it was when the server bundle was built, for feeds rendered on request in a
+ * Worker, which has no site files to read (#2133). An EmDash site's Astro config defines it;
+ * anywhere else it is undefined and the file is read instead.
+ */
+declare const __ANGLESITE_UTM_CODES__: string | undefined;
+
+function bundledUTMCodes(): string | undefined {
+  return typeof __ANGLESITE_UTM_CODES__ === "string" ? __ANGLESITE_UTM_CODES__ : undefined;
+}
+
 export interface UTMCampaign {
   source: string;
   medium: string;
@@ -34,13 +45,18 @@ export function isValidUTMCampaign(entry: unknown): entry is UTMCampaign {
 /// a bad state.
 export function readUTMCodes(siteRoot: string = process.cwd()): UTMCampaign[] {
   const path = resolve(siteRoot, "utm-codes.json");
-  if (!existsSync(path)) return [];
-
   let raw: string;
-  try {
-    raw = readFileSync(path, "utf-8");
-  } catch {
-    return [];
+  if (existsSync(path)) {
+    try {
+      raw = readFileSync(path, "utf-8");
+    } catch {
+      return [];
+    }
+  } else {
+    // In a Worker there are no site files: use the copy captured when the server bundle was built.
+    const bundled = bundledUTMCodes();
+    if (bundled === undefined) return [];
+    raw = bundled;
   }
 
   let parsed: unknown;

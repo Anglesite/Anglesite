@@ -1,0 +1,7 @@
+{
+  "_comment": "Pinned download location and SHA-256 digest of the Kev-0.5B asset manifest the app fetches on demand (#2068, decision D7). Written only by scripts/kev/bump-kev-assets.sh, which also regenerates Sources/AnglesiteCore/AI/Kev/KevModelAssetPin.swift from it; scripts/kev/bump-kev-assets.sh --check fails when the two disagree. An empty manifest_sha256 means no assets are published yet: the app then never offers the download. Committed (not gitignored) — this is metadata, not a vendored artifact.",
+  "base_url": "https://anglesite.dwk.io/models/kev-0.5b/",
+  "manifest_path": "MANIFEST.json",
+  "manifest_sha256": "",
+  "pinned_at": "2026-09-29"
+}

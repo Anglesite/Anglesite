@@ -20,6 +20,16 @@ struct WebsiteCommands: Commands {
                 .disabled(model?.canOpenWebsiteSettings != true)
             PlannedItem("Analytics…")
             PlannedItem("Logs…")
+            // An EmDash site's posts are written in EmDash's admin (#2050), which replaces the
+            // in-app post editors on that site kind. Shown only there; disabled until
+            // provisioning or connecting EmDash records the admin's address.
+            if model?.showsOpenEmDash == true {
+                Button("Open EmDash") { model?.openEmDash() }
+                    .disabled(model?.canOpenEmDash != true)
+                    .help(model?.canOpenEmDash == true
+                        ? String(localized: "Write, edit and publish this site's posts in EmDash.")
+                        : String(localized: "EmDash isn't set up for this site yet."))
+            }
 
             Divider()
 

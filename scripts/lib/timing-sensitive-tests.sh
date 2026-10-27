@@ -70,4 +70,15 @@
 # Anchored (`\.HTTPTransportTests/`, not a bare substring) because `ACPHTTPTransportTests` and
 # `SessionfulHTTPTransportTests` both contain "HTTPTransportTests" as a substring and must stay
 # in the main parallel run.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests|ProcessSupervisorRunLoggingTests|ProcessSupervisorRunLoggingPortableTests|DeployCommandTests|\.HTTPTransportTests/'
+#
+# SafariMCPBridgeDetectorTests (PR #2113 CI run, 2026-10-01): `reachable` drives the detector
+# through a real `URLSession` whose network is faked by a dedicated `URLProtocol` stub, with a
+# 10 s reachability timeout — the same shape as HTTPTransportTests above. In build-test's
+# full-parallel run (run 36812640438, job 110210895235, Xcode 26.6/Swift 6.3.3) the test reported
+# `.unreachable` after 33.99 s, with every neighbouring test in the same window of the log at
+# 30–35 s, on a PR that changed no Swift; a re-run of the same commit passed, and the suite passes
+# in milliseconds run alone. The likely cause is the one HTTPTransportTests names — the stub
+# replaces only the transport, so the session's own dispatch-queue callbacks still queue behind
+# the oversubscribed thread pool — inferred from that one starvation event, not shown by the log.
+# `SafariMCPBridgeClientTests` shares a prefix but not this substring, so it stays in the main run.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests|ProcessSupervisorRunLoggingTests|ProcessSupervisorRunLoggingPortableTests|DeployCommandTests|\.HTTPTransportTests/|SafariMCPBridgeDetectorTests'

@@ -1330,6 +1330,86 @@ struct DeployModelTests {
         #expect(policy.defaultLicense == nil)
     }
 
+    /// An EmDash site package (#2116) whose Workers plan question is unanswered. `licenseChosen`
+    /// decides whether the license gate comes first.
+    private func makeEmDashSite(licenseChosen: Bool) throws -> AnglesitePackage {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DeployModelWorkersPlanTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let (package, _) = try AnglesitePackage.createSkeleton(
+            at: root.appendingPathComponent("News.anglesite"), displayName: "News", kind: .emdash)
+        if licenseChosen {
+            try LicensingStore(sourceDirectory: package.sourceURL).save(LicensingPolicy(licenseChosen: true))
+        }
+        return package
+    }
+
+    private func makeGatedModel(_ executor: GatedDeployExecutor) -> DeployModel {
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
+        return DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+    }
+
+    @Test("an EmDash site asks about the Workers plan after the license gate, then publishes on an answer")
+    func workersPlanQuestionFollowsLicenseGateAndResumes() async throws {
+        let executor = GatedDeployExecutor()
+        let model = makeGatedModel(executor)
+        let site = try makeEmDashSite(licenseChosen: false)
+
+        model.deploy(siteID: "s", siteDirectory: site.sourceURL, configDirectory: site.configURL, currentRoutes: [])
+        let licenseFirst = model.licenseGatePresented
+        let planBeforeLicense = model.workersPlanQuestionPresented
+        #expect(licenseFirst)
+        #expect(!planBeforeLicense)
+
+        // Choosing a license resumes the deploy, which now parks on the plan question.
+        await model.confirmLicenseChoice(nil)
+        let planAfterLicense = model.workersPlanQuestionPresented
+        let runningBeforeAnswer = model.isRunning
+        #expect(planAfterLicense)
+        #expect(!runningBeforeAnswer)
+
+        await model.answerWorkersPlan(paid: true)
+        let planAfterAnswer = model.workersPlanQuestionPresented
+        #expect(!planAfterAnswer)
+        #expect(try SiteConfigStore.read(from: site.configURL).emdashWorkersPaidPlan == true)
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
+        try await waitUntil("the parked deploy to finish after answering the Workers plan question") { !model.isRunning }
+        guard case .succeeded = model.phase else {
+            Issue.record("expected the parked deploy to run after answering, got \(model.phase)")
+            return
+        }
+    }
+
+    @Test("cancelling the Workers plan question publishes nothing and asks again next time")
+    func cancellingWorkersPlanQuestionAsksAgain() async throws {
+        let model = makeGatedModel(GatedDeployExecutor())
+        let site = try makeEmDashSite(licenseChosen: true)
+
+        model.deploy(siteID: "s", siteDirectory: site.sourceURL, configDirectory: site.configURL, currentRoutes: [])
+        let presented = model.workersPlanQuestionPresented
+        #expect(presented)
+
+        model.cancelWorkersPlanQuestion()
+        let presentedAfterCancel = model.workersPlanQuestionPresented
+        let runningAfterCancel = model.isRunning
+        #expect(!presentedAfterCancel)
+        #expect(!runningAfterCancel)
+        #expect(try SiteConfigStore.read(from: site.configURL).emdashWorkersPaidPlan == nil)
+
+        // Nothing is parked, so a stray answer says so instead of publishing.
+        await model.answerWorkersPlan(paid: false)
+        let runningAfterStrayAnswer = model.isRunning
+        #expect(!runningAfterStrayAnswer)
+        #expect(model.workersPlanQuestionError != nil)
+
+        model.deploy(siteID: "s", siteDirectory: site.sourceURL, configDirectory: site.configURL, currentRoutes: [])
+        let presentedAgain = model.workersPlanQuestionPresented
+        #expect(presentedAgain)
+    }
+
     @Test("deployAutomatically defers when a license hasn't been chosen")
     func deployAutomaticallyDefersWithoutLicense() async throws {
         let executor = GatedDeployExecutor()

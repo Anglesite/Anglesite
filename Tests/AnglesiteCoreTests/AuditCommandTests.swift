@@ -51,6 +51,7 @@ struct AuditCommandTests {
                 case .build: return build
                 case .a11y: return { _ in .unavailable(reason: "a11y step not used by this fixture") }
                 case .brokenLinks: return { _ in .unavailable(reason: "broken-links step not used by this fixture") }
+                case .pageWeight: return { _ in .unavailable(reason: "page-weight step not used by this fixture") }
                 }
             }
         )

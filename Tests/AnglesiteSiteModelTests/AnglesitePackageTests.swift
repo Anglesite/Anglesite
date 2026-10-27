@@ -70,7 +70,10 @@ struct AnglesitePackageTests {
         #expect(FileManager.default.fileExists(atPath: pkg.infoPlistURL.path))
         let read = try pkg.readMarker()
         #expect(read == marker)
-        #expect(read.formatVersion == AnglesitePackage.currentFormatVersion)
+        // An Anglesite-kind marker stays at format 1 even though this build writes up to 2, so
+        // builds that predate site kinds keep opening new Anglesite packages normally (#2050).
+        #expect(read.formatVersion == 1)
+        #expect(read.kind == .anglesite)
     }
 
     @Test("Info.plist uses the spec's exact marker keys")
@@ -85,6 +88,7 @@ struct AnglesitePackageTests {
         #expect(plist["AnglesiteSiteID"] != nil)
         #expect(plist["AnglesiteDisplayName"] as? String == "Acme")
         #expect(plist["AnglesiteCreatedDate"] != nil)
+        #expect(plist["AnglesiteSiteKind"] as? String == "anglesite")
     }
 
     @Test("readMarker throws markerMissing when Info.plist is absent")
@@ -124,6 +128,122 @@ struct AnglesitePackageTests {
         #expect(AnglesitePackage.compatibility(for: current) == .current)
         #expect(AnglesitePackage.compatibility(for: past) == .current)
         #expect(AnglesitePackage.compatibility(for: future) == .readOnlyTooNew)
+    }
+
+    // MARK: - Site kind (#2050)
+
+    @Test("an EmDash marker round-trips with its kind, at format 2")
+    func emdashMarkerRoundTrips() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = AnglesitePackage(url: dir.appendingPathComponent("Paper.anglesite", isDirectory: true))
+        let marker = AnglesitePackage.Marker(displayName: "The Paper", kind: .emdash)
+        try pkg.writeMarker(marker)
+
+        let read = try pkg.readMarker()
+        #expect(read == marker)
+        #expect(read.kind == .emdash)
+        #expect(read.formatVersion == 2)
+        #expect(AnglesitePackage.compatibility(for: read) == .current)
+        let plist = try #require(NSDictionary(contentsOf: pkg.infoPlistURL))
+        #expect(plist["AnglesiteSiteKind"] as? String == "emdash")
+    }
+
+    @Test("a marker written before site kinds existed reads as an Anglesite site")
+    func legacyMarkerWithoutKindIsAnglesite() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = AnglesitePackage(url: dir.appendingPathComponent("Old.anglesite", isDirectory: true))
+        try FileManager.default.createDirectory(at: pkg.url, withIntermediateDirectories: true)
+        let legacy: [String: Any] = [
+            "AnglesiteFormatVersion": 1,
+            "AnglesiteSiteID": UUID().uuidString,
+            "AnglesiteDisplayName": "Old",
+            "AnglesiteCreatedDate": Date(timeIntervalSince1970: 1_700_000_000),
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: legacy, format: .xml, options: 0)
+        try data.write(to: pkg.infoPlistURL)
+
+        let read = try pkg.readMarker()
+        #expect(read.kind == .anglesite)
+        #expect(read.formatVersion == 1)
+        #expect(AnglesitePackage.compatibility(for: read) == .current)
+    }
+
+    @Test("a site kind from a newer build round-trips verbatim and opens read-only")
+    func unrecognizedKindIsReadOnly() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = AnglesitePackage(url: dir.appendingPathComponent("Future.anglesite", isDirectory: true))
+        try FileManager.default.createDirectory(at: pkg.url, withIntermediateDirectories: true)
+        let future: [String: Any] = [
+            // Deliberately at a format this build accepts: the unknown kind alone must be enough.
+            "AnglesiteFormatVersion": 1,
+            "AnglesiteSiteID": UUID().uuidString,
+            "AnglesiteDisplayName": "Future",
+            "AnglesiteCreatedDate": Date(timeIntervalSince1970: 1_700_000_000),
+            "AnglesiteSiteKind": "someday-cms",
+        ]
+        try PropertyListSerialization.data(fromPropertyList: future, format: .xml, options: 0)
+            .write(to: pkg.infoPlistURL)
+
+        let read = try pkg.readMarker()
+        #expect(read.kind == .unrecognized("someday-cms"))
+        #expect(read.kind.rawValue == "someday-cms")
+        #expect(AnglesitePackage.compatibility(for: read) == .readOnlyTooNew)
+        // Read-only means read-only: the existing refusal to overwrite a too-new marker applies.
+        #expect(throws: AnglesitePackage.PackageError.markerTooNew(pkg.infoPlistURL)) {
+            try pkg.writeMarker(.init(displayName: "Clobber"))
+        }
+    }
+
+    @Test("builds that predate site kinds see an EmDash package as too new, and an Anglesite one as current")
+    func olderBuildsGateEmDashPackages() throws {
+        // Builds before #2050 shipped with currentFormatVersion 1 and a Marker that ignores unknown
+        // keys. That decoder must still read both markers, and its version check must refuse to
+        // edit the EmDash one; otherwise it would treat EmDash content as git-backed.
+        struct PreSiteKindMarker: Decodable {
+            let formatVersion: Int
+            enum CodingKeys: String, CodingKey { case formatVersion = "AnglesiteFormatVersion" }
+        }
+        let preSiteKindCurrentFormatVersion = 1
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for (kind, olderBuildEdits) in [(AnglesitePackage.SiteKind.anglesite, true), (.emdash, false)] {
+            let pkg = AnglesitePackage(url: dir.appendingPathComponent("\(kind.rawValue).anglesite", isDirectory: true))
+            try pkg.writeMarker(.init(displayName: "Site", kind: kind))
+            let seen = try PropertyListDecoder().decode(PreSiteKindMarker.self, from: Data(contentsOf: pkg.infoPlistURL))
+            #expect((seen.formatVersion <= preSiteKindCurrentFormatVersion) == olderBuildEdits, "\(kind)")
+        }
+    }
+
+    @Test("writeMarker never stamps an EmDash package below format 2")
+    func writeMarkerFloorsEmDashFormat() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = AnglesitePackage(url: dir.appendingPathComponent("Paper.anglesite", isDirectory: true))
+        let mislabelled = AnglesitePackage.Marker(formatVersion: 1, displayName: "Paper", kind: .emdash)
+        try pkg.writeMarker(mislabelled)
+
+        let read = try pkg.readMarker()
+        #expect(read.formatVersion == 2)
+        #expect(read.kind == .emdash)
+        #expect(read.siteID == mislabelled.siteID)
+    }
+
+    @Test("createSkeleton stamps the requested site kind; the default stays Anglesite")
+    func createSkeletonStampsKind() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (paper, paperMarker) = try AnglesitePackage.createSkeleton(
+            at: dir.appendingPathComponent("Paper.anglesite", isDirectory: true), displayName: "Paper", kind: .emdash)
+        #expect(paperMarker.kind == .emdash)
+        #expect(try paper.readMarker().kind == .emdash)
+
+        let (_, defaultMarker) = try AnglesitePackage.createSkeleton(
+            at: dir.appendingPathComponent("Blog.anglesite", isDirectory: true), displayName: "Blog")
+        #expect(defaultMarker.kind == .anglesite)
+        #expect(defaultMarker.formatVersion == 1)
     }
 
     @Test("createSkeleton lays down Source/, Config/, and a stamped marker")

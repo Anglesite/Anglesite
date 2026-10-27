@@ -17,7 +17,9 @@ struct InteractionScreeningTests {
             #expect(questions == [InteractionScreener.spamQuestion])
             let host = spamProbabilityByHost.keys.first { state.contains($0) }
             let p = host.flatMap { spamProbabilityByHost[$0] } ?? 0
-            return [DecisionAnswer(probabilities: [p, 1 - p])]
+            // Raw scores a real provider would expose: shifted so they aren't just log p, which
+            // lets the ledger test below tell "recorded the logits" from "recorded log p".
+            return [DecisionAnswer(probabilities: [p, 1 - p], logits: [log(p) + 3, log(1 - p) + 3])]
         }
     }
 
@@ -141,8 +143,10 @@ struct InteractionScreeningTests {
         #expect(spam.rule == .model && spam.verdict == .hold)
         #expect(spam.probabilitySpam == 0.9)
         #expect(spam.confidence.map { abs($0 - 0.8) < 1e-12 } == true)
-        // Scores are log-probabilities: re-softmaxing them at T=1 gives the distribution back.
+        // Scores are the provider's raw logits (not log p, which would carry the temperature in
+        // force): re-softmaxing them at T=1 still gives the distribution back.
         let scores = try #require(spam.scores)
+        #expect(scores == [log(0.9) + 3, log(1 - 0.9) + 3])
         let roundTrip = DecisionScoring.softmax(scores, temperature: 1)
         #expect(abs(roundTrip[0] - 0.9) < 1e-9)
         #expect(spam.decidedAt == Self.fixedNow)

@@ -10,6 +10,8 @@ public enum AuditStep: Sendable {
     case a11y
     /// `npx tsx scripts/broken-links.ts --json` — `BrokenLinkAuditRunner`'s script (#1996).
     case brokenLinks
+    /// `npx tsx scripts/page-weight.ts --json` — `PageWeightAuditRunner`'s script (#2020).
+    case pageWeight
 }
 
 /// The result of running a single audit step.
@@ -127,6 +129,8 @@ public struct ContainerAuditExecutor: AuditExecutor {
             return ["npx", "tsx", "scripts/a11y-audit.ts", "--json"]
         case .brokenLinks:
             return ["npx", "tsx", "scripts/broken-links.ts", "--json"]
+        case .pageWeight:
+            return ["npx", "tsx", "scripts/page-weight.ts", "--json"]
         }
     }
 }
@@ -229,6 +233,8 @@ public struct HostAuditExecutor: AuditExecutor {
             return AuditCommand.resolveA11yCommand
         case .brokenLinks:
             return AuditCommand.resolveBrokenLinksCommand
+        case .pageWeight:
+            return AuditCommand.resolvePageWeightCommand
         }
     }
 }

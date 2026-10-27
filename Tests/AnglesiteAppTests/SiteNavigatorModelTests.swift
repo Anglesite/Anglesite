@@ -559,4 +559,38 @@ struct SiteNavigatorModelPublishGatingTests {
         #expect(model.canUnpublish("site-1:post:event-post") == false)
         model.stop()
     }
+
+    @Test("an EmDash site offers no post-only verbs (#2050)")
+    func emdashSiteHidesPostVerbs() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [],
+            posts: [
+                SiteContentGraph.Post(
+                    id: "site-1:post:draft-note", siteID: "site-1", collection: "notes", slug: "draft-note",
+                    title: "Draft note", draft: true, publishDate: nil, tags: [],
+                    filePath: "src/content/notes/draft-note.md", lastModified: Date()),
+                SiteContentGraph.Post(
+                    id: "site-1:post:live-note", siteID: "site-1", collection: "notes", slug: "live-note",
+                    title: "Live note", draft: false, publishDate: Date(), tags: [],
+                    filePath: "src/content/notes/live-note.md", lastModified: Date()),
+            ],
+            images: []
+        )
+
+        let model = SiteNavigatorModel(graph: graph)
+        model.typedContentEnabled = false
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+
+        #expect(model.canPublish("site-1:post:draft-note") == false)
+        #expect(model.canUnpublish("site-1:post:live-note") == false)
+        #expect(model.canRepurpose("site-1:post:draft-note") == false)
+        #expect(model.canDuplicate("site-1:post:draft-note") == false)
+        model.stop()
+    }
 }

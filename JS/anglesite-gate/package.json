@@ -1,0 +1,44 @@
+{
+  "name": "@anglesite/anglesite-gate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The anglesite-gate EmDash plugin: runs Anglesite's pinned pre-deploy gate checks before an EmDash entry is published or scheduled. Policy source: Resources/Template/scripts/emdash-gate/. Spec: docs/specs/2026-09-28-external-cms-content-source-decision.md",
+  "type": "module",
+  "main": "dist/index.mjs",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    },
+    "./sandbox": "./dist/plugin.mjs"
+  },
+  "files": [
+    "dist",
+    "emdash-plugin.jsonc"
+  ],
+  "scripts": {
+    "validate": "emdash-plugin validate",
+    "build": "emdash-plugin build",
+    "typecheck": "tsc --noEmit",
+    "test": "emdash-plugin validate && vitest run"
+  },
+  "peerDependencies": {
+    "emdash": ">=1.0.0 <2.0.0"
+  },
+  "devDependencies": {
+    "@astrojs/react": "7.0.0",
+    "@emdash-cms/auth-atproto": "0.2.45",
+    "@emdash-cms/plugin-cli": "0.13.1",
+    "@emdash-cms/plugin-test": "0.2.6",
+    "astro": "7.3.5",
+    "emdash": "1.0.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.1",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

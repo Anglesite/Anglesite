@@ -73,15 +73,23 @@ public struct DecisionAnswer: Sendable, Equatable {
     /// *calibrated* uncertainty signal only to the extent the provider's temperature was fitted
     /// (``TemperatureCalibration``); it never guarantees an individual answer is right.
     public let confidence: Double
+    /// The provider's raw option scores, in option order, *before* any temperature was applied —
+    /// present when the provider exposes them (``ScoringDecisionProvider`` does), `nil` when it
+    /// only produces probabilities. This is what the screening ledger records for
+    /// ``TemperatureCalibration/fit(samples:)``: fitting on `log(probabilities)` instead would
+    /// bake the current temperature into its own labelled set, so every refit would compound
+    /// on the last (#2083 review).
+    public let logits: [Double]?
 
     /// Builds an answer from an already-normalised distribution. Callers should go through
     /// ``DecisionScoring/answer(logits:temperature:)`` rather than constructing one by hand; this
     /// initializer exists for test fakes and for providers that already produce probabilities.
     ///
     /// - Precondition: `probabilities` is non-empty.
-    public init(probabilities: [Double]) {
+    public init(probabilities: [Double], logits: [Double]? = nil) {
         precondition(!probabilities.isEmpty, "a DecisionAnswer needs at least one option")
         self.probabilities = probabilities
+        self.logits = logits
         var winner = 0
         for (index, p) in probabilities.enumerated() where p > probabilities[winner] { winner = index }
         self.winnerIndex = winner
@@ -182,7 +190,7 @@ public enum DecisionScoring {
     ///     near-argmax answer instead of a crash.
     /// - Returns: The normalised distribution with winner and confidence filled in.
     public static func answer(logits: [Double], temperature: Double) -> DecisionAnswer {
-        DecisionAnswer(probabilities: softmax(logits, temperature: temperature))
+        DecisionAnswer(probabilities: softmax(logits, temperature: temperature), logits: logits)
     }
 
     /// Numerically stable softmax over `logits / temperature`. Exposed for

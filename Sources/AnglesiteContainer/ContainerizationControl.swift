@@ -628,7 +628,15 @@ public struct ContainerizationControl: LocalContainerControl {
                 .stdout
             )
 
-            let container = try LinuxContainer(siteID, rootfs: rootfs, vmm: vmm) { config in
+            // Since containerization 0.48 (#922) the VM is sized by `VMResources`, independent of
+            // the container's cgroup limits below; the default (4 vCPUs / 1 GiB) is smaller than the
+            // 2 GiB the dev server + a local wrangler worker need and OOM-kills astro. Size the VM to
+            // the cgroup limit plus guest headroom, matching what 0.35 did implicitly.
+            let vmResources = VMResources(
+                cpus: 2,
+                memoryInBytes: 2 * 1024 * 1024 * 1024 + VMResources.guestMemoryOverhead
+            )
+            let container = try LinuxContainer(siteID, rootfs: rootfs, vmm: vmm, vm: vmResources) { config in
                 // Keep the init process alive so the VM stays up while we exec into it. A bare
                 // `/bin/sh` starts an *interactive* shell — with no controlling TTY and closed
                 // stdin it reads EOF and exits almost immediately, racing vmexec's own post-fork
@@ -1253,7 +1261,7 @@ private actor RootfsTemplateCache {
                 )
                 task = Task<URL, Error> {
                     defer { try? fileManager.removeItem(at: buildingURL) }
-                    _ = try await EXT4Unpacker(blockSizeInBytes: Self.size)
+                    _ = try await EXT4Unpacker(capacityInBytes: Self.size)
                         .unpack(image, for: .current, at: buildingURL)
 
                     // A second app process may have won the same race. Its completed template is

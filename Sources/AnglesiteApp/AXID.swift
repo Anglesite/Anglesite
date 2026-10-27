@@ -40,6 +40,9 @@ enum AXID {
     /// reported (rather than blocked on a sheet).
     static let siteUpdateNoticeBanner = "siteUpdateNotice.banner"
 
+    /// The EmDash-site banner saying pages are being held back from readers (#2097).
+    static let withheldPagesBanner = "withheldPages.banner"
+
     // MARK: Main-pane takeover header (#714 v2 slice 2)
 
     /// The title group `MainPaneTakeoverHeader` renders for every takeover (Editor/Settings,
@@ -57,6 +60,10 @@ enum AXID {
     static let settingsTabs = "settings.tabs"
     /// The Workers tab's Cloudflare-dashboard deep links.
     static let settingsWorkersLogs = "settings.workers.logs"
+    /// The Workers tab's "Issues" dashboard link (#2095), shown while Worker error tracking is on.
+    static let settingsWorkersIssues = "settings.workers.issues"
+    /// The Workers tab's one-time error-report setup guide (#2095 slice 3).
+    static let settingsWorkersIssuesSetup = "settings.workers.issuesSetup"
     static let settingsWorkersAnalytics = "settings.workers.analytics"
     /// A Workers-tab row's activation switch, keyed by the catalog's worker id
     /// (`WorkerDescriptor.id`, e.g. `solid-pod`) — stable and non-localized, unlike the
@@ -100,6 +107,9 @@ enum AXID {
     /// Settings ▸ Advanced ▸ "Show developer tools" — the one toggle behind which every code
     /// editor and the Safari bridge setup live (`DeveloperToolsVisibility`).
     static let settingsDeveloperToolsToggle = "settings.developerTools.toggle"
+    /// Settings ▸ Advanced ▸ Developer Tools ▸ "Track errors in your site's Workers" (#2095) —
+    /// shown only while developer tools are on (`DeveloperToolsVisibility.showsWorkerIssuesSetting`).
+    static let settingsWorkerIssuesToggle = "settings.developerTools.workerIssues"
 
     // MARK: Safari MCP Bridge (#1910)
 
@@ -109,6 +119,21 @@ enum AXID {
     /// covers the reachability label and the "Check Again" button together.
     static let settingsSafariMCPBridgeStatus = "settings.safariMCPBridge.status"
 
+    // MARK: New Site (#2106)
+
+    /// The New Site chooser's EmDash choice: set up a new one, or connect one the owner has.
+    static let newSiteEmDashSetup = "newSite.emdashSetup"
+    /// The New Site chooser's picker of the owner's existing EmDash sites.
+    static let newSiteEmDashSite = "newSite.emdashSite"
+
+    // MARK: Publish Site (#2116)
+
+    /// The Workers plan question's answers, asked once the first time an EmDash site publishes.
+    static let deployWorkersPlanPaid = "deploy.workersPlan.paid"
+    static let deployWorkersPlanFree = "deploy.workersPlan.free"
+    /// The Website inspector's toggle that changes that answer later.
+    static let websiteInspectorWorkersPaidPlan = "websiteInspector.workersPaidPlan"
+
     /// Every hand-assigned identifier, for `AXIDTests`' uniqueness/format checks (the
     /// toolbar family is generated from `SiteToolbarItemID`, and the per-worker / per-site
     /// families above from their stable ids; each is frozen by its own formatting test).
@@ -117,13 +142,17 @@ enum AXID {
         launcherList,
         sheetHeader,
         siteUpdateNoticeBanner,
+        withheldPagesBanner,
         mainPaneTakeoverHeader, mainPaneTakeoverDone,
         settingsTabs, settingsWorkersLogs, settingsWorkersAnalytics,
+        settingsWorkersIssues, settingsWorkersIssuesSetup,
         debugSourceFilter, debugStreamFilter, debugSearchField,
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,
         debugServerHeader, debugLocalWorkersHeader,
-        settingsDeveloperToolsToggle,
+        settingsDeveloperToolsToggle, settingsWorkerIssuesToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
+        newSiteEmDashSetup, newSiteEmDashSite,
+        deployWorkersPlanPaid, deployWorkersPlanFree, websiteInspectorWorkersPaidPlan,
     ]
 }

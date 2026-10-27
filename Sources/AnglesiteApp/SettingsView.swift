@@ -62,9 +62,54 @@ private struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // The on-demand screening model (#2068). Hidden entirely until a download is pinned
+            // (`KevModelAssetPin.isConfigured`) or a model is installed, so a build with nothing
+            // published never shows a button that can't work.
+            if screeningModel.isAvailable {
+                Section("Comment Screening") {
+                    ScreeningModelRow(model: screeningModel)
+                    Text("Checks new comments on this Mac before they appear on your site and holds anything that looks like spam for you to review under Website › Moderation. The screening model is about 1 GB, stays on your Mac, and never sends your comments anywhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()
+        .task { await screeningModel.refresh() }
+    }
+
+    private var screeningModel: KevModelDownloadModel { .shared }
+}
+
+/// Download / progress / Ready + Remove / try again, in owner vocabulary (decision D1).
+private struct ScreeningModelRow: View {
+    @Bindable var model: KevModelDownloadModel
+
+    var body: some View {
+        switch model.status {
+        case .notInstalled:
+            Button("Download Screening Model") { model.download() }
+        case .downloading(let progress):
+            HStack {
+                ProgressView(value: progress.fraction)
+                Text("Downloading…").foregroundStyle(.secondary)
+                Button("Cancel") { model.cancel() }
+            }
+        case .installed:
+            HStack {
+                Label("Ready", systemImage: "checkmark.circle")
+                Spacer()
+                Button("Remove Screening Model") { Task { await model.remove() } }
+            }
+        case .failed:
+            HStack {
+                Text("Couldn't download the screening model.").foregroundStyle(.secondary)
+                Spacer()
+                Button("Try Again") { model.download() }
+            }
+        }
     }
 }
 
@@ -368,6 +413,23 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
     @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
+    @AppStorage(AppSettings.Key.workerIssuesEnabled) private var workerIssuesEnabled: Bool = false
+    @AppStorage(AppSettings.Key.workerIssuesConsentVersion) private var workerIssuesConsentVersion: Int = 0
+    @State private var workerIssuesConsentPresented = false
+
+    /// The error-report toggle reads as on only under current consent (#2095 slice 5). Turning it
+    /// on without that consent asks first, through `workerIssuesConsentPresented`.
+    private var workerIssuesToggle: Binding<Bool> {
+        Binding(
+            get: { workerIssuesEnabled && WorkerIssuesConsent.isCurrent(workerIssuesConsentVersion) },
+            set: { isOn in
+                if isOn && !WorkerIssuesConsent.isCurrent(workerIssuesConsentVersion) {
+                    workerIssuesConsentPresented = true
+                } else {
+                    workerIssuesEnabled = isOn
+                }
+            })
+    }
     @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
@@ -458,6 +520,26 @@ private struct AdvancedSettingsView: View {
                 Text("Adds a Source tab and code-level Style and Metadata inspectors to the Component Editor, opens your site's other files as plain text, and shows the Safari bridge setup below. Off by default: Anglesite takes care of these files for you, and everything you publish works without them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // The first Developer feature (#2095): opts each site's Worker into Cloudflare
+                // Workers Issues on its next publish. Rides the toggle above, and deploy reads
+                // `AppSettings.tracksWorkerIssues`, so hiding developer tools also switches it off.
+                if developerTools.showsWorkerIssuesSetting {
+                    Toggle("Track errors in your site's Workers", isOn: workerIssuesToggle)
+                        .accessibilityIdentifier(AXID.settingsWorkerIssuesToggle)
+                        // #2095 slice 5: the owner agrees to exactly what is sent before anything is.
+                        .alert("Send Worker errors to their authors?", isPresented: $workerIssuesConsentPresented) {
+                            Button("Turn On") {
+                                workerIssuesConsentVersion = WorkerIssuesConsent.currentVersion
+                                workerIssuesEnabled = true
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("When a Worker on your site runs into an error in its own code, Anglesite reports it to the Worker's authors so they can fix it. The report is public and contains only the kind of error and where in the Worker's code it happened. The error text, your visitors' requests, and your site's address are never sent. You can turn this off at any time; it stops with your next publish.")
+                        }
+                    Text("Asks Cloudflare to group repeated errors from your site's Workers, and sends errors that come from a Worker's own code to its authors so they can fix them. Only the kind of error and where in the Worker's code it happened are sent — never the error text, your visitors' requests, or your site's address. Takes effect the next time you publish, and only on sites with Workers turned on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // The bridge's setup guidance is a Terminal command (#1910) — a developer tool by

@@ -190,6 +190,8 @@ final class PlistEditorModel {
     private(set) var inboxCaptureNamespaceID: String?
     private(set) var inboxCaptureError: String?
     private(set) var workerLastDeployedIDs: [String] = []
+    /// The site's Workers Issues relay registration (#2095 slice 3), as the last publish left it.
+    private(set) var workerIssuesRelay: WorkerIssuesRelayState?
     /// The most recently loaded `SiteSettings`, the base for toggle read-modify-write saves.
     private var workerSettings = SiteSettings()
 
@@ -1222,6 +1224,7 @@ final class PlistEditorModel {
         inboxForwardEmail = DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: sourceDirectory) ?? ""
         inboxForwardEmailError = nil
         workerLastDeployedIDs = settings.lastDeployedWorkerIDs ?? []
+        workerIssuesRelay = settings.workerIssuesRelay
         let catalog = await workerCatalogProvider()
         let snapshot = graphSnapshotProvider()
         workerGroups = Self.workerGroups(catalog: catalog, settings: settings, snapshot: snapshot)
@@ -1515,6 +1518,34 @@ final class PlistEditorModel {
 
     var workerDashboardAnalyticsURL: URL {
         WorkerDashboardLinks.analyticsURL(workerName: SiteSlug.derive(from: initialWebsiteTitle))
+    }
+
+    var workerDashboardIssuesURL: URL {
+        WorkerDashboardLinks.issuesURL(workerName: SiteSlug.derive(from: initialWebsiteTitle))
+    }
+
+    /// Whether the one-time Cloudflare automation step is still owed (#2095 slice 3): the site is
+    /// registered with the relay, but the owner hasn't confirmed pointing an automation at it with
+    /// the current secret. Cloudflare has no documented API for automations yet (design §8 Q1).
+    var workerIssuesSetupPending: Bool {
+        guard let workerIssuesRelay else { return false }
+        return !workerIssuesRelay.automationConfirmed
+    }
+
+    /// The webhook secret the automation must send, read on demand for the Copy button only —
+    /// never held in model state.
+    func workerIssuesWebhookSecret() -> String? {
+        guard let siteID else { return nil }
+        return try? keychain.read(account: SecretAccounts.workerIssuesWebhookSecret(siteID: siteID))
+    }
+
+    /// The owner finished the dashboard step.
+    func confirmWorkerIssuesAutomation() async {
+        guard let configDirectory else { return }
+        let saved = try? await SiteConfigStore(configDirectory: configDirectory).update {
+            $0.workerIssuesRelay?.automationConfirmed = true
+        }
+        if let saved { workerIssuesRelay = saved.workerIssuesRelay }
     }
 
     private static func workerGroups(

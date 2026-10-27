@@ -19,8 +19,7 @@ public struct AuditReport: Sendable, Equatable {
             case security
             /// Produced by `A11yAuditRunner` (the template's `a11y-audit.ts` script).
             case accessibility
-            /// Reserved: no shipped runner yet (#86 follow-up); declared now so the UI's
-            /// category handling doesn't churn when one lands.
+            /// Produced by `PageWeightAuditRunner` (#2020).
             case performance
             /// Produced by `BrokenLinkAuditRunner` (#1996) and `SEOAuditRunner` (#2004).
             case seo

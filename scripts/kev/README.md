@@ -12,7 +12,7 @@ tokenizer, so the checkpoint is turned into a plain asset directory that `KevMod
 | `Kev.mlmodelc` | `convert-kev-coreml.py` (Core ML export of base + merged adapter) | `CoreMLKevBackbone` |
 | `vocab.json`, `merges.txt`, `added_tokens.json` | copied from the checkpoint | `BytePairEncoder`, `KevDelimiters` |
 | `head.bin`, `head.json` | `extract-kev-head.py` (no torch needed) | `KevPointerHead` |
-| `MANIFEST.json` | `convert-kev-coreml.py` | humans; a future integrity check |
+| `MANIFEST.json` | `convert-kev-coreml.py` | `KevModelDownloader` (every file, recursively, with sha256 + size) |
 
 Install location: `~/Library/Application Support/Anglesite/Models/kev-0.5b/`
 (`KevModelLocator.defaultDirectory`), or `ANGLESITE_KEV_ASSETS=<dir>` for development. With
@@ -38,6 +38,26 @@ ANGLESITE_KEV_ASSETS=~/Library/Application\ Support/Anglesite/Models/kev-0.5b \
 
 `--verify` runs one packed row through PyTorch and the compiled Core ML model and prints the
 max abs difference at the readout positions (expect < 5e-2 in float16).
+
+## Publish the assets for download-on-demand (#2068)
+
+The app never bundles the model: `KevModelDownloader` fetches it from the Anglesite-operated host
+pinned in `scripts/kev/kev-assets.lock.json` (generated into `KevModelAssetPin.swift`), verifies
+`MANIFEST.json` against the pinned SHA-256 and every file against the manifest, and only then
+moves the set into `KevModelLocator.defaultDirectory`. Until a digest is pinned the app never
+offers the download.
+
+```sh
+# 1. Upload <asset-dir> recursively to a NEW versioned prefix (never reuse one the pin has
+#    pointed at — installed apps verify against the digest they shipped with), e.g.
+#    https://anglesite.dwk.io/models/kev-0.5b/2026-09-29/
+# 2. Pin it. Prints the file list the manifest covers; review, then commit both files.
+scripts/kev/bump-kev-assets.sh ~/Library/Application\ Support/Anglesite/Models/kev-0.5b \
+  https://anglesite.dwk.io/models/kev-0.5b/2026-09-29/
+```
+
+`scripts/kev/bump-kev-assets.sh --check` runs in CI so the lock and the generated Swift constant
+can't drift.
 
 ## Regenerate the test fixtures
 

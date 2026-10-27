@@ -18,6 +18,13 @@ struct WorkerDashboardLinksTests {
                 == "https://dash.cloudflare.com/?to=/:account/workers/services/view/my-site/production/metrics")
     }
 
+    @Test("issues deep link targets the worker's Workers Issues page (#2095)")
+    func issuesURL() {
+        #expect(
+            WorkerDashboardLinks.issuesURL(workerName: "my-site").absoluteString
+                == "https://dash.cloudflare.com/?to=/:account/workers/services/view/my-site/production/issues")
+    }
+
     @Test("worker names are percent-encoded defensively")
     func percentEncoding() {
         #expect(

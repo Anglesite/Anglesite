@@ -29,6 +29,10 @@ struct ContentCreationNavigatorRaceTests {
             .appendingPathComponent("content-nav-race-\(UUID().uuidString)", isDirectory: true)
         let sourceDirectory = root.appendingPathComponent("Test.anglesite/Source", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        // A real marker: the workflow's EmDash backstop (#2050) fails closed on a package whose
+        // marker it can't read.
+        try AnglesitePackage(url: root.appendingPathComponent("Test.anglesite"))
+            .writeMarker(AnglesitePackage.Marker(displayName: "Test"))
         defer { try? FileManager.default.removeItem(at: root) }
 
         let graph = SiteContentGraph()
@@ -71,6 +75,10 @@ struct ContentCreationNavigatorRaceTests {
             .appendingPathComponent("content-nav-race-\(UUID().uuidString)", isDirectory: true)
         let sourceDirectory = root.appendingPathComponent("Test.anglesite/Source", isDirectory: true)
         try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        // A real marker: the workflow's EmDash backstop (#2050) fails closed on a package whose
+        // marker it can't read.
+        try AnglesitePackage(url: root.appendingPathComponent("Test.anglesite"))
+            .writeMarker(AnglesitePackage.Marker(displayName: "Test"))
         defer { try? FileManager.default.removeItem(at: root) }
 
         let graph = SiteContentGraph()

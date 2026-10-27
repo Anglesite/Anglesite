@@ -190,6 +190,34 @@ final class AppSettingsTests {
         #expect(!settings.botPreferenceSyncUIEnabled)
     }
 
+    @Test("Worker Issues opt-in defaults to false and needs developer tools to take effect (#2095)")
+    func workerIssuesGatedOnDeveloperTools() {
+        let settings = AppSettings(defaults: defaults)
+        #expect(!settings.workerIssuesEnabled)
+        #expect(!settings.tracksWorkerIssues)
+        settings.workerIssuesEnabled = true
+        settings.workerIssuesConsentVersion = WorkerIssuesConsent.currentVersion
+        #expect(!settings.tracksWorkerIssues, "hidden developer tools switch it off")
+        settings.developerToolsEnabled = true
+        #expect(settings.tracksWorkerIssues)
+        settings.developerToolsEnabled = false
+        #expect(settings.workerIssuesEnabled, "hiding developer tools keeps the stored choice")
+        #expect(!settings.tracksWorkerIssues)
+    }
+
+    @Test("Worker Issues needs consent to the current version of what is sent (#2095 slice 5)")
+    func workerIssuesNeedsCurrentConsent() {
+        let settings = AppSettings(defaults: defaults)
+        settings.developerToolsEnabled = true
+        settings.workerIssuesEnabled = true
+        #expect(settings.workerIssuesConsentVersion == 0)
+        #expect(!settings.tracksWorkerIssues, "never agreed")
+        settings.workerIssuesConsentVersion = WorkerIssuesConsent.currentVersion - 1
+        #expect(!settings.tracksWorkerIssues, "agreed to an older description")
+        settings.workerIssuesConsentVersion = WorkerIssuesConsent.currentVersion
+        #expect(settings.tracksWorkerIssues)
+    }
+
     // MARK: Auto alt-text (C.7 — vision alt-text pipeline)
 
     @Test("autoGenerateAltText defaults to true (on)") func autoAltTextDefaultsToTrue() {

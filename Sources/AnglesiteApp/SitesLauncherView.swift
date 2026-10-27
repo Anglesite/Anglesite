@@ -116,9 +116,13 @@ struct SitesLauncherView: View {
             quickCaptureRequest = QuickCaptureRequest(urlString: urlString)
         }
         .sheet(item: $quickCaptureRequest) { request in
+            // Only sites that take link posts in-app: an EmDash site's posts are written in
+            // EmDash (#2050), so it isn't offered — and isn't preselected as the last-opened site.
+            let captureSites = sites.filter { SiteEditingSurfaces(kind: $0.kind).typedContent }
+            let lastOpened = AppSettings.shared.lastOpenedSiteID
             QuickCaptureSheet(
-                pickerSites: sites,
-                defaultSiteID: AppSettings.shared.lastOpenedSiteID,
+                pickerSites: captureSites,
+                defaultSiteID: captureSites.contains { $0.id == lastOpened } ? lastOpened : nil,
                 initialURLString: request.urlString,
                 fetchMetadata: { try await LinkMetadataFetcher().fetch(url: $0) },
                 onCreate: { siteID, title, urlString, commentary, imageURL, draft in

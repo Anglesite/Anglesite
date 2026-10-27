@@ -86,11 +86,12 @@ public struct ScreeningDecision: Codable, Sendable, Equatable {
     public let probabilitySpam: Double?
     /// ``DecisionAnswer/confidence`` from the model; `nil` for a deterministic rule.
     public let confidence: Double?
-    /// Log-probabilities of (yes, no) behind `probabilitySpam` — what a later
-    /// ``TemperatureCalibration/fit(samples:)`` needs. A softmax is shift-invariant, so the log
-    /// of a provider's distribution is a logit vector equivalent to its raw scores for the
-    /// purpose of fitting a temperature; the fit then composes with any temperature the provider
-    /// already applied. `nil` for a deterministic rule.
+    /// The provider's raw (yes, no) scores behind `probabilitySpam`, before any temperature
+    /// (``DecisionAnswer/logits``) — what a later ``TemperatureCalibration/fit(samples:)``
+    /// needs, and deliberately *not* the log of the reported probabilities: those already carry
+    /// the site temperature in force at the time, so fitting on them would bake each fit into
+    /// the next. `nil` for a deterministic rule, or for a provider that doesn't expose its
+    /// scores; such decisions don't feed calibration.
     public let scores: [Double]?
     public let decidedAt: Date
 
@@ -235,7 +236,7 @@ public struct InteractionScreener: Sendable {
                     decision = ScreeningDecision(
                         interactionID: interaction.id, verdict: Self.verdict(for: answer, policy: policy),
                         rule: .model, probabilitySpam: answer.probabilityTrue, confidence: answer.confidence,
-                        scores: answer.probabilities.map { Foundation.log(max($0, 1e-12)) }, decidedAt: now())
+                        scores: answer.logits, decidedAt: now())
                 } catch {
                     if !reportedFailure {
                         reportedFailure = true

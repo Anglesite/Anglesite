@@ -1,7 +1,8 @@
 import Foundation
 
-/// Renders a website-template attribution catalog into the Markdown notice file
-/// `SiteScaffolder` writes into every new site's `Source/THIRD-PARTY-NOTICES.md`.
+/// Renders a site's attribution catalog (``AttributionSource/websiteTemplate`` or
+/// ``AttributionSource/emdashSite``) into the Markdown notice file `SiteScaffolder` writes into
+/// every new site's `Source/THIRD-PARTY-NOTICES.md`.
 public enum ThirdPartyNoticeRenderer {
     public static func render(_ attributions: [OSSAttribution]) -> String {
         var lines = [

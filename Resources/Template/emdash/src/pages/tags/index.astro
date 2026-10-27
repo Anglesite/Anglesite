@@ -1,0 +1,31 @@
+---
+// Every tag on an EmDash site (#2133), rendered on request from EmDash's `tag` terms with the
+// template's markup (`src/pages/tags/index.astro`). Tags are linked by the same slug the article
+// pages link them at, and spellings that share a slug share a line (without a count: EmDash
+// counts per term). Only tags with a published article are listed. Where the Worker caches (#2116) the page carries EmDash's term cache tags.
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { tagGroups } from "../../lib/article-sources.ts";
+import { articleCacheOptions } from "../../lib/worker-cache.ts";
+
+export const prerender = false;
+
+const { groups, cacheHint } = await tagGroups();
+if (Astro.cache?.enabled) Astro.cache.set(articleCacheOptions(cacheHint));
+---
+
+<BaseLayout title="Tags" description="Every tag used across this site's posts.">
+  <h1>Tags</h1>
+  {
+    groups.length === 0 ? (
+      <p>No tagged posts yet.</p>
+    ) : (
+      <ul>
+        {groups.map(({ slug, labels, count }) => (
+          <li>
+            <a href={`/tags/${slug}/`}>{labels.join(" / ")}</a>{count !== undefined && ` (${count})`}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</BaseLayout>

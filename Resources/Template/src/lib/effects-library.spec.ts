@@ -80,10 +80,11 @@ describe("effects library (new, placeable components)", () => {
         // module resolution). That reference is neither portable across checkouts nor
         // runnable in a static demo file, and it duplicates the actual script body we
         // already spliced in above from the raw source — strip it.
-        const innerWithoutHoistedScriptRef = inner.replace(
-          /<script type="module" src="[^"]*\?astro&type=script[^"]*"><\/script>/g,
-          "",
-        );
+        // Astro 7.3.5+ also annotates dev-rendered markup with `data-astro-source-file`
+        // (that same absolute path) and `data-astro-source-loc` — strip those too.
+        const innerWithoutHoistedScriptRef = inner
+          .replace(/<script type="module" src="[^"]*\?astro&type=script[^"]*"><\/script>/g, "")
+          .replace(/\sdata-astro-source-(?:file|loc)="[^"]*"/g, "");
         const page = [
           "<!doctype html>",
           `<html lang="en"><head><meta charset="utf-8"><title>${entry.title}</title>`,

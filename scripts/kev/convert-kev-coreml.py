@@ -8,7 +8,7 @@ Produces `<out>/` with exactly what `KevModelAssets` (Sources/AnglesiteCore/AI/K
     merges.txt          } the checkpoint's tokenizer, copied verbatim
     added_tokens.json   }
     head.bin, head.json the pointer head, via extract-kev-head.py
-    MANIFEST.json       sha256 + size per file, base model id, adapter sha256, coremltools version
+    MANIFEST.json       sha256 + size per file (recursive, incl. Kev.mlmodelc/*), base model id, adapter sha256, coremltools version
 
 The Core ML model's interface is the contract `CoreMLKevBackbone` codes against — change both
 together:
@@ -142,8 +142,10 @@ def export(checkpoint: Path, out: Path, base: str, verify: bool) -> int:
         "checkpoint": "kev-0.5b", "base": base, "hiddenSize": hidden,
         "adapter_sha256": sha256(checkpoint / "adapter_model.safetensors"),
         "coremltools": ct.__version__, "torch": torch.__version__,
-        "files": {p.name: {"sha256": sha256(p), "bytes": p.stat().st_size}
-                  for p in sorted(out.iterdir()) if p.is_file() and p.name != "MANIFEST.json"},
+        # Every file, recursively, keyed by its path relative to `out` (so `Kev.mlmodelc/…` is
+        # covered too): this is the download list `KevModelDownloader` verifies against (#2068).
+        "files": {p.relative_to(out).as_posix(): {"sha256": sha256(p), "bytes": p.stat().st_size}
+                  for p in sorted(out.rglob("*")) if p.is_file() and p.name != "MANIFEST.json"},
     }
     (out / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"wrote {out}")

@@ -14,6 +14,12 @@ public enum NetworkTimeouts {
     /// `WXRAssetDownloader`'s ephemeral session: whole-fetch bound for one imported image.
     public static let wxrAssetResource: TimeInterval = 30
 
+    /// `EmDashContentAPI`'s ephemeral session: per-request bound for the snapshot GET.
+    public static let emdashSnapshotRequest: TimeInterval = 30
+    /// `EmDashContentAPI`'s ephemeral session: whole-fetch bound for the snapshot body — a site's
+    /// entire published content in one JSON document, so far longer than a single image.
+    public static let emdashSnapshotResource: TimeInterval = 300
+
     /// `ActivityPubFollowers.fetch(_:)`'s per-request bound.
     public static let activityPubFollowersRequest: TimeInterval = 10
 

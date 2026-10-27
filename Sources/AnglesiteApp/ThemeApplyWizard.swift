@@ -91,6 +91,7 @@ struct ThemeApplyWizard: View {
                 if let theme = model.selectedBuiltInTheme {
                     Text(theme.name).font(.headline)
                     Text(theme.blurb).foregroundStyle(.secondary)
+                    contrastSection
                 }
             case .freedesignmd:
                 if let slug = model.selectedFreedesignmdSlug {
@@ -98,6 +99,36 @@ struct ThemeApplyWizard: View {
                 }
             case nil: EmptyView()
             }
+        }
+    }
+
+    /// Advisory readability findings for the selected theme's colours (#2021). Never blocks Apply;
+    /// each row shows the pairing as it would render and offers a one-click fix, so the owner
+    /// judges by eye rather than by a contrast ratio.
+    @ViewBuilder
+    private var contrastSection: some View {
+        let findings = model.contrastFindings
+        if !findings.isEmpty {
+            Divider().padding(.vertical, 4)
+            HStack {
+                Text("Readability").font(.subheadline.bold())
+                Spacer()
+                if findings.contains(where: { $0.suggestedValue != nil }) {
+                    Button("Fix All") { model.fixAllContrast() }
+                }
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(findings) { finding in
+                        ContrastFindingRow(finding: finding) { model.fixContrast(finding) }
+                    }
+                }
+            }
+            // Up to seven rows; keep Back/Apply on screen in the fixed-size sheet.
+            .frame(maxHeight: 140)
+            Text("You can still apply this theme as it is.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -115,6 +146,72 @@ struct ThemeApplyWizard: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+/// One readability finding: the pairing as it renders now, what's affected, and — when a
+/// readable colour exists — a preview of the fix beside its Fix button.
+private struct ContrastFindingRow: View {
+    let finding: DesignTokenContrastFinding
+    let onFix: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ContrastSample(foreground: finding.foreground, background: finding.background)
+            Image(systemName: finding.severity == .error ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
+                .foregroundStyle(finding.severity == .error ? Color.orange : Color.secondary)
+                .accessibilityHidden(true)
+            message.font(.callout)
+            Spacer()
+            if let fixed = fixedColors {
+                Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                ContrastSample(foreground: fixed.foreground, background: fixed.background)
+                Button("Fix", action: onFix)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The pairing's colours after the fix: the suggestion replaces whichever side the fix adjusts
+    /// (the foreground, or the primary fill for button labels).
+    private var fixedColors: (foreground: String, background: String)? {
+        guard let suggested = finding.suggestedValue else { return nil }
+        return finding.pair.adjustedToken == finding.pair.foregroundToken
+            ? (suggested, finding.background)
+            : (finding.foreground, suggested)
+    }
+
+    /// One whole sentence per place and severity, so each translates as a unit. Warnings only
+    /// occur for links and button labels.
+    @ViewBuilder
+    private var message: some View {
+        switch (finding.pair.place, finding.severity) {
+        case (.bodyText, _): Text("Body text will be hard to read")
+        case (.secondaryText, _): Text("Secondary text will be hard to read")
+        case (.cardText, _): Text("Text on cards will be hard to read")
+        case (.cardSecondaryText, _): Text("Secondary text on cards will be hard to read")
+        case (.links, .error): Text("Links will be hard to read")
+        case (.links, .warning): Text("Links may be hard to read at small sizes")
+        case (.buttonLabels, .error): Text("Button labels will be hard to read")
+        case (.buttonLabels, .warning): Text("Button labels may be hard to read at small sizes")
+        case (.cardLinks, .error): Text("Links on cards will be hard to read")
+        case (.cardLinks, .warning): Text("Links on cards may be hard to read at small sizes")
+        }
+    }
+}
+
+/// "Aa" drawn in a pairing's colours — the owner judges readability by eye, not by ratio.
+private struct ContrastSample: View {
+    let foreground: String
+    let background: String
+
+    var body: some View {
+        Text(verbatim: "Aa")
+            .font(.callout.bold())
+            .foregroundStyle(Color(hex: foreground))
+            .frame(width: 36, height: 24)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(hex: background)))
+            .accessibilityHidden(true)
     }
 }
 

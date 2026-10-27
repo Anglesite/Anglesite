@@ -442,6 +442,21 @@ test("routing: undeclared method gets 405 with an Allow header naming the declar
   expect(metadata.headers.get("allow")).toBe("GET, HEAD");
 });
 
+test("issues proof: served as plain text only while the proof var is set (#2095)", async () => {
+  const url = "https://owner.example/.well-known/anglesite-issues-proof";
+  const proof = "ab".repeat(32);
+  const on = await worker.fetch(new Request(url), { ...testEnv, ANGLESITE_ISSUES_PROOF: proof }, createExecutionContext());
+  expect(on.status).toBe(200);
+  expect(on.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(on.headers.get("cache-control")).toBe("no-store");
+  expect(await on.text()).toBe(`${proof}\n`);
+
+  const off = await fetchWorker(new Request(url));
+  expect(off.status).toBe(404);
+  const malformed = await worker.fetch(new Request(url), { ...testEnv, ANGLESITE_ISSUES_PROOF: "<script>" }, createExecutionContext());
+  expect(malformed.status).toBe(404);
+});
+
 test("routing: HEAD mirrors GET's status and headers with an empty body where declared", async () => {
   const get = await fetchWorker(new Request("https://owner.example/.well-known/oauth-authorization-server"));
   const head = await fetchWorker(

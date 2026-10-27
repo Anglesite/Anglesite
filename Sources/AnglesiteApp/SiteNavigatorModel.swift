@@ -46,6 +46,11 @@ final class SiteNavigatorModel {
     /// this model holding a coordinator of its own. `nil` in tests/previews — rename still works,
     /// it just isn't undoable.
     var registerUndo: ((ContentUndoCoordinator.Mutation) -> Void)?
+    /// `false` on an EmDash site (#2050, `SiteEditingSurfaces.typedContent`): its posts live in
+    /// EmDash, so the post verbs (Duplicate, Repurpose, Publish, Move to Drafts) aren't offered on
+    /// post rows; pages keep theirs. Set by
+    /// `SiteWindowModel` when it builds this model.
+    var typedContentEnabled = true
     /// Post ids seen in the last `refresh()`, so `canRepurpose` can distinguish post rows from
     /// page rows without an extra actor hop — both are `.route` targets and `isContentRow` alone
     /// can't tell them apart (Task 16, #465).
@@ -162,11 +167,12 @@ final class SiteNavigatorModel {
     /// the only way back. Duplicate is non-destructive — the copy lands at an ordinary route
     /// (`/home-copy`) and the home page stays where it is — so it keeps Rename's gating.
     func canDelete(_ id: String) -> Bool { kind(for: id) == .page }
-    func canDuplicate(_ id: String) -> Bool { isContentRow(id) }
+    /// A post row on an EmDash site isn't duplicated here: its posts belong in EmDash (#2050).
+    func canDuplicate(_ id: String) -> Bool { isContentRow(id) && (typedContentEnabled || !postIDs.contains(id)) }
 
     /// Repurpose (#465, Task 16) is post-only — unlike Rename/Delete/Duplicate, which apply to
     /// pages too — so it checks `postIDs` rather than the page-or-post `isContentRow`.
-    func canRepurpose(_ id: String) -> Bool { postIDs.contains(id) }
+    func canRepurpose(_ id: String) -> Bool { typedContentEnabled && postIDs.contains(id) }
 
     /// Publish/Unpublish (#798) apply only to registry-backed typed post-family entries that
     /// actually declare a `draft` field — `blog` posts have no `ContentTypeDescriptor` at all, and
@@ -183,12 +189,12 @@ final class SiteNavigatorModel {
     }
 
     func canPublish(_ id: String) -> Bool {
-        guard let post = postsByID[id], publishableDescriptor(id) != nil else { return false }
+        guard typedContentEnabled, let post = postsByID[id], publishableDescriptor(id) != nil else { return false }
         return post.draft
     }
 
     func canUnpublish(_ id: String) -> Bool {
-        guard let post = postsByID[id], publishableDescriptor(id) != nil else { return false }
+        guard typedContentEnabled, let post = postsByID[id], publishableDescriptor(id) != nil else { return false }
         return !post.draft
     }
 

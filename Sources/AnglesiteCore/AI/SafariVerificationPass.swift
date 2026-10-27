@@ -20,11 +20,17 @@ import FoundationNetworking
 /// `structuredContent` convention to lean on since #1887's transport spike only confirmed tool
 /// *names*, not response shapes.
 public actor SafariVerificationPass {
-    /// Thrown when the pass cannot proceed at all: the navigate tool is missing from the
-    /// server's `tools/list`, or the navigate call itself fails. Every other capability degrades
+    /// Thrown when the pass cannot proceed at all: `tools/list` itself failed, the navigate tool
+    /// is missing from it, or the navigate call itself fails. Every other capability degrades
     /// to `.unavailable` instead of throwing (#1944's resolved default 3) — but a page that never
     /// loaded makes every other section meaningless, so navigation is the one exception.
     public enum PassError: Error, Sendable, Equatable {
+        /// `tools/list` didn't answer (timeout, transport error, malformed reply). Kept distinct
+        /// from ``navigateToolUnavailable`` so a slow or dead bridge never reads as "this Safari
+        /// can't open pages" — the two call for different fixes (the CI failure on #2083). The
+        /// string is the error's `errorDescription` when it has one, so it can face the owner;
+        /// the raw error goes to the log.
+        case toolListUnavailable(String)
         case navigateToolUnavailable
         case navigateFailed(String)
     }
@@ -74,6 +80,20 @@ public actor SafariVerificationPass {
         port: Int = SafariMCPBridgeDetector.defaultPort,
         connectTimeout: TimeInterval = NetworkTimeouts.safariMCPBridgeProbe
     ) async throws -> SafariVerificationReport {
+        try await run(
+            previewURL: previewURL, port: port, connectTimeout: connectTimeout,
+            listToolsTimeout: NetworkTimeouts.mcpToolsListRequest)
+    }
+
+    /// ``run(previewURL:port:connectTimeout:)`` with the `tools/list` request's bound injectable
+    /// too, for the same reason as `connectTimeout`: a stubbed reply that's already queued can
+    /// still miss the 5-second production bound under CI scheduling contention.
+    public func run(
+        previewURL: URL,
+        port: Int,
+        connectTimeout: TimeInterval,
+        listToolsTimeout: TimeInterval
+    ) async throws -> SafariVerificationReport {
         let endpoint = URL(string: "http://127.0.0.1:\(port)/mcp") ?? URL(string: "http://127.0.0.1/mcp")!
         let client = SafariMCPBridgeClient(endpoint: endpoint, urlSession: urlSession, logCenter: logCenter)
         do {
@@ -83,7 +103,7 @@ public actor SafariVerificationPass {
             throw error
         }
         do {
-            let report = try await runPass(client: client, previewURL: previewURL)
+            let report = try await runPass(client: client, previewURL: previewURL, listToolsTimeout: listToolsTimeout)
             await client.close()
             return report
         } catch {
@@ -94,8 +114,19 @@ public actor SafariVerificationPass {
 
     // MARK: - Pass
 
-    private func runPass(client: SafariMCPBridgeClient, previewURL: URL) async throws -> SafariVerificationReport {
-        let tools = (try? await client.listTools()) ?? []
+    private func runPass(
+        client: SafariMCPBridgeClient, previewURL: URL, listToolsTimeout: TimeInterval
+    ) async throws -> SafariVerificationReport {
+        let tools: [SafariMCPBridgeClient.ToolDescriptor]
+        do {
+            tools = try await client.listTools(timeout: listToolsTimeout)
+        } catch is CancellationError {
+            // A cancelled pass just stops; it is not a bridge failure to report.
+            throw CancellationError()
+        } catch {
+            await log("tools/list failed — aborting pass: \(error)", stream: .stderr)
+            throw PassError.toolListUnavailable((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+        }
         let availableNames = Set(tools.map(\.name))
         func resolvedName(for capability: Capability) -> String? {
             capability.preferredNames.first { availableNames.contains($0) }

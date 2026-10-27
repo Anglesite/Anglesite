@@ -233,6 +233,20 @@ public actor DeployCommand {
         onMarkdownForAgents: MarkdownForAgentsObserver? = nil,
         onProgress: ProgressHandler? = nil
     ) async -> Result {
+        // Which host this site publishes to (#1682) — read once, here, so the kind check,
+        // authorization and the publish hand-off below can't disagree about the target even if
+        // the site's declaration changes mid-deploy.
+        let target = targetResolver(siteDirectory)
+
+        // #2050/#2103: an EmDash site is server-rendered, so a static target (build `dist/`, scan,
+        // publish) would replace the live site with one that has none of its articles, and an
+        // Anglesite site has no EmDash to render from. The target must match the site's kind.
+        // Refused first, below every UI gate, so Shortcuts and headless deploys are covered too.
+        if let reason = SiteEditingSurfaces.deployRefusal(
+            sourceDirectory: siteDirectory, serverRendered: target.rendersOnServer) {
+            return .failed(reason: reason, exitCode: nil)
+        }
+
         // #1958 (owner decision D5): before anything else — before credentials, before a build,
         // before the scan — verify the app-owned script set (the pre-deploy gate and the modules
         // it imports) against the app's own copy, in the host repo and in whatever copy the
@@ -253,11 +267,6 @@ public actor DeployCommand {
         if let reason = AppOwnedScriptsGate.failureReason(for: scriptsOutcome) {
             return .failed(reason: reason, exitCode: nil)
         }
-
-        // Which host this site publishes to (#1682) — read once, here, so authorization and the
-        // publish hand-off below can't disagree about the target even if the site's declaration
-        // changes mid-deploy.
-        let target = targetResolver(siteDirectory)
 
         // Pre-build gate: the target resolves its credential and runs any fail-fast checks
         // against current deployed state, so a deploy that can't succeed never spends time on a
@@ -313,6 +322,27 @@ public actor DeployCommand {
             PreDeployCheck.ScanWarning(
                 category: .wellKnownArtifact, message: $0.message,
                 file: $0.path.map { "public/.well-known/\($0)" })
+        }
+
+        // The same context `prepare` and `publish` get: the target's view of this deploy.
+        let context = DeployTargetContext(
+            siteID: siteID,
+            siteDirectory: siteDirectory,
+            configDirectory: configDirectory,
+            currentRoutes: currentRoutes,
+            credential: credential,
+            baseEnvironment: baseEnvironment,
+            executor: executor,
+            onDomainAttach: onDomainAttach,
+            onMarkdownForAgents: onMarkdownForAgents,
+            onProgress: onProgress
+        )
+
+        // #2103: anything the build itself needs from the target. An EmDash site's build reads
+        // its Worker config, so its D1, R2 and KV are created and `Config/wrangler.toml` written
+        // here. Nothing for a static target.
+        if let failure = await target.prepare(context: context) {
+            return failure
         }
 
         // Build dist/ before the scan needs it. Streams to LogCenter via the executor.
@@ -425,18 +455,6 @@ public actor DeployCommand {
         // Hand off to the target: publish the build and perform any post-publish effects
         // (Cloudflare's URL extraction, custom-domain attach, Markdown for Agents, `.site-config`
         // persistence, R2 bundle upload — see `CloudflareDeployTarget.publish`).
-        let context = DeployTargetContext(
-            siteID: siteID,
-            siteDirectory: siteDirectory,
-            configDirectory: configDirectory,
-            currentRoutes: currentRoutes,
-            credential: credential,
-            baseEnvironment: baseEnvironment,
-            executor: executor,
-            onDomainAttach: onDomainAttach,
-            onMarkdownForAgents: onMarkdownForAgents,
-            onProgress: onProgress
-        )
         return await target.publish(context: context)
     }
 

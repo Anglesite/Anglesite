@@ -42,9 +42,18 @@ public final class ThemeApplyWizardModel: Identifiable {
     /// branching stays in one place.
     public var step: Step = .pickSource
     /// The chosen source; `nil` until the first step is answered (which is what gates Continue).
-    public var source: Source?
-    /// The chosen built-in theme's id, when `source == .builtIn`.
-    public var selectedBuiltInID: String?
+    /// Changing it discards any contrast fixes, like choosing a different theme does.
+    public var source: Source? {
+        didSet { if source != oldValue { tokenOverrides = [:] } }
+    }
+    /// The chosen built-in theme's id, when `source == .builtIn`. Choosing a different theme
+    /// discards any contrast fixes made to the previous one.
+    public var selectedBuiltInID: String? {
+        didSet { if selectedBuiltInID != oldValue { tokenOverrides = [:] } }
+    }
+    /// Token values the owner accepted from a contrast fix (#2021), layered over the selected
+    /// theme's own values in ``effectiveCSSVars``. Keyed like the theme's `cssVars`.
+    public private(set) var tokenOverrides: [String: String] = [:]
     /// The ranked freedesignmd systems to offer (top 10 by business-type keyword match), loaded
     /// when the owner picks the freedesignmd source. Empty until then — or on fetch failure, in
     /// which case ``fetchError`` says why.
@@ -82,6 +91,38 @@ public final class ThemeApplyWizardModel: Identifiable {
     /// nothing is selected or the id isn't in the catalog.
     public var selectedBuiltInTheme: Theme? {
         selectedBuiltInID.flatMap(catalog.theme(id:))
+    }
+
+    /// The colour tokens ``apply()`` will write: the selected built-in theme's `cssVars` with
+    /// ``tokenOverrides`` on top. Empty for the freedesignmd path, whose token translation is
+    /// still stubbed (see ``apply()``).
+    public var effectiveCSSVars: [String: String] {
+        guard source == .builtIn, let theme = selectedBuiltInTheme else { return [:] }
+        return DesignTokenWriter.templateCSSVars(for: theme).merging(tokenOverrides) { _, override in override }
+    }
+
+    /// Unreadable colour pairings in ``effectiveCSSVars`` (#2021) — recomputed from the tokens
+    /// on every read, so it tracks theme changes and fixes without any bookkeeping. Advisory:
+    /// findings never block ``apply()``.
+    public var contrastFindings: [DesignTokenContrastFinding] {
+        DesignTokenContrastAudit.findings(for: effectiveCSSVars)
+    }
+
+    /// Accepts `finding`'s suggested colour. A no-op when it has none.
+    public func fixContrast(_ finding: DesignTokenContrastFinding) {
+        recordOverrides(from: DesignTokenContrastAudit.applyingFix(finding, to: effectiveCSSVars))
+    }
+
+    /// Accepts every suggested colour at once.
+    public func fixAllContrast() {
+        recordOverrides(from: DesignTokenContrastAudit.applyingAllFixes(to: effectiveCSSVars))
+    }
+
+    private func recordOverrides(from fixed: [String: String]) {
+        let current = effectiveCSSVars
+        for (key, value) in fixed where current[key] != value {
+            tokenOverrides[key] = value
+        }
     }
 
     /// Whether the current step has what it needs to advance — drives the Continue button's
@@ -145,7 +186,7 @@ public final class ThemeApplyWizardModel: Identifiable {
                 applyResult = .failure(.writeFailed(message: "No theme selected to apply.", partiallyWritten: []))
                 return
             }
-            let cssVars = DesignTokenWriter.templateCSSVars(for: theme)
+            let cssVars = effectiveCSSVars
             let input = DesignApplyInput(
                 cssVars: cssVars,
                 rationaleMarkdown: nil,

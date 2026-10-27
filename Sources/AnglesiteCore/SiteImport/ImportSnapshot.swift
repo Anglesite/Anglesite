@@ -82,11 +82,18 @@ public struct SiteProbes: Codable, Sendable, Equatable {
     /// Feed autodiscovery links found in the site's `<head>`.
     public var feeds: [CapturedFeed]
 
+    /// EmDash `/_emdash/api/snapshot` response, if the site is an EmDash site that exposed it
+    /// (#2051). Read by ``EmDashRung``; absent from snapshots captured before the probe existed,
+    /// which decode with `nil` here.
+    public var emdashSnapshotJSON: String?
+
     /// Creates a probes record with the given endpoints and feeds.
-    public init(wpPostsJSON: String? = nil, wpPagesJSON: String? = nil, feeds: [CapturedFeed] = []) {
+    public init(wpPostsJSON: String? = nil, wpPagesJSON: String? = nil, feeds: [CapturedFeed] = [],
+                emdashSnapshotJSON: String? = nil) {
         self.wpPostsJSON = wpPostsJSON
         self.wpPagesJSON = wpPagesJSON
         self.feeds = feeds
+        self.emdashSnapshotJSON = emdashSnapshotJSON
     }
 }
 

@@ -132,6 +132,33 @@ public enum WorkerComposition {
     /// catalog package.
     public static let apiCatalogOwnerID = "app:api-catalog"
 
+    /// Route claim for the Workers Issues relay's domain proof (#2095 slice 5): the template
+    /// Worker serves `ANGLESITE_ISSUES_PROOF` here, and the relay fetches it to confirm the
+    /// registering owner controls the site. App-owned and under `/.well-known/`, so — like
+    /// `apiCatalogRouteClaim` — it's appended to the owner-attributed list via
+    /// ``withIssuesProofClaim(_:workers:enabled:)`` so #744's collision check sees it.
+    public static let issuesProofRouteClaim = WorkerRouteClaim(
+        path: "/.well-known/anglesite-issues-proof",
+        match: .exact,
+        methods: ["GET", "HEAD"],
+        handler: "anglesite-issues-proof"
+    )
+
+    /// Owner id for `issuesProofRouteClaim` — the same `"app:…"` convention as `apiCatalogOwnerID`.
+    public static let issuesProofOwnerID = "app:anglesite-issues-proof"
+
+    /// Appends `issuesProofRouteClaim` when Workers Issues is on and the site composes `@dwk/*`
+    /// packages (`!workers.isEmpty`). Without packages there is nothing for the relay to attribute,
+    /// so the site never registers and needs no proof. Callers feed the result to both
+    /// `generateWranglerToml` and the `.well-known` collision check, the same single append point
+    /// as ``withAPICatalogClaim(_:workers:)``.
+    public static func withIssuesProofClaim(
+        _ claims: [WorkerRouteClaims.OwnedClaim], workers: [WorkerDescriptor], enabled: Bool
+    ) -> [WorkerRouteClaims.OwnedClaim] {
+        guard enabled, !workers.isEmpty else { return claims }
+        return claims + [WorkerRouteClaims.OwnedClaim(owner: issuesProofOwnerID, claim: issuesProofRouteClaim)]
+    }
+
     /// Appends `apiCatalogRouteClaim` to `claims` whenever the site has any active social Worker
     /// (`!workers.isEmpty` — the same `hasSocialFeatures` gate `generateWranglerToml` computes
     /// internally): the catalog has nothing to report until the social layer is composed at all
@@ -224,6 +251,11 @@ public enum WorkerComposition {
         }
     }
 
+    /// Whether `value` is a well-formed Workers Issues proof: exactly 64 lowercase hex characters.
+    static func isIssuesProof(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }
+    }
+
     /// Generates a wrangler.toml for a site with the given workers enabled.
     ///
     /// - Parameters:
@@ -302,6 +334,17 @@ public enum WorkerComposition {
     ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
     ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
     ///     Defaults to `false` (inert).
+    ///   - issuesProof: The Workers Issues relay domain proof (#2095 slice 5,
+    ///     `WorkerIssuesProof.publishedValue`) — a 64-hex hash emitted as the
+    ///     `ANGLESITE_ISSUES_PROOF` var, which the template Worker serves at
+    ///     `issuesProofRouteClaim`. Emitted only alongside `issuesEnabled` on a composed Worker;
+    ///     anything that isn't exactly 64 lowercase hex characters is dropped.
+    ///   - issuesEnabled: Whether the composed Worker opts into Cloudflare Workers Issues (#2095,
+    ///     `AppSettings.tracksWorkerIssues`) — emits an `[observability.issues]` sub-table under
+    ///     `[observability]`. Only meaningful when a Worker is composed at all; a static-only site
+    ///     ignores it. Wrangler turns Issues back *off* on any deploy whose config omits the key,
+    ///     so this must be threaded on every deploy rather than set once. Defaults to `false`;
+    ///     the local-dev path never passes it.
     ///   - projectRoot: Absolute guest path the composed file's `main`, `[assets].directory`, and
     ///     `migrations_dir` fields are rooted at, or `nil` (default) to leave them relative to the
     ///     wrangler.toml's own location — wrangler's normal resolution and what the deploy path
@@ -335,6 +378,8 @@ public enum WorkerComposition {
         apIcon: String? = nil,
         experiments: [DomainConfig.Experiments.Experiment] = [],
         mcpEnabled: Bool = false,
+        issuesEnabled: Bool = false,
+        issuesProof: String? = nil,
         projectRoot: String? = nil
     ) throws -> WranglerConfiguration {
         guard isValidSiteName(siteName) else {
@@ -684,6 +729,9 @@ public enum WorkerComposition {
         if hasInboxForwarding, let inboxForwardEmail {
             varsLines.append("INBOX_FORWARD_EMAIL = \"\(inboxForwardEmail)\"")
         }
+        if issuesEnabled, composesWorker, let issuesProof, isIssuesProof(issuesProof) {
+            varsLines.append("ANGLESITE_ISSUES_PROOF = \"\(issuesProof)\"")
+        }
         if !varsLines.isEmpty {
             lines.append("")
             lines.append("[vars]")
@@ -715,6 +763,11 @@ public enum WorkerComposition {
             lines.append("[observability]")
             lines.append("enabled = true")
             lines.append("head_sampling_rate = 1")
+            if issuesEnabled {
+                lines.append("")
+                lines.append("[observability.issues]")
+                lines.append("enabled = true")
+            }
         }
 
         lines.append("")

@@ -16,14 +16,14 @@ struct PageCommands: Commands {
             .disabled(actions == nil)
 
             Button("New Post…") {
-                actions?.newPost()
+                actions?.newPost?()
             }
-            .disabled(actions == nil)
+            .disabled(actions?.newPost == nil)
 
             Button("New Link Post…") {
-                actions?.newLinkPost()
+                actions?.newLinkPost?()
             }
-            .disabled(actions == nil)
+            .disabled(actions?.newLinkPost == nil)
 
             Divider()
 
@@ -36,9 +36,9 @@ struct PageCommands: Commands {
 
             Menu("Collections") {
                 Button("New Collection…") {
-                    actions?.newCollection()
+                    actions?.newCollection?()
                 }
-                .disabled(actions == nil)
+                .disabled(actions?.newCollection == nil)
 
                 // Typed collections (content-type registry, #335) replace the generic
                 // sheet when they land — spec §2.5.

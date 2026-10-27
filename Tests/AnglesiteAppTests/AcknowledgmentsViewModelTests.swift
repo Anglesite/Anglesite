@@ -16,6 +16,7 @@ struct AcknowledgmentsViewModelTests {
                 OSSAttribution(name: "express", version: "4.19.0", licenseSPDXId: "MIT", licenseText: "…", homepage: nil),
             ],
             .websiteTemplate: [],
+            .emdashSite: [],
         ]
     }
 
@@ -27,6 +28,7 @@ struct AcknowledgmentsViewModelTests {
         #expect(model.catalogs[.appBinary]?.count == 2)
         #expect(model.catalogs[.containerImage]?.count == 1)
         #expect(model.catalogs[.websiteTemplate]?.count == 0)
+        #expect(model.catalogs[.emdashSite]?.count == 0)
         #expect(model.unavailableSources.isEmpty)
     }
 

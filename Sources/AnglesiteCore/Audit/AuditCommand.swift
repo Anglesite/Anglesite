@@ -184,14 +184,21 @@ public actor AuditCommand {
         .unavailable(reason: HostNodeRetirement.reason("broken-link check"))
     }
 
+    /// Same as `resolveA11yCommand`, for the `.pageWeight` step (#2020).
+    public static let resolvePageWeightCommand: CommandResolver = { siteDirectory in
+        .unavailable(reason: HostNodeRetirement.reason("page-weight check"))
+    }
+
     /// Default runner set: `A11yAuditRunner`, `SecurityTxtAuditRunner` (#843),
-    /// `BrokenLinkAuditRunner` (#1996), and `SEOAuditRunner` (#2004) — the `.seo` category's two
-    /// runners. Further perf runners are mechanical follow-ups that slot into this list without
-    /// changing the actor or sheet UI (#86 follow-ups).
+    /// `BrokenLinkAuditRunner` (#1996) and `SEOAuditRunner` (#2004) — the `.seo` category's two
+    /// runners — and `PageWeightAuditRunner` (#2020), the first `.performance` runner. Further
+    /// perf runners are mechanical follow-ups that slot into this list without changing the actor
+    /// or sheet UI (#86 follow-ups).
     public static let defaultRunners: [any AuditRunner] = [
         A11yAuditRunner(),
         SecurityTxtAuditRunner(),
         BrokenLinkAuditRunner(),
-        SEOAuditRunner()
+        SEOAuditRunner(),
+        PageWeightAuditRunner()
     ]
 }

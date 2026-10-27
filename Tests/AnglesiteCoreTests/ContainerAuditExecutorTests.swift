@@ -171,11 +171,12 @@ struct ContainerAuditExecutorTests {
 
     // MARK: - argv mapping test hook coverage
 
-    @Test("guestArgv test hook matches the runtime argv for both steps")
+    @Test("guestArgv test hook matches the runtime argv for every step")
     func guestArgvTestHook() {
         #expect(ContainerAuditExecutorTestHook.guestArgv(for: .build) == ["npm", "run", "build"])
         #expect(ContainerAuditExecutorTestHook.guestArgv(for: .a11y) == ["npx", "tsx", "scripts/a11y-audit.ts", "--json"])
         #expect(ContainerAuditExecutorTestHook.guestArgv(for: .brokenLinks) == ["npx", "tsx", "scripts/broken-links.ts", "--json"])
+        #expect(ContainerAuditExecutorTestHook.guestArgv(for: .pageWeight) == ["npx", "tsx", "scripts/page-weight.ts", "--json"])
     }
 }
 

@@ -97,6 +97,15 @@ final class DeployModel {
     /// Set when saving the chosen policy fails (e.g. an unsafe custom license URL). Cleared on
     /// every fresh presentation and on a successful `confirmLicenseChoice(_:)`.
     private(set) var licenseGateError: String?
+    /// Bound to a `.sheet` in `SiteWindow`: the one-time question, the first time an EmDash site
+    /// publishes, of whether the owner's Cloudflare account is on the Workers Paid plan (#2116),
+    /// which decides whether the site's Worker caches its articles. Raised before the deploy
+    /// starts, when `EmDashDeployTarget.needsWorkersPlanAnswer` says the site hasn't answered;
+    /// parks in `pendingDeploy` and resumes on an answer, like the license gate. A background
+    /// publish never asks: the cache stays off until the owner answers here.
+    var workersPlanQuestionPresented: Bool = false
+    /// Set when saving the answer fails. Cleared on every fresh presentation and on a saved answer.
+    private(set) var workersPlanQuestionError: String?
     /// Bound to a `.sheet` in `SiteWindow` for the `.workerNameConflict` outcome — the Worker
     /// name is already taken on the connected Cloudflare account and this is the site's first
     /// deploy. Reuses `pendingDeploy` (below) to park and retry, same as the token-prompt flow.
@@ -296,6 +305,10 @@ final class DeployModel {
         if !hasChosenLicense(siteDirectory: siteDirectory) {
             return "Choose how visitors may reuse your content first. Close this and choose Publish to pick a license, then start your test."
         }
+        let configDirectory = AnglesitePackage(url: siteDirectory.deletingLastPathComponent()).configURL
+        if EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: siteDirectory, configDirectory: configDirectory) {
+            return "Tell Anglesite which Cloudflare plan your account is on first. Close this and choose Publish to answer, then start your test."
+        }
         return nil
     }
 
@@ -336,6 +349,12 @@ final class DeployModel {
             pendingDeploy = (siteID, siteDirectory, configDirectory, currentRoutes, containerControlProvider, siteName)
             licenseGateError = nil
             licenseGatePresented = true
+            return
+        }
+        if EmDashDeployTarget.needsWorkersPlanAnswer(sourceDirectory: siteDirectory, configDirectory: configDirectory) {
+            pendingDeploy = (siteID, siteDirectory, configDirectory, currentRoutes, containerControlProvider, siteName)
+            workersPlanQuestionError = nil
+            workersPlanQuestionPresented = true
             return
         }
         // Flip `phase` synchronously, before scheduling the Task, so a second `deploy()` call
@@ -703,6 +722,41 @@ final class DeployModel {
             siteID: pending.siteID, siteDirectory: pending.siteDirectory,
             configDirectory: pending.configDirectory, currentRoutes: pending.currentRoutes,
             containerControlProvider: pending.containerControlProvider, siteName: pending.siteName)
+    }
+
+    /// Called by the Workers plan question's answer buttons (#2116). Saves the answer, then
+    /// resumes the parked deploy, which now writes the Worker's cache setting from it. The raw
+    /// save error goes to the log and a plain sentence to the sheet, as `confirmLicenseChoice`
+    /// does.
+    func answerWorkersPlan(paid: Bool) async {
+        guard let pending = pendingDeploy else {
+            workersPlanQuestionError = String(localized: "Nothing is waiting to publish — close this and click Publish Site again.")
+            return
+        }
+        do {
+            try await EmDashDeployTarget.recordWorkersPlan(paid: paid, configDirectory: pending.configDirectory)
+        } catch {
+            await logCenter.append(
+                source: "deploy:\(pending.siteID)", stream: .stderr,
+                text: "Saving the Cloudflare plan answer failed: \(error)")
+            workersPlanQuestionError = String(localized: "Couldn't save your answer: \(error.localizedDescription)")
+            return
+        }
+        pendingDeploy = nil
+        workersPlanQuestionError = nil
+        workersPlanQuestionPresented = false
+        deploy(
+            siteID: pending.siteID, siteDirectory: pending.siteDirectory,
+            configDirectory: pending.configDirectory, currentRoutes: pending.currentRoutes,
+            containerControlProvider: pending.containerControlProvider, siteName: pending.siteName)
+    }
+
+    /// The Workers plan question's Cancel button: abandons this publish without saving an answer,
+    /// so the question comes back on the next Publish Site.
+    func cancelWorkersPlanQuestion() {
+        pendingDeploy = nil
+        workersPlanQuestionPresented = false
+        workersPlanQuestionError = nil
     }
 
     /// Called by the worker-name-conflict sheet's "Rename & retry" button. Applies the rename to
@@ -1089,7 +1143,12 @@ final class DeployModel {
         }
         // #1659: adds the app-owned RFC 9727 API Catalog claim whenever the social layer is
         // composed at all, before either downstream use below — see `withAPICatalogClaim`.
-        let effectiveRouteClaims = WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers)
+        // #2095 slice 5: the Workers Issues domain-proof route rides the same owner-attributed
+        // claim list, so the `.well-known` collision check sees it.
+        let tracksWorkerIssues = AppSettings.shared.tracksWorkerIssues
+        let effectiveRouteClaims = WorkerComposition.withIssuesProofClaim(
+            WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers),
+            workers: workers, enabled: tracksWorkerIssues)
 
         // ActivityPub handle-rename confirmation (#1239, design doc §"Owner-chosen username"):
         // once an actor has federated, a resolved-handle change from the last-deployed baseline
@@ -1239,6 +1298,12 @@ final class DeployModel {
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
             mcpEnabled: mcpEnabled,
+            // #2095: Settings ▸ Advanced ▸ Developer Tools opt-in. Threaded on every deploy —
+            // wrangler turns Issues back off whenever the config omits the key.
+            issuesEnabled: tracksWorkerIssues,
+            issuesProof: WorkerIssuesProof.valueForPublish(
+                siteID: siteID, enabled: tracksWorkerIssues && !workers.isEmpty,
+                secrets: presentation == .foreground ? keychain : keychain.withoutUserInteraction),
             currentRoutes: currentRoutes,
             onPreflight: { [weak self] outcome in
                 Task { @MainActor in self?.onScanComplete?(outcome) }
@@ -1342,6 +1407,14 @@ final class DeployModel {
             )
             websubProvisioned = workers.contains(where: { $0.id == WorkerComposition.websubWorkerID })
                 && resources.websubQueueName != nil
+            // #2095 slice 3: register/renew (or revoke) the site with the Workers Issues relay to
+            // match what this publish deployed. Best-effort — its outcome goes to the Debug pane
+            // and `Config/settings.plist`, never into the publish result.
+            await WorkerIssuesReconciler.reconcileAfterPublish(
+                siteID: siteID, configDirectory: configDirectory, siteURL: communityActorSiteURL,
+                configStore: configStore,
+                secrets: presentation == .foreground ? keychain : keychain.withoutUserInteraction,
+                logCenter: logCenter)
         } else {
             websubProvisioned = false
         }

@@ -139,5 +139,13 @@ import AnglesiteTestSupport
         for required in ["src/lib/robots-config.ts", "src/lib/rsl.ts", "src/lib/licensing.ts", "src/lib/embed-card.ts"] {
             #expect(paths.contains(required), "\(required) must be app-owned so migrated scripts keep a working import")
         }
+
+        // The gate's check module, the EmDash publish-gate plugin and render backstop built on it,
+        // and the build manifest the deploy layer verifies them with (#2055): owner decision D5's
+        // hash pin only covers what this manifest lists, so these must stay in it.
+        for gate in ["scripts/gate-checks.ts", "scripts/emdash-gate/policy.ts", "scripts/emdash-gate/plugin.ts",
+                     "scripts/emdash-gate/render-backstop.ts", "scripts/anglesite-build-manifest.ts"] {
+            #expect(paths.contains(gate), "\(gate) must be app-owned so the gate-hash pin covers it")
+        }
     }
 }

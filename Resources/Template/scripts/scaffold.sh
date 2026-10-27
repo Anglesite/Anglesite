@@ -35,7 +35,8 @@ fi
 
 mkdir -p "$TARGET"
 
-# Copy the template tree, excluding scaffold infrastructure, dev-only files, and
+# Copy the template tree, excluding scaffold infrastructure, dev-only files, the EmDash
+# overlay (emdash/, which the app applies only to an EmDash site — #2050), and
 # gitignored build output (dist/, .astro/, .wrangler/, reports/ — see ../.gitignore).
 # A new site must never inherit the template's stale build artifacts, and in
 # `swift test` the render-smoke suites build into and `rm -rf` Resources/Template/dist/
@@ -45,6 +46,7 @@ rsync -a \
     --exclude='scripts/themes.ts' \
     --exclude='scripts/themes.json' \
     --exclude='packs/' \
+    --exclude='emdash/' \
     --exclude='scripts/check-pack.ts' \
     --exclude='scripts/build-packs.sh' \
     --exclude='scripts/*.test.ts' \

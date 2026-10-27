@@ -9,6 +9,7 @@ Anglesite ships third-party open-source code through three distinct channels, an
 1. **App binary** — ~40 SwiftPM packages linked directly into `Anglesite.app` (STTextView, SwiftNIO, gRPC-Swift, SwiftGit2, apple/containerization, etc. — see `Package.resolved`).
 2. **Container image** — the vendored container image (`Resources/container-image/`) bundles Node.js and the `anglesite-skills` sidecar's npm dependencies (`server/node_modules`), staged by `scripts/lib/stage-dev-image-context.sh` and shipped to every user.
 3. **Website template** — `Resources/Template/package.json` scaffolds ~32 npm dependencies into every new user site's `Source/`.
+4. **EmDash site template** (added by #2088) — an EmDash site (#2050) installs the template's EmDash overlay's own lockfile, `Resources/Template/emdash/package-lock.json`: the template's dependencies plus `emdash`, `@emdash-cms/cloudflare`, `@astrojs/cloudflare`, `kysely` and their transitive dependencies, resolved independently of the template's lockfile. It is a separate set rather than a delta on the website template, because the overlay's resolution of shared transitive dependencies can differ and an EmDash site installs exactly that resolution.
 
 None of these are attributed today: there's no acknowledgments UI, no generated license manifest, and no notice file in scaffolded sites. Respecting these licenses requires disclosing them; this spec defines a framework to do that and keep it current as dependencies change.
 
@@ -32,14 +33,19 @@ public enum AttributionSource: String, CaseIterable, Codable, Sendable {
     case appBinary
     case containerImage
     case websiteTemplate
+    case emdashSite          // #2088 — Resources/Attributions/emdash-site.json
 
     public var displayName: String {
         switch self {
         case .appBinary: "App"
         case .containerImage: "Container & Sidecar"
         case .websiteTemplate: "Website Template"
+        case .emdashSite: "EmDash Site Template"
         }
     }
+
+    /// The set a new site of `kind` is scaffolded with (#2088).
+    public static func siteTemplate(for kind: AnglesitePackage.SiteKind) -> AttributionSource
 }
 ```
 
@@ -80,8 +86,9 @@ Two scripts, because the two ecosystems need different tooling:
 - Walks a resolved `node_modules` tree (must be run after `npm ci` in that root).
 - For each package, reads `package.json`'s `license`/`repository`/`homepage` fields and its `LICENSE*` file text.
 - Deduplicates by name+version (a tree can contain multiple versions of the same package via nested `node_modules`).
-- Run twice by the wrapper script below:
+- Run three times by the wrapper script below:
   - against `Resources/Template/node_modules` → `Resources/Attributions/website-template.json`
+  - against `Resources/Template/emdash/node_modules` (the EmDash overlay's lockfile, #2088) → `Resources/Attributions/emdash-site.json`
   - against `$ANGLESITE_SIDECAR_SRC/server/node_modules` → `Resources/Attributions/container-image.json`
 
 ### Overrides and failure mode
@@ -94,12 +101,13 @@ If a package has **neither** an auto-detected license **nor** an override entry,
 
 `scripts/generate-attributions.sh`:
 - Runs the Swift generator (always).
-- Runs the npm generator against `Resources/Template` (always — `npm ci` there is already a normal dev/test step).
+- Runs the npm generator against `Resources/Template` (always — `npm ci` there is already a normal dev/test step) and against `Resources/Template/emdash` (always — `npm ci` there against the overlay's own lockfile, #2088).
+- Both npm buckets are generated from a darwin-arm64 install: `npm ci` resolves platform-specific optional packages (`@esbuild/darwin-arm64`, `@cloudflare/workerd-darwin-arm64`, …), so the committed manifests only ever match a darwin-arm64 tree, and CI diffs them on a macOS runner. On another platform, `npm ci --os=darwin --cpu=arm64` installs the same tree (verified on linux-x64 against the committed `website-template.json`, #2088).
 - Runs the npm generator against the sidecar's `server/node_modules` only when `$ANGLESITE_SIDECAR_SRC` is set and populated (same convention as `scripts/vendor-container-image.sh`); otherwise prints a warning and skips, consistent with how other sidecar-dependent tooling degrades in its absence.
 - Supports `--check`: generates into a temp directory and diffs each output against the committed `Resources/Attributions/*.json`, printing the diff and exiting non-zero on any mismatch. This is the same drift-audit shape already used for `anglesite.json` (#1190).
 
 CI wiring:
-- `scripts/generate-attributions.sh --check` runs on every PR for the app-binary and website-template buckets (no extra checkout needed beyond what CI already does).
+- `scripts/generate-attributions.sh --check` runs on every PR for the app-binary, website-template and emdash-site buckets (no extra checkout needed beyond what CI already does).
 - The container-image bucket's check runs in CI's existing sidecar e2e job, which already checks out `Anglesite/anglesite-skills` at a pinned release (`.github/workflows/ci.yml:239`) — so that bucket is verified on the same cadence as other sidecar-dependent checks, not on every app-only PR.
 
 ## UI
@@ -156,7 +164,7 @@ This keeps the actual `View` body thin and makes the filter/grouping behavior un
 
 ## Generated site notice
 
-`SiteScaffolder.runPipeline` (`Sources/AnglesiteCore/SiteScaffolder.swift`) gets a new step alongside step 2b ("git init in `Source/`"): before the first commit, it loads `AttributionCatalog.load(.websiteTemplate)` and renders it to `Source/THIRD-PARTY-NOTICES.md` — package name, version, license identifier, and full license text, one section per package, plain Markdown. This runs before git init's first commit so the notice file is part of the site's initial commit and travels with the site's `Source/` repo like any other scaffolded file (per "Git is the source of truth for sites").
+`SiteScaffolder.runPipeline` (`Sources/AnglesiteCore/SiteScaffolder.swift`) gets a new step alongside step 2b ("git init in `Source/`"): before the first commit, it loads `AttributionCatalog.load(.websiteTemplate)` — `.emdashSite` for an EmDash site, via `AttributionSource.siteTemplate(for:)` (#2088) — and renders it to `Source/THIRD-PARTY-NOTICES.md` — package name, version, license identifier, and full license text, one section per package, plain Markdown. This runs before git init's first commit so the notice file is part of the site's initial commit and travels with the site's `Source/` repo like any other scaffolded file (per "Git is the source of truth for sites").
 
 This file is generated once at scaffold time, not kept in sync afterward — a site's template dependencies can drift from the app's bundled `website-template.json` over time (via `DependencySyncApplier`), and reconciling the notice file on every dependency sync is a separate concern this spec doesn't take on. A future spec can address keeping it current if that turns out to matter in practice.
 

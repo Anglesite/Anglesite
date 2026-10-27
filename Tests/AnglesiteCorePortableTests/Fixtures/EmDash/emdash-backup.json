@@ -1,0 +1,94 @@
+{
+  "format": "emdash-backup",
+  "formatVersion": 1,
+  "emdashVersion": "1.0.1",
+  "generatedAt": "2026-09-30T12:00:00.000Z",
+  "schema": {
+    "ec_articles": {
+      "columns": ["id", "slug", "status", "author_id", "primary_byline_id", "created_at", "updated_at", "published_at", "scheduled_at", "deleted_at", "version", "live_revision_id", "draft_revision_id", "locale", "translation_group", "title", "summary", "image", "content"],
+      "types": {"id": "TEXT", "slug": "TEXT", "status": "TEXT", "author_id": "TEXT", "primary_byline_id": "TEXT", "created_at": "TEXT", "updated_at": "TEXT", "published_at": "TEXT", "scheduled_at": "TEXT", "deleted_at": "TEXT", "version": "INTEGER", "live_revision_id": "TEXT", "draft_revision_id": "TEXT", "locale": "TEXT", "translation_group": "TEXT", "title": "TEXT", "summary": "TEXT", "image": "TEXT", "content": "JSON"}
+    }
+  },
+  "tables": {
+    "_emdash_collections": [
+      {"id": "col-articles", "slug": "articles", "label": "Articles", "label_singular": "Article", "description": null, "icon": null, "supports": "[\"drafts\",\"revisions\",\"preview\",\"scheduling\",\"search\",\"seo\"]", "source": null, "created_at": "2026-09-01 09:00:00", "updated_at": "2026-09-01 09:00:00", "title_field": "title", "date_field": null, "url_pattern": "/articles/{slug}", "routable": 1, "hidden": 0, "sort_order": 0, "nav_group": null, "has_seo": 1},
+      {"id": "col-recipes", "slug": "recipes", "label": "Recipes", "label_singular": "Recipe", "description": "Family recipes", "icon": null, "supports": "[\"drafts\"]", "source": null, "created_at": "2026-09-02 09:00:00", "updated_at": "2026-09-02 09:00:00", "title_field": "name", "date_field": "cookedOn", "url_pattern": "/kitchen/{slug}", "routable": 1, "hidden": 0, "sort_order": 3, "nav_group": null, "has_seo": 0},
+      {"id": "col-notes", "slug": "notes", "label": "Notes", "label_singular": "Note", "description": null, "icon": null, "supports": "[\"drafts\"]", "source": null, "created_at": "2026-09-01 09:00:00", "updated_at": "2026-09-01 09:00:00", "title_field": null, "date_field": null, "url_pattern": "/notes/{slug}", "routable": 1, "hidden": 0, "sort_order": 1, "nav_group": null, "has_seo": 0},
+      {"id": "col-pages", "slug": "pages", "label": "Pages", "label_singular": "Page", "description": null, "icon": null, "supports": "[\"drafts\"]", "source": null, "created_at": "2026-09-01 09:00:00", "updated_at": "2026-09-01 09:00:00", "title_field": "title", "date_field": null, "url_pattern": "/{slug}", "routable": 1, "hidden": 0, "sort_order": 2, "nav_group": null, "has_seo": 1}
+    ],
+    "_emdash_fields": [
+      {"id": "f-a-content", "collection_id": "col-articles", "slug": "content", "label": "Content", "type": "portableText", "column_type": "JSON", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 3, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-a-title", "collection_id": "col-articles", "slug": "title", "label": "Title", "type": "string", "column_type": "TEXT", "required": 1, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 0, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-a-summary", "collection_id": "col-articles", "slug": "summary", "label": "Summary", "type": "text", "column_type": "TEXT", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 1, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-a-image", "collection_id": "col-articles", "slug": "image", "label": "Image", "type": "image", "column_type": "TEXT", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 2, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-n-content", "collection_id": "col-notes", "slug": "content", "label": "Content", "type": "portableText", "column_type": "JSON", "required": 1, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 0, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-p-title", "collection_id": "col-pages", "slug": "title", "label": "Title", "type": "string", "column_type": "TEXT", "required": 1, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 0, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-p-body", "collection_id": "col-pages", "slug": "body", "label": "Body", "type": "portableText", "column_type": "JSON", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 1, "created_at": "2026-09-01 09:00:00"},
+      {"id": "f-r-name", "collection_id": "col-recipes", "slug": "name", "label": "Name", "type": "string", "column_type": "TEXT", "required": 1, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 0, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-ingredients", "collection_id": "col-recipes", "slug": "ingredients", "label": "Ingredients", "type": "text", "column_type": "TEXT", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 1, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-steps", "collection_id": "col-recipes", "slug": "steps", "label": "Steps", "type": "portableText", "column_type": "JSON", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 2, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-servings", "collection_id": "col-recipes", "slug": "servings", "label": "Servings", "type": "integer", "column_type": "INTEGER", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 3, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-spicy", "collection_id": "col-recipes", "slug": "spicy", "label": "Spicy", "type": "boolean", "column_type": "INTEGER", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 4, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-cuisine", "collection_id": "col-recipes", "slug": "cuisine", "label": "Cuisine", "type": "select", "column_type": "TEXT", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": "[\"italian\",\"thai\"]", "sort_order": 5, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-diet", "collection_id": "col-recipes", "slug": "diet", "label": "Diet", "type": "multiSelect", "column_type": "JSON", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 6, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-nutrition", "collection_id": "col-recipes", "slug": "nutrition", "label": "Nutrition", "type": "json", "column_type": "JSON", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 7, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-cookedOn", "collection_id": "col-recipes", "slug": "cookedOn", "label": "Cooked on", "type": "datetime", "column_type": "TEXT", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 8, "created_at": "2026-09-02 09:00:00"},
+      {"id": "f-r-related", "collection_id": "col-recipes", "slug": "related", "label": "Related", "type": "reference", "column_type": "TEXT", "required": 0, "unique": 0, "default_value": null, "validation": null, "widget": null, "options": null, "sort_order": 9, "created_at": "2026-09-02 09:00:00"}
+    ],
+    "_emdash_taxonomy_defs": [
+      {"id": "tax-tag", "name": "tag", "label": "Tags", "label_singular": "Tag", "hierarchical": 0, "collections": "[\"articles\",\"recipes\"]", "created_at": "2026-09-01 09:00:00"}
+    ],
+    "ec_articles": [
+      {"id": "a1", "slug": "hello-world", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-19 18:30:00", "updated_at": "2026-09-20T10:15:00.000Z", "published_at": "2026-09-20T10:15:00.000Z", "scheduled_at": null, "deleted_at": null, "version": 3, "live_revision_id": "rev-a1-3", "draft_revision_id": null, "locale": "en", "translation_group": "tg-a1",
+       "title": "Hello, world", "summary": "Where it starts.",
+       "image": "{\"id\":\"m1\",\"alt\":\"Sunrise\",\"meta\":{\"storageKey\":\"2026/09/sunrise.jpg\",\"width\":1600},\"src\":\"https://blog.example/_emdash/api/media/file/2026/09/sunrise.jpg\"}",
+       "content": "[{\"_type\":\"block\",\"_key\":\"h\",\"style\":\"h2\",\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"h1\",\"text\":\"Welcome\",\"marks\":[]}]},{\"_type\":\"block\",\"_key\":\"p\",\"style\":\"normal\",\"markDefs\":[{\"_type\":\"link\",\"_key\":\"lk\",\"href\":\"https://example.com/\"}],\"children\":[{\"_type\":\"span\",\"_key\":\"p1\",\"text\":\"This is \",\"marks\":[]},{\"_type\":\"span\",\"_key\":\"p2\",\"text\":\"the start\",\"marks\":[\"strong\"]},{\"_type\":\"span\",\"_key\":\"p3\",\"text\":\" of something, see \",\"marks\":[]},{\"_type\":\"span\",\"_key\":\"p4\",\"text\":\"the docs\",\"marks\":[\"lk\"]},{\"_type\":\"span\",\"_key\":\"p5\",\"text\":\".\",\"marks\":[]}]},{\"_type\":\"image\",\"_key\":\"img\",\"asset\":{\"_ref\":\"m2\"},\"alt\":\"A dog\",\"caption\":\"Rex.\"},{\"_type\":\"callout\",\"_key\":\"co\",\"tone\":\"warning\",\"children\":[{\"_type\":\"span\",\"_key\":\"co1\",\"text\":\"Mind the gap\",\"marks\":[]}]}]"},
+      {"id": "a2", "slug": "second-post", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-21 08:00:00", "updated_at": "2026-09-21 08:00:00", "published_at": "2026-09-21 08:00:00", "scheduled_at": null, "deleted_at": null, "version": 1, "live_revision_id": "rev-a2-1", "draft_revision_id": null, "locale": "en", "translation_group": "tg-a2",
+       "title": "Second post", "summary": null,
+       "image": "{\"id\":\"m2\",\"alt\":\"A dog\",\"meta\":{\"storageKey\":\"2026/09/dog.jpg\"}}",
+       "content": "[{\"_type\":\"block\",\"_key\":\"p\",\"style\":\"normal\",\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"p1\",\"text\":\"Short and sweet.\",\"marks\":[]}]}]"},
+      {"id": "a3", "slug": "work-in-progress", "status": "draft", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-22 08:00:00", "updated_at": "2026-09-22 08:00:00", "published_at": null, "scheduled_at": null, "deleted_at": null, "version": 1, "live_revision_id": null, "draft_revision_id": "rev-a3-1", "locale": "en", "translation_group": "tg-a3",
+       "title": "Work in progress", "summary": null, "image": null,
+       "content": "[{\"_type\":\"block\",\"_key\":\"p\",\"style\":\"normal\",\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"p1\",\"text\":\"Not yet.\",\"marks\":[]}]}]"},
+      {"id": "a4", "slug": "old-news", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-10 08:00:00", "updated_at": "2026-09-23 08:00:00", "published_at": "2026-09-10T08:00:00.000Z", "scheduled_at": null, "deleted_at": "2026-09-23 08:00:00", "version": 2, "live_revision_id": "rev-a4-2", "draft_revision_id": null, "locale": "en", "translation_group": "tg-a4",
+       "title": "Old news", "summary": null, "image": null,
+       "content": "[{\"_type\":\"block\",\"_key\":\"p\",\"style\":\"normal\",\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"p1\",\"text\":\"Trashed.\",\"marks\":[]}]}]"},
+      {"id": "a5", "slug": "empty", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-24 08:00:00", "updated_at": "2026-09-24 08:00:00", "published_at": "2026-09-24T08:00:00.000Z", "scheduled_at": null, "deleted_at": null, "version": 1, "live_revision_id": "rev-a5-1", "draft_revision_id": null, "locale": "en", "translation_group": "tg-a5",
+       "title": "Empty", "summary": null, "image": null, "content": "[]"}
+    ],
+    "ec_notes": [
+      {"id": "n1", "slug": "quick-one", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-25 08:00:00", "updated_at": "2026-09-25 08:00:00", "published_at": "2026-09-25T08:00:00.000Z", "scheduled_at": null, "deleted_at": null, "version": 1, "live_revision_id": "rev-n1-1", "draft_revision_id": null, "locale": "en", "translation_group": "tg-n1",
+       "content": "[{\"_type\":\"block\",\"_key\":\"p\",\"style\":\"normal\",\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"p1\",\"text\":\"Just a quick note.\",\"marks\":[]}]}]"}
+    ],
+    "ec_pages": [
+      {"id": "p1", "slug": "about", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-01 10:00:00", "updated_at": "2026-09-01 10:00:00", "published_at": "2026-09-01T10:00:00.000Z", "scheduled_at": null, "deleted_at": null, "version": 1, "live_revision_id": "rev-p1-1", "draft_revision_id": null, "locale": "en", "translation_group": "tg-p1",
+       "title": "About", "body": "[{\"_type\":\"block\",\"_key\":\"p\",\"style\":\"normal\",\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"p1\",\"text\":\"All about this site.\",\"marks\":[]}]}]"}
+    ],
+    "ec_recipes": [
+      {"id": "r1", "slug": "pad-thai", "status": "published", "author_id": "u1", "primary_byline_id": null, "created_at": "2026-09-26 08:00:00", "updated_at": "2026-09-26 08:00:00", "published_at": null, "scheduled_at": null, "deleted_at": null, "version": 1, "live_revision_id": "rev-r1-1", "draft_revision_id": null, "locale": "en", "translation_group": "tg-r1",
+       "name": "Pad Thai", "ingredients": "Rice noodles\nTamarind\nPeanuts", "servings": 4, "spicy": 1, "cuisine": "thai", "diet": "[\"vegetarian\",\"gluten-free\"]", "nutrition": "{\"kcal\":540,\"protein\":\"18g\"}", "cookedOn": "2026-09-27T19:00:00.000Z", "related": null,
+       "steps": "[{\"_type\":\"block\",\"_key\":\"s1\",\"style\":\"normal\",\"listItem\":\"number\",\"level\":1,\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"s1a\",\"text\":\"Soak the noodles.\",\"marks\":[]}]},{\"_type\":\"block\",\"_key\":\"s2\",\"style\":\"normal\",\"listItem\":\"number\",\"level\":1,\"markDefs\":[],\"children\":[{\"_type\":\"span\",\"_key\":\"s2a\",\"text\":\"Stir-fry everything.\",\"marks\":[]}]}]"}
+    ],
+    "taxonomies": [
+      {"id": "term-swift", "name": "tag", "slug": "swift", "label": "Swift", "parent_id": null, "data": null, "locale": "en", "translation_group": "tg-term-swift"},
+      {"id": "term-travel", "name": "tag", "slug": "travel", "label": "Travel", "parent_id": null, "data": null, "locale": "en", "translation_group": "tg-term-travel"},
+      {"id": "term-thai", "name": "tag", "slug": "thai", "label": "Thai", "parent_id": null, "data": null, "locale": "en", "translation_group": "tg-term-thai"}
+    ],
+    "content_taxonomies": [
+      {"collection": "articles", "entry_id": "tg-a1", "taxonomy_id": "tg-term-swift"},
+      {"collection": "articles", "entry_id": "tg-a1", "taxonomy_id": "tg-term-travel"},
+      {"collection": "articles", "entry_id": "a2", "taxonomy_id": "term-swift"},
+      {"collection": "recipes", "entry_id": "tg-r1", "taxonomy_id": "tg-term-thai"},
+      {"collection": "articles", "entry_id": "tg-a1", "taxonomy_id": "tg-term-missing"}
+    ],
+    "media": [
+      {"id": "m1", "filename": "sunrise.jpg", "mime_type": "image/jpeg", "size": 120000, "width": 1600, "height": 900, "alt": "Sunrise", "caption": null, "storage_key": "2026/09/sunrise.jpg", "content_hash": null, "created_at": "2026-09-19 18:00:00", "author_id": "u1"},
+      {"id": "m2", "filename": "dog.jpg", "mime_type": "image/jpeg", "size": 90000, "width": 1200, "height": 800, "alt": "A dog", "caption": null, "storage_key": "2026/09/dog.jpg", "content_hash": null, "created_at": "2026-09-19 18:05:00", "author_id": "u1"}
+    ],
+    "options": [
+      {"name": "site:title", "value": "\"Ada's Notebook\"", "autoload": 1},
+      {"name": "site:tagline", "value": "\"Notes from the engine room\"", "autoload": 1},
+      {"name": "emdash:locale", "value": "\"en\"", "autoload": 1}
+    ]
+  }
+}
