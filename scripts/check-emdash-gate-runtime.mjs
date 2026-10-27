@@ -35,7 +35,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { constants as osConstants } from "node:os";
@@ -64,6 +64,8 @@ let originalWranglerConfig;
 const site = resolve(process.argv[2] ?? "");
 const wranglerConfigPath = join(site, "dist", "server", "wrangler.json");
 const localStateDir = join(site, ".wrangler", "state");
+/** Local secrets for the run: the ActivityPub keys and publish token Publish Site pushes (#2168). */
+const devVarsPath = join(site, "dist", "server", ".dev.vars");
 const astroBin = join(site, "node_modules", "astro", "bin", "astro.mjs");
 const wranglerBin = join(site, "node_modules", "wrangler", "bin", "wrangler.js");
 const tsxBin = join(site, "node_modules", "tsx", "dist", "cli.mjs");
@@ -111,6 +113,7 @@ function restoreSite() {
   if (originalWranglerConfig === undefined) return;
   writeFileSync(wranglerConfigPath, originalWranglerConfig);
   rmSync(localStateDir, { recursive: true, force: true });
+  rmSync(devVarsPath, { force: true });
 }
 
 /** The orderly stop: SIGTERM, a grace period for workerd to shut down, then SIGKILL. */
@@ -177,6 +180,7 @@ async function freePort() {
 function stageWorkerConfig() {
   const config = JSON.parse(originalWranglerConfig);
   config.compatibility_flags = [...new Set([...(config.compatibility_flags ?? []), "nodejs_compat"])];
+  if (composesSocial) stageActivityPubSecrets();
   if ((config.d1_databases ?? []).some((database) => database.binding === DB_BINDING)) {
     writeFileSync(wranglerConfigPath, JSON.stringify(config));
     return;
@@ -186,6 +190,22 @@ function stageWorkerConfig() {
   ];
   config.r2_buckets = [{ binding: MEDIA_BINDING, bucket_name: `${config.name}-media` }];
   writeFileSync(wranglerConfigPath, JSON.stringify(config));
+}
+
+/** The ActivityPub secrets, as local `.dev.vars` beside the server config, so the actor runs. */
+function stageActivityPubSecrets() {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
+  const quoted = (pem) => JSON.stringify(pem.trim());
+  writeFileSync(devVarsPath, [
+    `AP_PRIVATE_KEY=${quoted(privateKey)}`,
+    `AP_PUBLIC_KEY=${quoted(publicKey)}`,
+    `AP_PUBLISH_TOKEN=${randomBytes(32).toString("hex")}`,
+    "",
+  ].join("\n"));
 }
 
 async function request(base, path, { method = "GET", token, body } = {}) {
@@ -372,6 +392,17 @@ async function main() {
     await webmention.text();
     check(webmention.status === 405 && (webmention.headers.get("allow") ?? "").includes("POST"), `a social route reaches the social endpoints in the same Worker (HTTP ${webmention.status})`);
     check(cleanPage.text.includes('<link rel="webmention" href="/webmention"'), "pages rendered in the Worker advertise its Webmention endpoint");
+
+    // Publishing it ran `anglesite-syndication`'s `content:afterPublish` hook after the response
+    // (#2168): the article went to the actor's outbox in-process. The actor is keyed on the
+    // canonical origin (the config's SITE_URL), not this preview's, so its own log line is read.
+    const syndicated = new RegExp(`syndicated https://example\\.com/articles/council-vote/: ActivityPub (\\w+)`);
+    let federation;
+    for (let waited = 0; waited < 20_000 && !federation; waited += 250) {
+      federation = serverLog.match(syndicated)?.[1];
+      if (!federation) await sleep(250);
+    }
+    check(federation === "published", `publishing it sends the article to ActivityPub followers from the Worker (${federation ?? "no syndication logged"})`);
   }
 
   // 3. The routes that list articles render the published one from EmDash on request (#2133),

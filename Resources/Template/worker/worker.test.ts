@@ -20,7 +20,10 @@ import {
   handleWebdavCredentials,
   activityPubConfig,
   resolveFanOutAddressing,
+  syndicatePublishedPost,
+  webmentionTargets,
   type InboxKV,
+  type PublishedPost,
   type WorkerEnv,
 } from "./worker";
 import worker from "./worker";
@@ -3117,4 +3120,81 @@ test("tools/call list_feeds: returns the build-time feed path list", async () =>
   const text = await callMcpTool(handleMcp, env, "list_feeds");
   expect(text).toContain("/rss.xml");
   expect(text).toContain("/blog/rss.xml");
+});
+
+// --- Syndicating a post published outside the build (#2168) ----------------------------------
+// An EmDash article goes live in EmDash, not through Publish Site, so its Worker sends it out.
+
+const emdashArticle: PublishedPost = {
+  url: "https://owner.example/articles/council-vote/",
+  type: "Article",
+  name: "Council approves budget",
+  summary: "The vote was 5–2.",
+  // Only links to the site itself: nothing here may reach the network.
+  contentHtml: '<p>The council voted 5–2. <a href="/articles/earlier/">Earlier</a>.</p>',
+  published: "2026-10-27T09:00:00.000Z",
+};
+
+test("syndication: a published article reaches followers through the outbox, and the hub is told", async () => {
+  const ctx = createExecutionContext();
+  const outcome = await syndicatePublishedPost(emdashArticle, testEnv, ctx, { origin: "https://owner.example", federate: true });
+  await waitOnExecutionContext(ctx);
+  expect(outcome).toEqual({ activityPub: "published", webmentions: { targets: 0, delivered: 0 }, websub: "notified" });
+
+  const page = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const items = (await page.json() as { orderedItems?: Array<{ object?: { type?: string; name?: string; url?: string; published?: string } }> }).orderedItems ?? [];
+  const article = items.find((item) => item.object?.name === "Council approves budget")?.object;
+  expect(article?.type).toBe("Article");
+  // The article's own URL, with the site's Fediverse UTM tags if it has any.
+  expect(article?.url?.startsWith(emdashArticle.url)).toBe(true);
+  expect(article?.published).toBe("2026-10-27T09:00:00.000Z");
+});
+
+test("syndication: an article already federated isn't posted again; a site without ActivityPub skips it", async () => {
+  const skipped = await syndicatePublishedPost(emdashArticle, testEnv, createExecutionContext(), { origin: "https://owner.example", federate: false });
+  expect(skipped.activityPub).toBe("skipped");
+
+  const { AP_PUBLISH_TOKEN: _token, ...withoutActivityPub } = testEnv;
+  const unavailable = await syndicatePublishedPost(emdashArticle, withoutActivityPub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: true });
+  expect(unavailable.activityPub).toBe("unavailable");
+  const { WEBSUB_QUEUE: _queue, ...withoutWebSub } = testEnv;
+  expect((await syndicatePublishedPost(emdashArticle, withoutWebSub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: false })).websub).toBe("unavailable");
+});
+
+test("syndication: Webmention targets are the post's distinct links to other hosts", async () => {
+  const html = [
+    '<p><a href="https://other.example/a">A</a> <a href="https://other.example/a">again</a>',
+    '<a href="/articles/earlier/">own, relative</a> <a href="https://owner.example/x">own</a>',
+    '<a href="https://www.owner.example/y">www is another host</a> <a href="mailto:a@b.example">mail</a>',
+    '<img src="https://cdn.example/p.jpg"></p>',
+  ].join(" ");
+  expect(await webmentionTargets(html, emdashArticle.url, "https://owner.example")).toEqual([
+    "https://other.example/a",
+    "https://www.owner.example/y",
+    "https://cdn.example/p.jpg",
+  ]);
+});
+
+test("syndication: Webmentions go to the post's targets with the D1 sent-log, and a failing sender sinks no other step", async () => {
+  const post = { ...emdashArticle, contentHtml: '<p><a href="https://other.example/a">A</a></p>' };
+  const calls: Array<{ source: string; targets: readonly string[]; sentLog: boolean }> = [];
+  const sent = await syndicatePublishedPost(post, testEnv, createExecutionContext(), {
+    origin: "https://owner.example",
+    federate: false,
+    sendWebmentions: async (source, targets, options) => {
+      calls.push({ source, targets, sentLog: options?.sentLog !== undefined });
+      return targets.map((target) => ({ target, endpoint: `${target}/webmention`, delivered: true, status: 202 }));
+    },
+  });
+  expect(calls).toEqual([{ source: post.url, targets: ["https://other.example/a"], sentLog: true }]);
+  expect(sent.webmentions).toEqual({ targets: 1, delivered: 1 });
+
+  const failing = await syndicatePublishedPost(post, testEnv, createExecutionContext(), {
+    origin: "https://owner.example",
+    federate: false,
+    sendWebmentions: async () => {
+      throw new Error("D1 unavailable");
+    },
+  });
+  expect(failing).toEqual({ activityPub: "skipped", webmentions: { targets: 1, delivered: 0, failed: true }, websub: "notified" });
 });

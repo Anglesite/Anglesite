@@ -58,6 +58,17 @@ export const anglesiteGate = {
   hooks: ["content:beforePublish", "content:beforeSchedule"],
 };
 
+/**
+ * `anglesite-syndication`: sends an article out when it is published (#2168): ActivityPub,
+ * Webmention and WebSub, from the Worker. A native plugin, bundled into the Worker so it reaches
+ * the Worker's own bindings; it is the overlay's own code, not a marketplace plugin.
+ */
+export const anglesiteSyndication = {
+  id: "anglesite-syndication",
+  version: "0.1.0",
+  entrypoint: fileURLToPath(new URL("./src/lib/syndication-plugin.ts", import.meta.url)),
+};
+
 /** The Worker config Anglesite stages before the build, or `undefined` (local development). */
 function stagedWorkerConfig(): string | undefined {
   try {
@@ -113,7 +124,7 @@ const config: AstroUserConfig = {
     emdash({
       database: d1({ binding: EMDASH_BINDINGS.database }),
       storage: r2({ binding: EMDASH_BINDINGS.media }),
-      plugins: [anglesiteGate],
+      plugins: [anglesiteGate, anglesiteSyndication],
       // Marketplace plugins run sandboxed, in their own isolates, when the Worker config has a
       // `LOADER` Worker Loader binding (a paid-plan feature); `sandbox()` returns nothing without
       // one, and they stay off. Plugins in `plugins` above always run in-process, so

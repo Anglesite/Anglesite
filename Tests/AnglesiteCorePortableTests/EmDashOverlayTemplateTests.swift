@@ -142,7 +142,13 @@ struct EmDashOverlayTemplateTests {
         #expect(config.contains(#"from "./\#(EmDashScaffold.templateConfigFileName)""#))
         #expect(config.contains(#"id: "anglesite-gate""#))
         #expect(config.contains("./scripts/emdash-gate/plugin.ts"))
-        #expect(config.contains("plugins: [anglesiteGate]"))
+        #expect(config.contains("plugins: [anglesiteGate, anglesiteSyndication]"))
+        // Syndication on publish (#2168): a native plugin in the overlay's own code, outside the
+        // gate's pinned scripts/.
+        #expect(config.contains(#"id: "anglesite-syndication""#))
+        #expect(config.contains("./src/lib/syndication-plugin.ts"))
+        #expect(FileManager.default.fileExists(
+            atPath: Self.overlay.appendingPathComponent("src/lib/syndication-plugin.ts").path))
         // The deploy layer (#2055 slice 2) refuses a server build without the pinned manifest.
         #expect(config.contains(#"from "./scripts/anglesite-build-manifest.ts""#))
         #expect(config.contains("anglesiteBuildManifest()"))

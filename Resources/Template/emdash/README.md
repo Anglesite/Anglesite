@@ -38,6 +38,14 @@ and 4):
   (`ROUTES` in `worker/worker.ts`) goes to that Worker's handler, and so do its queues and crons.
   Everything else goes to Astro. Publish Site writes their bindings into the same
   `Config/wrangler.toml`.
+- `src/lib/syndication-plugin.ts`: `anglesite-syndication` (#2168), a native EmDash plugin the
+  config registers beside `anglesite-gate`. When an article is published, in EmDash's admin or on
+  schedule, it sends the article out from the Worker:
+  - to ActivityPub followers, once per article;
+  - as Webmentions to the sites it links to;
+  - as a WebSub notice for the feeds.
+  `src/lib/published-article.ts` maps EmDash's entry onto what `syndicatePublishedPost` in
+  `worker/worker.ts` sends.
 - `seed/seed.json`: the EmDash schema a new site starts with. It maps the `articles` collection
   onto Anglesite's `articles` content type.
 - `package.json` / `package-lock.json`: the template's dependencies plus EmDash's. The owner

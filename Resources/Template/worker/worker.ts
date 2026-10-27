@@ -7,6 +7,9 @@ import {
   createWebmention,
   createWebmentionQueueConsumer,
   createD1Inbox,
+  createD1SentLog,
+  extractLinks,
+  sendWebmentions,
   type WebmentionEnv,
   type WebmentionJob,
 } from "@dwk/webmention";
@@ -22,6 +25,7 @@ import {
   type ActivityPubEnv,
 } from "@dwk/activitypub";
 import {
+  createPublishNotifier,
   createWebSub,
   createWebSubQueueConsumer,
   type WebSubConfig,
@@ -1251,6 +1255,184 @@ async function fanOutMicropubCreateToActivityPub(
   } catch {
     // Swallow: the Micropub post is already saved; a federation hiccup must not surface as a
     // failure to the Micropub client.
+  }
+}
+
+/**
+ * A post published outside the static build, as syndication needs it: an EmDash article, which
+ * goes live in EmDash rather than through Publish Site (#2168). `contentHtml` is the rendered
+ * body, and its links are the Webmention targets.
+ */
+export interface PublishedPost {
+  /** The post's absolute canonical URL. */
+  url: string;
+  type: "Article" | "Note";
+  name?: string;
+  summary?: string;
+  contentHtml: string;
+  /** ISO 8601. */
+  published: string;
+  image?: { url: string; name?: string };
+}
+
+/** What `syndicatePublishedPost` did, step by step, for the caller's log. */
+export interface SyndicationOutcome {
+  /** `skipped`: the caller said not to (already federated); `unavailable`: not provisioned. */
+  activityPub: "published" | "skipped" | "unavailable" | "failed";
+  /**
+   * Targets found in the post, and how many of their endpoints accepted the Webmention. `failed`
+   * when sending itself threw (none are counted as delivered).
+   */
+  webmentions: { targets: number; delivered: number; failed?: true };
+  websub: "notified" | "unavailable" | "failed";
+}
+
+/**
+ * Sends a just-published post out (#2168), in-process, from the Worker that serves it: the
+ * Worker-side equivalent of the app's post-deploy passes for a post the static build never
+ * contained. Each step runs only when its feature is provisioned, and none throws: a step that
+ * fails is reported in the outcome, and the others still run.
+ *
+ * - **ActivityPub:** published to followers through the actor's owner-only outbox, as
+ *   `fanOutMicropubCreateToActivityPub` does, unless `federate` is false. The caller decides
+ *   that, so that republishing an edited post doesn't post it to followers again.
+ * - **Webmention:** sent to every other site the post links to (`@dwk/webmention`'s sender,
+ *   SSRF-guarded). Re-sent on every publish, as Webmention §3.1.4 asks of an updated source, and
+ *   recorded in the D1 sent-log when the social database is bound, for a later deletion's resend.
+ * - **WebSub:** the hub is told every site feed changed, so subscribers fetch them again.
+ *
+ * `origin` is the site's canonical origin: the actor IRI followers know, and the host whose own
+ * links aren't Webmention targets. `sendWebmentions` replaces `@dwk/webmention`'s sender, for tests.
+ */
+export async function syndicatePublishedPost(
+  post: PublishedPost,
+  env: WorkerEnv,
+  ctx: ExecutionContext,
+  options: { origin: string; federate: boolean; sendWebmentions?: typeof sendWebmentions },
+): Promise<SyndicationOutcome> {
+  const { origin, federate } = options;
+  // Each step reports its own failure, so one that throws never hides another's outcome; the
+  // fallbacks are the backstop for a throw outside those reports.
+  const [activityPub, webmentions, websub] = await Promise.all([
+    federate
+      ? settle(publishToFollowers(post, env, ctx, origin), "failed" as const)
+      : Promise.resolve("skipped" as const),
+    settle(sendPostWebmentions(post, env, origin, options.sendWebmentions ?? sendWebmentions), {
+      targets: 0, delivered: 0, failed: true as const,
+    }),
+    settle(notifyFeedSubscribers(env), "failed" as const),
+  ]);
+  return { activityPub, webmentions, websub };
+}
+
+/** `promise`'s value, or `fallback` if it rejects. */
+async function settle<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await promise;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * The Webmention targets in a post's HTML: its distinct http(s) links to other hosts. A link to
+ * the site's own host isn't one; `www.` or another subdomain is a different host, and is.
+ */
+export async function webmentionTargets(html: string, baseUrl: string, origin: string): Promise<string[]> {
+  const host = new URL(origin).host;
+  const links = await extractLinks(html, baseUrl);
+  return [...new Set(links)].filter((link) => {
+    try {
+      const url = new URL(link);
+      return (url.protocol === "https:" || url.protocol === "http:") && url.host !== host;
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function publishToFollowers(
+  post: PublishedPost,
+  env: WorkerEnv,
+  ctx: ExecutionContext,
+  origin: string,
+): Promise<SyndicationOutcome["activityPub"]> {
+  if (!env.AP_PUBLISH_TOKEN || !env.ACTOR) return "unavailable";
+  const actorIRI = `${origin}/users/${ACTIVITYPUB_USERNAME}`;
+  const mediaType = post.image ? imageMediaTypeForUrl(post.image.url) : undefined;
+  const object = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    type: post.type,
+    attributedTo: actorIRI,
+    ...(post.name ? { name: post.name } : {}),
+    ...(post.summary ? { summary: post.summary } : {}),
+    content: post.contentHtml,
+    url: tagFediverseUrl(post.url, utmCodesArtifact),
+    published: post.published,
+    ...(post.image
+      ? {
+          attachment: [
+            {
+              type: "Image",
+              url: post.image.url,
+              ...(mediaType !== undefined ? { mediaType } : {}),
+              ...(post.image.name ? { name: post.image.name } : {}),
+            },
+          ],
+        }
+      : {}),
+    // Public: an EmDash site offers no audience-limited posts (external-CMS ADR, Consequences).
+    to: [AS2_PUBLIC],
+  };
+  const request = new Request(`${actorIRI}/outbox`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/activity+json",
+      authorization: `Bearer ${env.AP_PUBLISH_TOKEN}`,
+    },
+    body: JSON.stringify(object),
+  });
+  try {
+    const response = await handleActivityPub(request, env, ctx);
+    return response.ok ? "published" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+async function sendPostWebmentions(
+  post: PublishedPost,
+  env: WorkerEnv,
+  origin: string,
+  send: typeof sendWebmentions,
+): Promise<SyndicationOutcome["webmentions"]> {
+  let targets: string[];
+  try {
+    targets = await webmentionTargets(post.contentHtml, post.url, origin);
+  } catch {
+    return { targets: 0, delivered: 0, failed: true };
+  }
+  if (targets.length === 0) return { targets: 0, delivered: 0 };
+  try {
+    const results = await send(post.url, targets, {
+      ...(env.WEBMENTION_INBOX ? { sentLog: createD1SentLog(env.WEBMENTION_INBOX) } : {}),
+    });
+    return { targets: targets.length, delivered: results.filter((result) => result.delivered).length };
+  } catch {
+    return { targets: targets.length, delivered: 0, failed: true };
+  }
+}
+
+async function notifyFeedSubscribers(env: WorkerEnv): Promise<SyndicationOutcome["websub"]> {
+  const origin = websubOrigin(env);
+  if (!env.WEBSUB_QUEUE || !env.WEBSUB_DB || !origin) return "unavailable";
+  const notify = createPublishNotifier(websubConfig(origin));
+  const websubEnv: WebSubEnv = { WEBSUB_DB: env.WEBSUB_DB, WEBSUB_QUEUE: env.WEBSUB_QUEUE };
+  try {
+    await Promise.all(WEBSUB_TOPIC_PATHS.map((path) => notify(websubEnv, `${origin}${path}`)));
+    return "notified";
+  } catch {
+    return "failed";
   }
 }
 
