@@ -38,6 +38,7 @@ final class DomainConfigAuditModel {
     private let writer: any CloudflareWriting
     private let keychain: any SecretStore
     private let resolutionProbe: any DomainResolutionProbing
+    private let servedHeadersProbe: any ServedHeadersProbing
     private var inFlight: Task<Void, Never>?
 
     private var currentSite: CurrentSite?
@@ -46,12 +47,14 @@ final class DomainConfigAuditModel {
         reader: any CloudflareReading = HTTPCloudflareClient(),
         writer: any CloudflareWriting = HTTPCloudflareClient(),
         keychain: any SecretStore = KeychainStore(),
-        resolutionProbe: any DomainResolutionProbing = SystemDomainResolutionProbe()
+        resolutionProbe: any DomainResolutionProbing = SystemDomainResolutionProbe(),
+        servedHeadersProbe: any ServedHeadersProbing = HTTPServedHeadersProbe()
     ) {
         self.reader = reader
         self.writer = writer
         self.keychain = keychain
         self.resolutionProbe = resolutionProbe
+        self.servedHeadersProbe = servedHeadersProbe
     }
 
     /// Threaded from `SiteWindowModel.loadAndStart`, mirroring `HardenModel.configure(site:)`.
@@ -107,7 +110,7 @@ final class DomainConfigAuditModel {
 
         inFlight?.cancel()
         inFlight = Task { @MainActor [weak self] in
-            await self?.performAudit(declared: declared, domain: domain)
+            await self?.performAudit(declared: declared, domain: domain, sourceDirectory: site.sourceDirectory)
         }
     }
 
@@ -152,7 +155,7 @@ final class DomainConfigAuditModel {
         phase = newPhase
     }
 
-    private func performAudit(declared: DomainConfig, domain: String) async {
+    private func performAudit(declared: DomainConfig, domain: String, sourceDirectory: URL) async {
         guard let token = await apiToken() else {
             setPhase(.failed(reason: CloudflareTokenMessage.notFoundWithHint))
             return
@@ -171,6 +174,7 @@ final class DomainConfigAuditModel {
             let findings = DomainConfigAudit.evaluate(
                 declared: declared, live: state, liveDNSRecords: records, domain: domain)
                 + DomainResolutionAudit.evaluate(domain: domain, apex: await apexResolution, www: await wwwResolution)
+                + (await servedHeaderFindings(declared: declared, domain: domain, sourceDirectory: sourceDirectory))
             let planItems = findings.compactMap { finding -> DomainConfigReconcileItem? in
                 guard case .autoApply(let item) = finding.remediation else { return nil }
                 return item
@@ -183,6 +187,23 @@ final class DomainConfigAuditModel {
         } catch {
             setPhase(.failed(reason: "Failed to read zone state: \(error.localizedDescription)"))
         }
+    }
+
+    /// The #2007 served-headers check: diffs `dist/_headers`' root block against what the live
+    /// site actually serves. Never throws and never blocks `.results` — every "can't tell" case
+    /// (no build yet, GitHub Pages, an unanswerable probe) resolves to no findings rather than a
+    /// failure, per the issue's resolved defaults 2, 6, and 7.
+    private func servedHeaderFindings(
+        declared: DomainConfig, domain: String, sourceDirectory: URL
+    ) async -> [DomainConfigAudit.Finding] {
+        guard DeployTargetKind(identifier: declared.deployTarget) != .githubPages else { return [] }
+        let headersURL = sourceDirectory.appendingPathComponent("dist").appendingPathComponent("_headers")
+        guard let contents = try? String(contentsOf: headersURL, encoding: .utf8) else { return [] }
+        guard let expected = HeadersFileParser.headers(forPath: "/*", in: contents), !expected.isEmpty else {
+            return []
+        }
+        guard let served = await servedHeadersProbe.fetchHeaders(domain: domain) else { return [] }
+        return ServedHeadersAudit.evaluate(expected: expected, served: served)
     }
 
     private func performReconcile(
