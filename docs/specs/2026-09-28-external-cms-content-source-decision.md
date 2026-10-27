@@ -326,14 +326,16 @@ correction, retraction or takedown must never be blocked by the gate.
     the overlay registers a native EmDash plugin, `anglesite-syndication`. Its
     `content:afterPublish` hook runs after the publish response, for editor and scheduled
     publishes alike, and calls the template Worker's `syndicatePublishedPost` in-process.
-    - ActivityPub: the article goes to followers through the actor's outbox, once per entry,
-      claimed in the plugin's KV. A failed post gives its claim back.
+    - ActivityPub: the article goes to followers through the actor's outbox as a new post the
+      first time, recorded in the plugin's KV with the IRI the outbox gave it. A failed post
+      gives its claim back. Publishing it again sends an `Update` of that object, and
+      unpublishing or deleting it sends a `Delete` and clears the record (#2174).
     - Webmention: sent to the article's links on every publish.
     - WebSub: the hub is told the feeds changed.
     - POSSE and Standard.site stay with Publish Site, because they use credentials held in the
       app's Keychain.
-    - An edited article isn't sent to followers as an `Update`, and an unpublished one isn't
-      sent as a `Delete`.
+    - A deleted article's Webmentions aren't re-sent (Webmention §3.1.5 needs its page to
+      answer `410`; the article route answers `404`).
 - **Audience-limited posts** (#1568) aren't offered on EmDash sites until the render backstop and
   an IndieAuth read gate exist on the SSR path. The restricted-content check is what enforces
   that.

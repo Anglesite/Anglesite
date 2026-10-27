@@ -40,10 +40,10 @@ test("the canonical origin is the first http(s) candidate", () => {
   assert.equal(syndicationOrigin("javascript:alert(1)", undefined), null);
 });
 
-test("an entry is posted to followers once, keyed on EmDash's id", () => {
-  assert.equal(federatedKey(record), "federated:01JCOUNCIL");
-  assert.equal(federatedKey({ ...record, slug: "renamed" }), "federated:01JCOUNCIL");
-  assert.equal(federatedKey({ ...record, id: undefined }), null);
+test("an entry's federation record is keyed on EmDash's id", () => {
+  assert.equal(federatedKey(record.id), "federated:01JCOUNCIL");
+  assert.equal(federatedKey(""), null);
+  assert.equal(federatedKey(undefined), null);
   assert.equal(articlePath("a b"), "/articles/a%20b/");
 });
 
@@ -52,4 +52,11 @@ test("an image that isn't a URL is left off, and the article still goes out", ()
   assert.ok(article);
   assert.equal(article.image, undefined);
   assert.equal(article.url, "https://news.example/articles/council-vote/");
+});
+
+test("an article changed after it was first published carries when", () => {
+  const edited = publishedArticle({ ...record, updatedAt: "2026-10-28T10:00:00.000Z" }, "https://news.example");
+  assert.equal(edited?.updated, "2026-10-28T10:00:00.000Z");
+  // Saved at the moment of publishing: not an edit.
+  assert.equal(publishedArticle({ ...record, updatedAt: record.publishedAt }, "https://news.example")?.updated, undefined);
 });

@@ -60,12 +60,13 @@ export const anglesiteGate = {
 
 /**
  * `anglesite-syndication`: sends an article out when it is published (#2168): ActivityPub,
- * Webmention and WebSub, from the Worker. A native plugin, bundled into the Worker so it reaches
- * the Worker's own bindings; it is the overlay's own code, not a marketplace plugin.
+ * Webmention and WebSub, from the Worker. An edit reaches followers as an `Update`, and an
+ * unpublished or deleted article as a `Delete` (#2174). A native plugin, bundled into the Worker
+ * so it reaches the Worker's own bindings; it is the overlay's own code, not a marketplace plugin.
  */
 export const anglesiteSyndication = {
   id: "anglesite-syndication",
-  version: "0.1.0",
+  version: "0.2.0",
   entrypoint: fileURLToPath(new URL("./src/lib/syndication-plugin.ts", import.meta.url)),
 };
 

@@ -18,6 +18,7 @@ export interface SyndicatedArticle {
   summary?: string;
   contentHtml: string;
   published: string;
+  updated?: string;
   image?: { url: string; name?: string };
 }
 
@@ -28,6 +29,7 @@ export interface PublishedRecord {
   status?: unknown;
   data?: unknown;
   publishedAt?: unknown;
+  updatedAt?: unknown;
 }
 
 /**
@@ -77,6 +79,7 @@ export function publishedArticle(record: PublishedRecord, origin: string): Syndi
     ...(view.summary ? { summary: view.summary } : {}),
     contentHtml: portableTextToHtml(fields.content),
     published: published.toISOString(),
+    ...updatedAfter(parseDate(record.updatedAt), published),
     ...imageAttachment(view.image, view.imageAlt, origin),
   };
 }
@@ -91,6 +94,11 @@ function imageAttachment(image: string | undefined, alt: string, origin: string)
   }
 }
 
+/** `updated`, when the entry was changed after it was first published. */
+function updatedAfter(updated: Date | null, published: Date): { updated?: string } {
+  return updated && updated.getTime() > published.getTime() ? { updated: updated.toISOString() } : {};
+}
+
 function parseDate(value: unknown): Date | null {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   if (typeof value !== "string" || value === "") return null;
@@ -99,10 +107,9 @@ function parseDate(value: unknown): Date | null {
 }
 
 /**
- * The plugin-KV key recording that the entry was posted to followers, once per entry: keyed on
- * EmDash's id, so a later edit, a slug change or an unpublish-and-republish isn't posted again.
- * `null` for an entry without an id.
+ * The plugin-KV key of the entry's federation record (`federation-record.ts`): keyed on EmDash's
+ * id, so an edit or a slug change updates the same post. `null` for an entry without an id.
  */
-export function federatedKey(record: PublishedRecord): string | null {
-  return typeof record.id === "string" && record.id !== "" ? `federated:${record.id}` : null;
+export function federatedKey(id: unknown): string | null {
+  return typeof id === "string" && id !== "" ? `federated:${id}` : null;
 }

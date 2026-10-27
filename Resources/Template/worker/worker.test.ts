@@ -4,6 +4,7 @@ import { createIndieAuthStore, type AuthorizationRequest } from "@dwk/indieauth"
 import { generateSigningJwk, type SolidOidcAuthorizationRequest } from "@dwk/solid-oidc";
 import { beforeEach, expect, test } from "vitest";
 import {
+  retractFromFollowers,
   validateInboxFields,
   isRateLimited,
   handleInbox,
@@ -3137,9 +3138,10 @@ const emdashArticle: PublishedPost = {
 
 test("syndication: a published article reaches followers through the outbox, and the hub is told", async () => {
   const ctx = createExecutionContext();
-  const outcome = await syndicatePublishedPost(emdashArticle, testEnv, ctx, { origin: "https://owner.example", federate: true });
+  const outcome = await syndicatePublishedPost(emdashArticle, testEnv, ctx, { origin: "https://owner.example", federation: { kind: "create" } });
   await waitOnExecutionContext(ctx);
-  expect(outcome).toEqual({ activityPub: "published", webmentions: { targets: 0, delivered: 0 }, websub: "notified" });
+  expect(outcome).toMatchObject({ activityPub: "published", webmentions: { targets: 0, delivered: 0 }, websub: "notified" });
+  expect(outcome.objectId).toMatch(/^https:\/\/owner\.example\/users\/site\/outbox\/.+\/object$/);
 
   const page = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
   const items = (await page.json() as { orderedItems?: Array<{ object?: { type?: string; name?: string; url?: string; published?: string } }> }).orderedItems ?? [];
@@ -3151,14 +3153,14 @@ test("syndication: a published article reaches followers through the outbox, and
 });
 
 test("syndication: an article already federated isn't posted again; a site without ActivityPub skips it", async () => {
-  const skipped = await syndicatePublishedPost(emdashArticle, testEnv, createExecutionContext(), { origin: "https://owner.example", federate: false });
+  const skipped = await syndicatePublishedPost(emdashArticle, testEnv, createExecutionContext(), { origin: "https://owner.example", federation: null });
   expect(skipped.activityPub).toBe("skipped");
 
   const { AP_PUBLISH_TOKEN: _token, ...withoutActivityPub } = testEnv;
-  const unavailable = await syndicatePublishedPost(emdashArticle, withoutActivityPub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: true });
+  const unavailable = await syndicatePublishedPost(emdashArticle, withoutActivityPub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create" } });
   expect(unavailable.activityPub).toBe("unavailable");
   const { WEBSUB_QUEUE: _queue, ...withoutWebSub } = testEnv;
-  expect((await syndicatePublishedPost(emdashArticle, withoutWebSub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: false })).websub).toBe("unavailable");
+  expect((await syndicatePublishedPost(emdashArticle, withoutWebSub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federation: null })).websub).toBe("unavailable");
 });
 
 test("syndication: Webmention targets are the post's distinct links to other hosts", async () => {
@@ -3180,7 +3182,7 @@ test("syndication: Webmentions go to the post's targets with the D1 sent-log, an
   const calls: Array<{ source: string; targets: readonly string[]; sentLog: boolean }> = [];
   const sent = await syndicatePublishedPost(post, testEnv, createExecutionContext(), {
     origin: "https://owner.example",
-    federate: false,
+    federation: null,
     sendWebmentions: async (source, targets, options) => {
       calls.push({ source, targets, sentLog: options?.sentLog !== undefined });
       return targets.map((target) => ({ target, endpoint: `${target}/webmention`, delivered: true, status: 202 }));
@@ -3191,10 +3193,40 @@ test("syndication: Webmentions go to the post's targets with the D1 sent-log, an
 
   const failing = await syndicatePublishedPost(post, testEnv, createExecutionContext(), {
     origin: "https://owner.example",
-    federate: false,
+    federation: null,
     sendWebmentions: async () => {
       throw new Error("D1 unavailable");
     },
   });
   expect(failing).toEqual({ activityPub: "skipped", webmentions: { targets: 1, delivered: 0, failed: true }, websub: "notified" });
+});
+
+test("syndication: an edit reaches followers as an Update of the same object, and an unpublish as a Delete (#2174)", async () => {
+  const post = { ...emdashArticle, name: "Council vote, draft", url: "https://owner.example/articles/council-vote-2174/" };
+  const created = await syndicatePublishedPost(post, testEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create" } });
+  const objectId = created.objectId!;
+  expect(created.activityPub).toBe("published");
+
+  const ctx = createExecutionContext();
+  const edited = await syndicatePublishedPost(
+    { ...post, name: "Council approves budget, 5–2", updated: "2026-10-28T10:00:00.000Z" },
+    testEnv, ctx, { origin: "https://owner.example", federation: { kind: "update", objectId } },
+  );
+  await waitOnExecutionContext(ctx);
+  expect(edited.activityPub).toBe("updated");
+  expect(edited.objectId).toBeUndefined();
+
+  // The object followers fetch is the edited one, under the IRI they already have.
+  const accept = { accept: "application/activity+json" };
+  const served = await fetchWorker(new Request(objectId, { headers: accept }));
+  expect(served.status).toBe(200);
+  expect(await served.json()).toMatchObject({ id: objectId, name: "Council approves budget, 5–2", updated: "2026-10-28T10:00:00.000Z" });
+
+  expect(await retractFromFollowers(objectId, testEnv, createExecutionContext(), "https://owner.example")).toBe("retracted");
+  const gone = await fetchWorker(new Request(objectId, { headers: accept }));
+  expect(gone.status).toBe(410);
+  expect(await gone.json()).toMatchObject({ type: "Tombstone", formerType: "Article" });
+
+  const { AP_PUBLISH_TOKEN: _token, ...withoutActivityPub } = testEnv;
+  expect(await retractFromFollowers(objectId, withoutActivityPub as WorkerEnv, createExecutionContext(), "https://owner.example")).toBe("unavailable");
 });
