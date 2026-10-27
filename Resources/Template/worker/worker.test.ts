@@ -20,7 +20,9 @@ import {
   handleWebdavCredentials,
   activityPubConfig,
   resolveFanOutAddressing,
+  syndicatePublishedPost,
   type InboxKV,
+  type PublishedPost,
   type WorkerEnv,
 } from "./worker";
 import worker from "./worker";
@@ -3117,4 +3119,43 @@ test("tools/call list_feeds: returns the build-time feed path list", async () =>
   const text = await callMcpTool(handleMcp, env, "list_feeds");
   expect(text).toContain("/rss.xml");
   expect(text).toContain("/blog/rss.xml");
+});
+
+// --- Syndicating a post published outside the build (#2168) ----------------------------------
+// An EmDash article goes live in EmDash, not through Publish Site, so its Worker sends it out.
+
+const emdashArticle: PublishedPost = {
+  url: "https://owner.example/articles/council-vote/",
+  type: "Article",
+  name: "Council approves budget",
+  summary: "The vote was 5–2.",
+  // Only links to the site itself: nothing here may reach the network.
+  contentHtml: '<p>The council voted 5–2. <a href="/articles/earlier/">Earlier</a>.</p>',
+  published: "2026-10-27T09:00:00.000Z",
+};
+
+test("syndication: a published article reaches followers through the outbox, and the hub is told", async () => {
+  const ctx = createExecutionContext();
+  const outcome = await syndicatePublishedPost(emdashArticle, testEnv, ctx, { origin: "https://owner.example", federate: true });
+  await waitOnExecutionContext(ctx);
+  expect(outcome).toEqual({ activityPub: "published", webmentions: { targets: 0, delivered: 0 }, websub: "notified" });
+
+  const page = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const items = (await page.json() as { orderedItems?: Array<{ object?: { type?: string; name?: string; url?: string; published?: string } }> }).orderedItems ?? [];
+  const article = items.find((item) => item.object?.name === "Council approves budget")?.object;
+  expect(article?.type).toBe("Article");
+  // The article's own URL, with the site's Fediverse UTM tags if it has any.
+  expect(article?.url?.startsWith(emdashArticle.url)).toBe(true);
+  expect(article?.published).toBe("2026-10-27T09:00:00.000Z");
+});
+
+test("syndication: an article already federated isn't posted again; a site without ActivityPub skips it", async () => {
+  const skipped = await syndicatePublishedPost(emdashArticle, testEnv, createExecutionContext(), { origin: "https://owner.example", federate: false });
+  expect(skipped.activityPub).toBe("skipped");
+
+  const { AP_PUBLISH_TOKEN: _token, ...withoutActivityPub } = testEnv;
+  const unavailable = await syndicatePublishedPost(emdashArticle, withoutActivityPub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: true });
+  expect(unavailable.activityPub).toBe("unavailable");
+  const { WEBSUB_QUEUE: _queue, ...withoutWebSub } = testEnv;
+  expect((await syndicatePublishedPost(emdashArticle, withoutWebSub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: false })).websub).toBe("unavailable");
 });

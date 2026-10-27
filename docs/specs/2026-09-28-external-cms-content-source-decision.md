@@ -321,9 +321,19 @@ correction, retraction or takedown must never be blocked by the gate.
     EmDash's database holds, and `EmDashWorkerConfig` merges them and their crons in.
   - Micropub is left off: it writes posts into git, and its `MEDIA` binding is EmDash's bucket.
     Inbox Capture, experiments and MCP are left off too. The publish log names what was left off.
-  - Not yet: syndicating EmDash publishes outward (ActivityPub delivery, sending Webmentions).
-    The post-deploy passes read the static build, which holds no articles, so this needs an
-    EmDash publish hook.
+  - **Syndication on publish** (#2168). Owner decision (2026-10-27): an EmDash publish hook.
+    Publish Site's post-deploy passes read the site's git content, which holds no articles, so
+    the overlay registers a native EmDash plugin, `anglesite-syndication`. Its
+    `content:afterPublish` hook runs after the publish response, for editor and scheduled
+    publishes alike, and calls the template Worker's `syndicatePublishedPost` in-process.
+    - ActivityPub: the article goes to followers through the actor's outbox, once per entry,
+      claimed in the plugin's KV. A failed post gives its claim back.
+    - Webmention: sent to the article's links on every publish.
+    - WebSub: the hub is told the feeds changed.
+    - POSSE and Standard.site stay with Publish Site, because they use credentials held in the
+      app's Keychain.
+    - An edited article isn't sent to followers as an `Update`, and an unpublished one isn't
+      sent as a `Delete`.
 - **Audience-limited posts** (#1568) aren't offered on EmDash sites until the render backstop and
   an IndieAuth read gate exist on the SSR path. The restricted-content check is what enforces
   that.
