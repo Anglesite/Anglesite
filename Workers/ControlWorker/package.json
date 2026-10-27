@@ -10,7 +10,7 @@
     "build:guest": "node build-guest.js"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "1.0.1"
+    "@cloudflare/sandbox": "1.0.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23",
@@ -20,5 +20,10 @@
     "vitest": "^4",
     "@types/node": "^26",
     "esbuild": "^0.28"
+  },
+  "overrides": {
+    "sharp": "^0.35.5",
+    "undici@7": "^7.30.1",
+    "zod": "^4.6.6"
   }
 }
