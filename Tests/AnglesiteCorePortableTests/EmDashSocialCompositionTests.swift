@@ -149,6 +149,40 @@ struct EmDashSocialCompositionTests {
         }
     }
 
+    @Test("well-known claims of a left-off worker don't count as served")
+    func filtersLeftOffClaims() {
+        let claim = { (owner: String, path: String) in
+            WorkerRouteClaims.OwnedClaim(owner: owner, claim: .init(path: path, match: .exact, methods: ["GET"], handler: owner))
+        }
+        let claims = [
+            claim(WorkerComposition.micropubWorkerID, "/.well-known/micropub-check"),
+            claim(WorkerComposition.webmentionWorkerID, "/.well-known/webmention-check"),
+            claim(WorkerComposition.apiCatalogOwnerID, "/.well-known/api-catalog"),
+        ]
+        #expect(EmDashSocialComposition.composableClaims(claims, workers: [Self.webmention, Self.micropub]).map(\.owner)
+            == [WorkerComposition.webmentionWorkerID, WorkerComposition.apiCatalogOwnerID])
+    }
+
+    /// The overlay's `src/worker.ts` routes a scheduled event to EmDash by string equality with
+    /// its own copy of the cron, so the two must never drift, and no social cron may equal it.
+    @Test("the overlay Worker's EmDash cron is the one Anglesite schedules, and no social cron shadows it")
+    func cronMatchesOverlay() throws {
+        let worker = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Resources/Template/emdash/src/worker.ts")
+        let source = try String(contentsOf: worker, encoding: .utf8)
+        let declaration = "const EMDASH_CRON = \""
+        let start = try #require(source.range(of: declaration)).upperBound
+        let end = try #require(source[start...].firstIndex(of: "\""))
+        #expect(String(source[start..<end]) == EmDashWorkerConfig.cron)
+
+        let every = [WorkerComposition.microsubWorkerID, WorkerComposition.solidPodWorkerID, WorkerComposition.webdavWorkerID,
+                     WorkerComposition.webmentionWorkerID, WorkerComposition.websubWorkerID, WorkerComposition.indieauthWorkerID,
+                     WorkerComposition.activitypubWorkerID, WorkerComposition.solidOidcWorkerID].map { Self.worker($0) }
+        let social = try WorkerComposition.generateWranglerToml(siteName: "news", workers: every, host: .emdash)
+        #expect(!social.cronSchedules.isEmpty)
+        #expect(!social.cronSchedules.contains(EmDashWorkerConfig.cron))
+    }
+
     /// The config `scripts/check-emdash-overlay.sh` builds and boots an EmDash site with, so the
     /// check exercises exactly what `EmDashWorkerConfig` writes. Local ids stand in for Cloudflare's.
     @Test("the overlay check's Worker config is the one Anglesite writes")

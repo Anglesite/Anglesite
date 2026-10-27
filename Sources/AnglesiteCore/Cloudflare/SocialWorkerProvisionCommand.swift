@@ -341,7 +341,8 @@ public actor SocialWorkerProvisionCommand {
             let deployResult = await DeployCommand(target: target, executor: executor).deploy(
                 siteID: siteID, siteDirectory: siteDirectory, configDirectory: configDirectory,
                 currentRoutes: currentRoutes,
-                wellKnownDynamicClaims: composable.isEmpty ? [] : wellKnownDynamicClaims,
+                wellKnownDynamicClaims: composable.isEmpty
+                    ? [] : EmDashSocialComposition.composableClaims(wellKnownDynamicClaims, workers: workers),
                 onPreflight: onPreflight, onDomainAttach: onDomainAttach,
                 onMarkdownForAgents: onMarkdownForAgents, onProgress: onProgress)
             // EmDash's own resources are in `SiteSettings.emdashResources`, recorded by the

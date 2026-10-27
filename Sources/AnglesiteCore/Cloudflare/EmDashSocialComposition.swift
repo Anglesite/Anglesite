@@ -11,6 +11,17 @@ public enum EmDashSocialComposition {
         workers.filter { $0.id != WorkerComposition.micropubWorkerID }
     }
 
+    /// The route claims of the workers that run: `claims` less those a left-off worker
+    /// declared, so the pre-deploy inventory only counts endpoints the Worker serves.
+    /// App-owned claims (`app:…`) are kept.
+    public static func composableClaims(
+        _ claims: [WorkerRouteClaims.OwnedClaim], workers: [WorkerDescriptor]
+    ) -> [WorkerRouteClaims.OwnedClaim] {
+        let composed = Set(composableWorkers(workers).map(\.id))
+        let leftOff = Set(workers.map(\.id)).subtracting(composed)
+        return claims.filter { !leftOff.contains($0.owner) }
+    }
+
     /// The owner-facing names of the features left off an EmDash site, for the publish log:
     /// Micropub, and the Worker features that serve content from the static build (Inbox Capture,
     /// a running experiment, MCP). Empty when nothing is left off.
