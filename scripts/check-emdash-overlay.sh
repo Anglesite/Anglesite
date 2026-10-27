@@ -64,6 +64,12 @@ git init -q
 # A distinctive .site-config value the runtime check looks for on a page the Worker renders:
 # the Worker has no site files, so it can only get there through the server bundle (#2133).
 printf 'PWA_THEME_COLOR=#213300\n' >> .site-config
+# The Worker config Publish Site writes, with the site's social endpoints composed in (#2162):
+# the container stages Config/wrangler.toml here before the build, and the adapter copies its
+# bindings into the server bundle. EmDashSocialCompositionTests checks this fixture is exactly
+# what EmDashWorkerConfig writes. Provisioning also turns on the pages' Webmention link.
+cp "$REPO_ROOT/Tests/AnglesiteCorePortableTests/Fixtures/EmDash/composed-wrangler.toml" wrangler.toml
+printf 'WEBMENTION_RECEIVE_ENABLED=true\n' >> .site-config
 npm ci --no-audit --no-fund
 npm run build:ci
 

@@ -1,0 +1,70 @@
+# Written by Anglesite for this EmDash site (#2103). App-owned: it lives in the site's Config/,
+# never in its repository, and is rewritten on every publish.
+name = "anglesite-check"
+main = "./src/worker.ts"
+compatibility_date = "2026-07-15"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[cache]
+enabled = false
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "anglesite-check-cms"
+database_id = "00000000-0000-4000-8000-000000002162"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "anglesite-check-cms-media"
+
+[[kv_namespaces]]
+binding = "SESSION"
+id = "00000000000000000000000000002162"
+
+# The site's social endpoints (#2162).
+
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "anglesite-check-social"
+migrations_dir = "worker/migrations"
+database_id = "00000000-0000-4000-8000-000000002163"
+
+[[d1_databases]]
+binding = "WEBMENTION_INBOX"
+database_name = "anglesite-check-social"
+database_id = "00000000-0000-4000-8000-000000002163"
+
+[[queues.producers]]
+queue = "anglesite-check-webmention"
+binding = "WEBMENTION_QUEUE"
+
+[[queues.consumers]]
+queue = "anglesite-check-webmention"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+
+[[kv_namespaces]]
+binding = "SOCIAL_KV"
+id = "00000000000000000000000000002163"
+
+[[durable_objects.bindings]]
+name = "ACTOR"
+class_name = "ActivityPubObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ActivityPubObject"]
+
+[vars]
+SITE_URL = "https://example.com"
+AP_DISPLAY_NAME = "Anglesite Check"
+
+# Secrets required for IndieAuth (set with `wrangler secret put <NAME>`):
+# TOKEN_SIGNING_KEY, INDIEAUTH_OWNER_PASSWORD

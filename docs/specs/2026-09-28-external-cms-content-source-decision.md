@@ -145,8 +145,7 @@ form of option B.
      the bindings into `dist/server/wrangler.json`, which `wrangler deploy` follows. After deploy it
      records `emdashAdminURL`, and `emdashD1DatabaseID` is recorded with the database. EmDash
      applies its own migrations on first request, and the owner creates the first account at
-     `/_emdash/admin/setup`. Social Workers aren't composed with the EmDash Worker yet
-     (#2052/#2053).
+     `/_emdash/admin/setup`. The site's social endpoints run in the same Worker (#2162, below).
    - **Bring your own.** The owner connects an existing EmDash install that runs in a Cloudflare
      account they control, through the same token onboarding Anglesite already uses for
      deploys. Anglesite then takes over the site's frontend deploy and registers `anglesite-gate`.
@@ -310,8 +309,21 @@ correction, retraction or takedown must never be blocked by the gate.
 - **Gate work.** Extract the check module, add bundle and prerender scanning to layer 1, build
   `anglesite-gate` (layer 2), and add the render backstop (layer 3). This lands as its own issue
   before any EmDash site can deploy.
-- **Composition.** The EmDash Worker *is* the public site. The per-site social Worker
-  (Webmention, ActivityPub, IndieAuth) is composed alongside it or routed in front of it.
+- **Composition.** The EmDash Worker *is* the public site. The per-site social endpoints
+  (Webmention, ActivityPub, IndieAuth) run in that same Worker. Owner decision (2026-10-27,
+  #2162): one Worker, not a second one routed in front of it.
+  - The overlay's `src/worker.ts` sends the template Worker's routes, queues and crons to its
+    handler, and everything else to Astro.
+  - `EmDashDeployTarget.prepare` provisions their resources, secrets and D1 migrations before
+    the build, through `SocialWorkerProvisionTarget.provision`. The build copies the bindings
+    into the server bundle.
+  - `WorkerComposition.Host.emdash` writes their bindings without the generic `DB`, which
+    EmDash's database holds, and `EmDashWorkerConfig` merges them and their crons in.
+  - Micropub is left off: it writes posts into git, and its `MEDIA` binding is EmDash's bucket.
+    Inbox Capture, experiments and MCP are left off too. The publish log names what was left off.
+  - Not yet: syndicating EmDash publishes outward (ActivityPub delivery, sending Webmentions).
+    The post-deploy passes read the static build, which holds no articles, so this needs an
+    EmDash publish hook.
 - **Audience-limited posts** (#1568) aren't offered on EmDash sites until the render backstop and
   an IndieAuth read gate exist on the SSR path. The restricted-content check is what enforces
   that.

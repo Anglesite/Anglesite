@@ -90,7 +90,15 @@ public enum EmDashWorkerConfig {
     /// always written, `true` or `false`, because the overlay's `astro.config.ts` reads this
     /// table to decide whether to give Astro its Cloudflare cache provider: with the provider,
     /// EmDash purges the cache on every publish, which needs a Worker that has one.
-    public static func toml(workerName: String, resources: Resources, cache: Bool = false) throws -> String {
+    ///
+    /// `social` is the site's social endpoints (Webmention, IndieAuth, ActivityPub…), composed
+    /// for this Worker (#2162): `WorkerComposition.generateWranglerToml(host: .emdash)`. Its
+    /// bindings are appended and its crons join EmDash's; the overlay's `src/worker.ts` sends the
+    /// social routes, queues and crons to the social handler.
+    public static func toml(
+        workerName: String, resources: Resources, cache: Bool = false,
+        social: WorkerComposition.WranglerConfiguration? = nil
+    ) throws -> String {
         guard resources.isComplete,
               let databaseName = resources.d1DatabaseName, let databaseID = resources.d1DatabaseID,
               let bucket = resources.mediaBucketName, let session = resources.sessionKVNamespaceID
@@ -98,6 +106,7 @@ public enum EmDashWorkerConfig {
         for value in [workerName, databaseName, databaseID, bucket, session] where !isPlainIdentifier(value) {
             throw ConfigError.invalidValue(value)
         }
+        let crons = ([cron] + (social?.cronSchedules ?? [])).map { "\"\($0)\"" }.joined(separator: ", ")
         return """
         # Written by Anglesite for this EmDash site (#2103). App-owned: it lives in the site's Config/,
         # never in its repository, and is rewritten on every publish.
@@ -113,7 +122,7 @@ public enum EmDashWorkerConfig {
         enabled = \(cache)
 
         [triggers]
-        crons = ["\(cron)"]
+        crons = [\(crons)]
 
         [[d1_databases]]
         binding = "\(databaseBinding)"
@@ -133,7 +142,7 @@ public enum EmDashWorkerConfig {
         [[worker_loaders]]
         binding = "\(workerLoaderBinding)"
 
-        """ : "")
+        """ : "") + (social.map { "\n# The site's social endpoints (#2162).\n" + $0.toml } ?? "")
     }
 
     /// The same compatibility date as the social Worker composition (`WorkerComposition`).
