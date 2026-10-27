@@ -46,3 +46,10 @@ test("an entry is posted to followers once, keyed on EmDash's id", () => {
   assert.equal(federatedKey({ ...record, id: undefined }), null);
   assert.equal(articlePath("a b"), "/articles/a%20b/");
 });
+
+test("an image that isn't a URL is left off, and the article still goes out", () => {
+  const article = publishedArticle({ ...record, data: { ...record.data, image: { src: "https://" } } }, "https://news.example");
+  assert.ok(article);
+  assert.equal(article.image, undefined);
+  assert.equal(article.url, "https://news.example/articles/council-vote/");
+});

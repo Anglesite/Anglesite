@@ -21,6 +21,7 @@ import {
   activityPubConfig,
   resolveFanOutAddressing,
   syndicatePublishedPost,
+  webmentionTargets,
   type InboxKV,
   type PublishedPost,
   type WorkerEnv,
@@ -3158,4 +3159,42 @@ test("syndication: an article already federated isn't posted again; a site witho
   expect(unavailable.activityPub).toBe("unavailable");
   const { WEBSUB_QUEUE: _queue, ...withoutWebSub } = testEnv;
   expect((await syndicatePublishedPost(emdashArticle, withoutWebSub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federate: false })).websub).toBe("unavailable");
+});
+
+test("syndication: Webmention targets are the post's distinct links to other hosts", async () => {
+  const html = [
+    '<p><a href="https://other.example/a">A</a> <a href="https://other.example/a">again</a>',
+    '<a href="/articles/earlier/">own, relative</a> <a href="https://owner.example/x">own</a>',
+    '<a href="https://www.owner.example/y">www is another host</a> <a href="mailto:a@b.example">mail</a>',
+    '<img src="https://cdn.example/p.jpg"></p>',
+  ].join(" ");
+  expect(await webmentionTargets(html, emdashArticle.url, "https://owner.example")).toEqual([
+    "https://other.example/a",
+    "https://www.owner.example/y",
+    "https://cdn.example/p.jpg",
+  ]);
+});
+
+test("syndication: Webmentions go to the post's targets with the D1 sent-log, and a failing sender sinks no other step", async () => {
+  const post = { ...emdashArticle, contentHtml: '<p><a href="https://other.example/a">A</a></p>' };
+  const calls: Array<{ source: string; targets: readonly string[]; sentLog: boolean }> = [];
+  const sent = await syndicatePublishedPost(post, testEnv, createExecutionContext(), {
+    origin: "https://owner.example",
+    federate: false,
+    sendWebmentions: async (source, targets, options) => {
+      calls.push({ source, targets, sentLog: options?.sentLog !== undefined });
+      return targets.map((target) => ({ target, endpoint: `${target}/webmention`, delivered: true, status: 202 }));
+    },
+  });
+  expect(calls).toEqual([{ source: post.url, targets: ["https://other.example/a"], sentLog: true }]);
+  expect(sent.webmentions).toEqual({ targets: 1, delivered: 1 });
+
+  const failing = await syndicatePublishedPost(post, testEnv, createExecutionContext(), {
+    origin: "https://owner.example",
+    federate: false,
+    sendWebmentions: async () => {
+      throw new Error("D1 unavailable");
+    },
+  });
+  expect(failing).toEqual({ activityPub: "skipped", webmentions: { targets: 1, delivered: 0, failed: true }, websub: "notified" });
 });

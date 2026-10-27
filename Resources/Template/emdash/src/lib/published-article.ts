@@ -55,7 +55,8 @@ export function articlePath(slug: string): string {
 
 /**
  * The published article, or `null` for one that has no public URL (no slug), isn't live, or has
- * no publication time. A relative image (EmDash's media route) is made absolute on `origin`.
+ * no publication time. A relative image (EmDash's media route) is made absolute on `origin`; one
+ * that isn't a URL is left off rather than holding the article back.
  */
 export function publishedArticle(record: PublishedRecord, origin: string): SyndicatedArticle | null {
   if (record.status !== undefined && record.status !== "published") return null;
@@ -76,10 +77,18 @@ export function publishedArticle(record: PublishedRecord, origin: string): Syndi
     ...(view.summary ? { summary: view.summary } : {}),
     contentHtml: portableTextToHtml(fields.content),
     published: published.toISOString(),
-    ...(view.image
-      ? { image: { url: new URL(view.image, origin).href, ...(view.imageAlt ? { name: view.imageAlt } : {}) } }
-      : {}),
+    ...imageAttachment(view.image, view.imageAlt, origin),
   };
+}
+
+/** The image as an absolute URL on `origin`; a value that isn't a URL drops only the image. */
+function imageAttachment(image: string | undefined, alt: string, origin: string): { image?: SyndicatedArticle["image"] } {
+  if (!image) return {};
+  try {
+    return { image: { url: new URL(image, origin).href, ...(alt ? { name: alt } : {}) } };
+  } catch {
+    return {};
+  }
 }
 
 function parseDate(value: unknown): Date | null {

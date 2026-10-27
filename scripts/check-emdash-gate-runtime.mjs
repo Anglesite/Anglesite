@@ -64,6 +64,8 @@ let originalWranglerConfig;
 const site = resolve(process.argv[2] ?? "");
 const wranglerConfigPath = join(site, "dist", "server", "wrangler.json");
 const localStateDir = join(site, ".wrangler", "state");
+/** Local secrets for the run: the ActivityPub keys and publish token Publish Site pushes (#2168). */
+const devVarsPath = join(site, "dist", "server", ".dev.vars");
 const astroBin = join(site, "node_modules", "astro", "bin", "astro.mjs");
 const wranglerBin = join(site, "node_modules", "wrangler", "bin", "wrangler.js");
 const tsxBin = join(site, "node_modules", "tsx", "dist", "cli.mjs");
@@ -156,9 +158,6 @@ for (const required of [join(site, "dist", "server", "entry.mjs"), wranglerConfi
   if (!existsSync(required)) fail(`not a built EmDash site: missing ${required}`);
 }
 originalWranglerConfig = readFileSync(wranglerConfigPath, "utf8");
-/** Local secrets for the run: the ActivityPub keys and publish token Publish Site pushes (#2168). */
-const devVarsPath = join(site, "dist", "server", ".dev.vars");
-
 /** Whether the build carries the social endpoints' bindings (a staged composed config, #2162). */
 const composesSocial = (JSON.parse(originalWranglerConfig).queues?.producers ?? []).some((queue) => queue.binding === "WEBMENTION_QUEUE");
 
@@ -181,9 +180,9 @@ async function freePort() {
 function stageWorkerConfig() {
   const config = JSON.parse(originalWranglerConfig);
   config.compatibility_flags = [...new Set([...(config.compatibility_flags ?? []), "nodejs_compat"])];
+  if (composesSocial) stageActivityPubSecrets();
   if ((config.d1_databases ?? []).some((database) => database.binding === DB_BINDING)) {
     writeFileSync(wranglerConfigPath, JSON.stringify(config));
-    if (composesSocial) stageActivityPubSecrets();
     return;
   }
   config.d1_databases = [
