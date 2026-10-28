@@ -209,17 +209,21 @@ function stageActivityPubSecrets() {
 }
 
 /**
- * The ActivityPub outcome on the `occurrence`th line of the server log `pattern` (global, one
- * capture) matches, waiting for it: syndication runs after EmDash has answered.
+ * The ActivityPub outcome on the first server-log line `pattern` (one capture) matches after
+ * offset `since` (`serverLog.length` before the action), waiting for it: syndication runs after
+ * EmDash has answered.
  */
-async function loggedActivityPub(pattern, occurrence) {
+async function loggedActivityPub(pattern, since) {
   for (let waited = 0; waited < 20_000; waited += 250) {
-    const found = [...serverLog.matchAll(pattern)];
-    if (found.length >= occurrence) return found[occurrence - 1][1];
+    const found = serverLog.slice(since).match(pattern);
+    if (found) return found[1];
     await sleep(250);
   }
   return undefined;
 }
+
+/** The outcome a syndication log line reports for the entry `id`. */
+const syndicatedEntry = (id) => new RegExp(`syndicated \\S+ \\(entry ${id}\\): ActivityPub (\\w+)`);
 
 async function request(base, path, { method = "GET", token, body } = {}) {
   const headers = {};
@@ -390,6 +394,7 @@ async function main() {
   check(clean.status === 201 && typeof clean.json?.data?.item?.id === "string", "a clean draft is saved as a draft");
   const cleanID = clean.json.data.item.id;
 
+  const beforePublish = serverLog.length;
   const published = await request(base, `/_emdash/api/content/articles/${cleanID}/publish`, { method: "POST", token, body: {} });
   check(published.status === 200 && published.json?.data?.item?.status === "published", `publishing it succeeds (HTTP ${published.status})`);
   const cleanPage = await request(base, "/articles/council-vote/");
@@ -409,7 +414,7 @@ async function main() {
     // Publishing it ran `anglesite-syndication`'s `content:afterPublish` hook after the response
     // (#2168): the article went to the actor's outbox in-process. The actor is keyed on the
     // canonical origin (the config's SITE_URL), not this preview's, so its own log line is read.
-    const federation = await loggedActivityPub(/syndicated https:\/\/example\.com\/articles\/council-vote\/: ActivityPub (\w+)/g, 1);
+    const federation = await loggedActivityPub(syndicatedEntry(cleanID), beforePublish);
     check(federation === "published", `publishing it sends the article to ActivityPub followers from the Worker (${federation ?? "no syndication logged"})`);
   }
 
@@ -463,14 +468,16 @@ async function main() {
       body: { data: { ...cleanData, summary: "The vote, with the amendment" } },
     });
     check(edited.status === 200, `editing the published article is saved (HTTP ${edited.status})`);
+    const beforeRepublish = serverLog.length;
     const republished = await request(base, `/_emdash/api/content/articles/${cleanID}/publish`, { method: "POST", token, body: {} });
     check(republished.status === 200, `publishing the edit succeeds (HTTP ${republished.status})`);
-    const update = await loggedActivityPub(/syndicated https:\/\/example\.com\/articles\/council-vote\/: ActivityPub (\w+)/g, 2);
+    const update = await loggedActivityPub(syndicatedEntry(cleanID), beforeRepublish);
     check(update === "updated", `the edit reaches followers as an Update, not a second post (${update ?? "no syndication logged"})`);
 
+    const beforeUnpublish = serverLog.length;
     const unpublished = await request(base, `/_emdash/api/content/articles/${cleanID}/unpublish`, { method: "POST", token, body: {} });
     check(unpublished.status === 200, `unpublishing the article succeeds (HTTP ${unpublished.status})`);
-    const retraction = await loggedActivityPub(new RegExp(`unpublished entry ${cleanID}: ActivityPub (\\w+)`, "g"), 1);
+    const retraction = await loggedActivityPub(new RegExp(`unpublished entry ${cleanID}: ActivityPub (\\w+)`), beforeUnpublish);
     check(retraction === "retracted", `unpublishing it takes the post back from followers with a Delete (${retraction ?? "no retraction logged"})`);
   }
 

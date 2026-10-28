@@ -327,9 +327,15 @@ correction, retraction or takedown must never be blocked by the gate.
     `content:afterPublish` hook runs after the publish response, for editor and scheduled
     publishes alike, and calls the template Worker's `syndicatePublishedPost` in-process.
     - ActivityPub: the article goes to followers through the actor's outbox as a new post the
-      first time, recorded in the plugin's KV with the IRI the outbox gave it. A failed post
-      gives its claim back. Publishing it again sends an `Update` of that object, and
-      unpublishing or deleting it sends a `Delete` and clears the record (#2174).
+      first time. The plugin's KV records the post's object IRI before it is sent; the IRI is
+      chosen in the outbox's namespace, so the outbox serves it. A failed post gives its claim
+      back, and a claim left unconfirmed past any hook's run time is taken over under the same
+      IRI. Publishing again sends an `Update` of that object. Unpublishing or deleting sends a
+      `Delete` and clears the record, so publishing it again posts afresh (#2174).
+    - Accepted narrow cases. If an article is unpublished while its first post is still being
+      sent, the `Delete` goes out and the outbox serves a `Tombstone`. A follower's server could
+      still receive the `Create` after the `Delete`. Articles first posted before #2174 have no
+      recorded IRI, so their edits and removals aren't sent (the plugin logs this).
     - Webmention: sent to the article's links on every publish.
     - WebSub: the hub is told the feeds changed.
     - POSSE and Standard.site stay with Publish Site, because they use credentials held in the

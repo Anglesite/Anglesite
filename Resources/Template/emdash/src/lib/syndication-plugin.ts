@@ -17,10 +17,10 @@
  */
 import { definePlugin } from "emdash";
 import { env, waitUntil } from "cloudflare:workers";
-import { retractFromFollowers, syndicatePublishedPost, type WorkerEnv } from "../../worker/worker.ts";
+import { newPostObjectIri, retractFromFollowers, syndicatePublishedPost, type WorkerEnv } from "../../worker/worker.ts";
 import { readConfig } from "../../scripts/config.ts";
 import { federatedKey, publishedArticle, syndicationOrigin, type PublishedRecord } from "./published-article.ts";
-import { retractRecorded, syndicateRecorded } from "./federation-record.ts";
+import { retractRecorded, syndicateRecorded, type RecordStore } from "./federation-record.ts";
 
 /** The Worker's background-work context, for the social handlers that take one. */
 const executionContext = {
@@ -37,18 +37,22 @@ const workerEnv = () => env as unknown as WorkerEnv;
 /** The site's canonical origin, or `null` (then nothing goes out). */
 const originFor = (siteURL: string) => syndicationOrigin(workerEnv().SITE_URL, readConfig("SITE_URL"), siteURL);
 
+/** The slice of EmDash's plugin context these hooks use. */
+interface HookContext {
+  kv: RecordStore;
+  site: { url: string };
+  log: { info(message: string): void; warn(message: string): void };
+}
+
 /** Takes an article back from followers, when it was posted to them. */
-async function retract(
-  id: unknown,
-  ctx: { kv: Parameters<typeof retractRecorded>[0]; site: { url: string }; log: { info(message: string): void } },
-  reason: string,
-): Promise<void> {
+async function retract(id: unknown, ctx: HookContext, reason: string): Promise<void> {
   const origin = originFor(ctx.site.url);
   if (!origin) return;
   const result = await retractRecorded(
     ctx.kv, federatedKey(id),
     (objectId) => retractFromFollowers(objectId, workerEnv(), executionContext, origin),
     "retracted",
+    { warn: (message) => ctx.log.warn(message) },
   );
   if (result !== "none") ctx.log.info(`${reason} entry ${String(id)}: ActivityPub ${result}`);
 }
@@ -70,11 +74,14 @@ export function createPlugin() {
           const article = origin ? publishedArticle(record, origin) : null;
           if (!origin || !article) return;
 
-          const outcome = await syndicateRecorded(ctx.kv, federatedKey(record.id), article.published, (federation) =>
-            syndicatePublishedPost(article, workerEnv(), executionContext, { origin, federation }),
+          const outcome = await syndicateRecorded(
+            ctx.kv, federatedKey(record.id), article.published,
+            () => newPostObjectIri(origin),
+            (federation) => syndicatePublishedPost(article, workerEnv(), executionContext, { origin, federation }),
+            { warn: (message) => ctx.log.warn(message) },
           );
           ctx.log.info(
-            `syndicated ${article.url}: ActivityPub ${outcome.activityPub}, ` +
+            `syndicated ${article.url} (entry ${String(record.id)}): ActivityPub ${outcome.activityPub}, ` +
               `Webmentions ${outcome.webmentions.delivered}/${outcome.webmentions.targets}` +
               `${outcome.webmentions.failed ? " (failed)" : ""}, WebSub ${outcome.websub}`,
           );

@@ -4,6 +4,7 @@ import { createIndieAuthStore, type AuthorizationRequest } from "@dwk/indieauth"
 import { generateSigningJwk, type SolidOidcAuthorizationRequest } from "@dwk/solid-oidc";
 import { beforeEach, expect, test } from "vitest";
 import {
+  newPostObjectIri,
   retractFromFollowers,
   validateInboxFields,
   isRateLimited,
@@ -3138,10 +3139,9 @@ const emdashArticle: PublishedPost = {
 
 test("syndication: a published article reaches followers through the outbox, and the hub is told", async () => {
   const ctx = createExecutionContext();
-  const outcome = await syndicatePublishedPost(emdashArticle, testEnv, ctx, { origin: "https://owner.example", federation: { kind: "create" } });
+  const outcome = await syndicatePublishedPost(emdashArticle, testEnv, ctx, { origin: "https://owner.example", federation: { kind: "create", objectId: newPostObjectIri("https://owner.example") } });
   await waitOnExecutionContext(ctx);
   expect(outcome).toMatchObject({ activityPub: "published", webmentions: { targets: 0, delivered: 0 }, websub: "notified" });
-  expect(outcome.objectId).toMatch(/^https:\/\/owner\.example\/users\/site\/outbox\/.+\/object$/);
 
   const page = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
   const items = (await page.json() as { orderedItems?: Array<{ object?: { type?: string; name?: string; url?: string; published?: string } }> }).orderedItems ?? [];
@@ -3157,7 +3157,7 @@ test("syndication: an article already federated isn't posted again; a site witho
   expect(skipped.activityPub).toBe("skipped");
 
   const { AP_PUBLISH_TOKEN: _token, ...withoutActivityPub } = testEnv;
-  const unavailable = await syndicatePublishedPost(emdashArticle, withoutActivityPub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create" } });
+  const unavailable = await syndicatePublishedPost(emdashArticle, withoutActivityPub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create", objectId: newPostObjectIri("https://owner.example") } });
   expect(unavailable.activityPub).toBe("unavailable");
   const { WEBSUB_QUEUE: _queue, ...withoutWebSub } = testEnv;
   expect((await syndicatePublishedPost(emdashArticle, withoutWebSub as WorkerEnv, createExecutionContext(), { origin: "https://owner.example", federation: null })).websub).toBe("unavailable");
@@ -3203,9 +3203,13 @@ test("syndication: Webmentions go to the post's targets with the D1 sent-log, an
 
 test("syndication: an edit reaches followers as an Update of the same object, and an unpublish as a Delete (#2174)", async () => {
   const post = { ...emdashArticle, name: "Council vote, draft", url: "https://owner.example/articles/council-vote-2174/" };
-  const created = await syndicatePublishedPost(post, testEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create" } });
-  const objectId = created.objectId!;
+  const objectId = newPostObjectIri("https://owner.example");
+  expect(objectId).toMatch(/^https:\/\/owner\.example\/users\/site\/outbox\/[0-9a-f-]{36}\/object$/);
+  const created = await syndicatePublishedPost(post, testEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create", objectId } });
   expect(created.activityPub).toBe("published");
+  // The post is served under the IRI chosen before it was posted.
+  const posted = await fetchWorker(new Request(objectId, { headers: { accept: "application/activity+json" } }));
+  expect(await posted.json()).toMatchObject({ id: objectId, name: "Council vote, draft" });
 
   const ctx = createExecutionContext();
   const edited = await syndicatePublishedPost(
@@ -3214,7 +3218,6 @@ test("syndication: an edit reaches followers as an Update of the same object, an
   );
   await waitOnExecutionContext(ctx);
   expect(edited.activityPub).toBe("updated");
-  expect(edited.objectId).toBeUndefined();
 
   // The object followers fetch is the edited one, under the IRI they already have.
   const accept = { accept: "application/activity+json" };
@@ -3229,4 +3232,14 @@ test("syndication: an edit reaches followers as an Update of the same object, an
 
   const { AP_PUBLISH_TOKEN: _token, ...withoutActivityPub } = testEnv;
   expect(await retractFromFollowers(objectId, withoutActivityPub as WorkerEnv, createExecutionContext(), "https://owner.example")).toBe("unavailable");
+});
+
+test("syndication: an Update always says when, so servers refresh the post (#2174)", async () => {
+  const objectId = newPostObjectIri("https://owner.example");
+  await syndicatePublishedPost(emdashArticle, testEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "create", objectId } });
+  const before = Date.now();
+  await syndicatePublishedPost({ ...emdashArticle, name: "Retitled" }, testEnv, createExecutionContext(), { origin: "https://owner.example", federation: { kind: "update", objectId } });
+  const served = await (await fetchWorker(new Request(objectId, { headers: { accept: "application/activity+json" } }))).json() as { name?: string; updated?: string };
+  expect(served.name).toBe("Retitled");
+  expect(Date.parse(served.updated ?? "")).toBeGreaterThanOrEqual(before - 1000);
 });

@@ -1279,16 +1279,23 @@ export interface PublishedPost {
 
 /**
  * What to do with followers on this publish (#2174): post it (`create`), send the post they
- * already have its current version (`update`, naming the object `create` was given), or neither.
+ * already have its current version (`update`), or neither. Both name the post's object IRI, which
+ * the caller chooses before posting (`newPostObjectIri`), so it can record it first.
  */
-export type Federation = { kind: "create" } | { kind: "update"; objectId: string } | null;
+export type Federation = { kind: "create"; objectId: string } | { kind: "update"; objectId: string } | null;
+
+/**
+ * A new IRI for a post's object, in the actor's outbox like the ones the outbox makes itself
+ * (`<outbox>/<uuid>/object`), so the outbox serves it, its `Update`s and its `Tombstone`.
+ */
+export function newPostObjectIri(origin: string): string {
+  return `${origin}/users/${ACTIVITYPUB_USERNAME}/outbox/${crypto.randomUUID()}/object`;
+}
 
 /** What `syndicatePublishedPost` did, step by step, for the caller's log. */
 export interface SyndicationOutcome {
   /** `skipped`: the caller said not to (already federated); `unavailable`: not provisioned. */
   activityPub: "published" | "updated" | "skipped" | "unavailable" | "failed";
-  /** The IRI the outbox gave the post's object, on `published`: what a later `Update` names. */
-  objectId?: string;
   /**
    * Targets found in the post, and how many of their endpoints accepted the Webmention. `failed`
    * when sending itself threw (none are counted as delivered).
@@ -1407,12 +1414,13 @@ async function publishToFollowers(
   ctx: ExecutionContext,
   origin: string,
   federation: NonNullable<Federation>,
-): Promise<Pick<SyndicationOutcome, "activityPub" | "objectId">> {
+): Promise<Pick<SyndicationOutcome, "activityPub">> {
   if (!env.AP_PUBLISH_TOKEN || !env.ACTOR) return { activityPub: "unavailable" };
   const actorIRI = `${origin}/users/${ACTIVITYPUB_USERNAME}`;
   const mediaType = post.image ? imageMediaTypeForUrl(post.image.url) : undefined;
   const object = {
     "@context": "https://www.w3.org/ns/activitystreams",
+    id: federation.objectId,
     type: post.type,
     attributedTo: actorIRI,
     ...(post.name ? { name: post.name } : {}),
@@ -1438,23 +1446,20 @@ async function publishToFollowers(
   try {
     if (federation.kind === "update") {
       // The whole current object, under the IRI followers already have; the outbox merges an
-      // owner `Update` into the object it serves.
+      // owner `Update` into the object it serves. Always with `updated`, which servers read as
+      // "refresh this": EmDash's edit time, else now.
       const { "@context": _context, ...fields } = object;
       const response = await postToOutbox(actorIRI, env, ctx, {
         "@context": "https://www.w3.org/ns/activitystreams",
         type: "Update",
-        object: { ...fields, id: federation.objectId, ...(post.updated ? { updated: post.updated } : {}) },
+        object: { ...fields, updated: post.updated ?? new Date().toISOString() },
         to: [AS2_PUBLIC],
         cc: [`${actorIRI}/followers`],
       });
       return { activityPub: response.ok ? "updated" : "failed" };
     }
     const response = await postToOutbox(actorIRI, env, ctx, object);
-    if (!response.ok) return { activityPub: "failed" };
-    // The `Create` the outbox wrapped the object in names the object's IRI.
-    const created = (await response.json()) as { object?: { id?: unknown } };
-    const objectId = typeof created.object?.id === "string" ? created.object.id : undefined;
-    return { activityPub: "published", ...(objectId ? { objectId } : {}) };
+    return { activityPub: response.ok ? "published" : "failed" };
   } catch {
     return { activityPub: "failed" };
   }
