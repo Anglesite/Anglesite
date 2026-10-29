@@ -41,7 +41,9 @@ and 4):
 - `src/lib/syndication-plugin.ts`: `anglesite-syndication` (#2168), a native EmDash plugin the
   config registers beside `anglesite-gate`. When an article is published, in EmDash's admin or on
   schedule, it sends the article out from the Worker:
-  - to ActivityPub followers, once per article;
+  - to ActivityPub followers: as a new post the first time, then as an `Update` of that post
+    when an edit is published, and as a `Delete` when the article is unpublished or deleted
+    (#2174). `src/lib/federation-record.ts` keeps which applies, in the plugin's KV;
   - as Webmentions to the sites it links to;
   - as a WebSub notice for the feeds.
   `src/lib/published-article.ts` maps EmDash's entry onto what `syndicatePublishedPost` in

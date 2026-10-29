@@ -208,6 +208,23 @@ function stageActivityPubSecrets() {
   ].join("\n"));
 }
 
+/**
+ * The ActivityPub outcome on the first server-log line `pattern` (one capture) matches after
+ * offset `since` (`serverLog.length` before the action), waiting for it: syndication runs after
+ * EmDash has answered.
+ */
+async function loggedActivityPub(pattern, since) {
+  for (let waited = 0; waited < 20_000; waited += 250) {
+    const found = serverLog.slice(since).match(pattern);
+    if (found) return found[1];
+    await sleep(250);
+  }
+  return undefined;
+}
+
+/** The outcome a syndication log line reports for the entry `id`. */
+const syndicatedEntry = (id) => new RegExp(`syndicated \\S+ \\(entry ${id}\\): ActivityPub (\\w+)`);
+
 async function request(base, path, { method = "GET", token, body } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -377,6 +394,7 @@ async function main() {
   check(clean.status === 201 && typeof clean.json?.data?.item?.id === "string", "a clean draft is saved as a draft");
   const cleanID = clean.json.data.item.id;
 
+  const beforePublish = serverLog.length;
   const published = await request(base, `/_emdash/api/content/articles/${cleanID}/publish`, { method: "POST", token, body: {} });
   check(published.status === 200 && published.json?.data?.item?.status === "published", `publishing it succeeds (HTTP ${published.status})`);
   const cleanPage = await request(base, "/articles/council-vote/");
@@ -396,12 +414,7 @@ async function main() {
     // Publishing it ran `anglesite-syndication`'s `content:afterPublish` hook after the response
     // (#2168): the article went to the actor's outbox in-process. The actor is keyed on the
     // canonical origin (the config's SITE_URL), not this preview's, so its own log line is read.
-    const syndicated = new RegExp(`syndicated https://example\\.com/articles/council-vote/: ActivityPub (\\w+)`);
-    let federation;
-    for (let waited = 0; waited < 20_000 && !federation; waited += 250) {
-      federation = serverLog.match(syndicated)?.[1];
-      if (!federation) await sleep(250);
-    }
+    const federation = await loggedActivityPub(syndicatedEntry(cleanID), beforePublish);
     check(federation === "published", `publishing it sends the article to ActivityPub followers from the Worker (${federation ?? "no syndication logged"})`);
   }
 
@@ -444,6 +457,29 @@ async function main() {
   check(tagPage.status === 200 && tagPage.text.includes(`href="${articlePath}"`) && tagPage.text.includes("Council approves budget"), "/tags/local-politics/ lists the tagged article");
   const unknownTag = await request(base, "/tags/no-such-tag/");
   check(unknownTag.status === 404, "a tag no published article carries is a 404");
+
+  // 4. Followers keep up with the article (#2174): an edit published again reaches them as an
+  //    `Update` of the post they have, and unpublishing it as a `Delete`. Last, since the checks
+  //    above need it live.
+  if (composesSocial) {
+    const edited = await request(base, `/_emdash/api/content/articles/${cleanID}`, {
+      method: "PUT",
+      token,
+      body: { data: { ...cleanData, summary: "The vote, with the amendment" } },
+    });
+    check(edited.status === 200, `editing the published article is saved (HTTP ${edited.status})`);
+    const beforeRepublish = serverLog.length;
+    const republished = await request(base, `/_emdash/api/content/articles/${cleanID}/publish`, { method: "POST", token, body: {} });
+    check(republished.status === 200, `publishing the edit succeeds (HTTP ${republished.status})`);
+    const update = await loggedActivityPub(syndicatedEntry(cleanID), beforeRepublish);
+    check(update === "updated", `the edit reaches followers as an Update, not a second post (${update ?? "no syndication logged"})`);
+
+    const beforeUnpublish = serverLog.length;
+    const unpublished = await request(base, `/_emdash/api/content/articles/${cleanID}/unpublish`, { method: "POST", token, body: {} });
+    check(unpublished.status === 200, `unpublishing the article succeeds (HTTP ${unpublished.status})`);
+    const retraction = await loggedActivityPub(new RegExp(`unpublished entry ${cleanID}: ActivityPub (\\w+)`), beforeUnpublish);
+    check(retraction === "retracted", `unpublishing it takes the post back from followers with a Delete (${retraction ?? "no retraction logged"})`);
+  }
 
   await stopServer();
   console.log("✓ anglesite-gate cancels a failing publish and passes a clean one on the built EmDash site, and its feeds, sitemap and tag pages list what it published");

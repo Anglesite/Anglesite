@@ -1272,13 +1272,30 @@ export interface PublishedPost {
   contentHtml: string;
   /** ISO 8601. */
   published: string;
+  /** ISO 8601: when the post was last changed. Sent with an `Update`. */
+  updated?: string;
   image?: { url: string; name?: string };
+}
+
+/**
+ * What to do with followers on this publish (#2174): post it (`create`), send the post they
+ * already have its current version (`update`), or neither. Both name the post's object IRI, which
+ * the caller chooses before posting (`newPostObjectIri`), so it can record it first.
+ */
+export type Federation = { kind: "create"; objectId: string } | { kind: "update"; objectId: string } | null;
+
+/**
+ * A new IRI for a post's object, in the actor's outbox like the ones the outbox makes itself
+ * (`<outbox>/<uuid>/object`), so the outbox serves it, its `Update`s and its `Tombstone`.
+ */
+export function newPostObjectIri(origin: string): string {
+  return `${origin}/users/${ACTIVITYPUB_USERNAME}/outbox/${crypto.randomUUID()}/object`;
 }
 
 /** What `syndicatePublishedPost` did, step by step, for the caller's log. */
 export interface SyndicationOutcome {
   /** `skipped`: the caller said not to (already federated); `unavailable`: not provisioned. */
-  activityPub: "published" | "skipped" | "unavailable" | "failed";
+  activityPub: "published" | "updated" | "skipped" | "unavailable" | "failed";
   /**
    * Targets found in the post, and how many of their endpoints accepted the Webmention. `failed`
    * when sending itself threw (none are counted as delivered).
@@ -1293,9 +1310,9 @@ export interface SyndicationOutcome {
  * contained. Each step runs only when its feature is provisioned, and none throws: a step that
  * fails is reported in the outcome, and the others still run.
  *
- * - **ActivityPub:** published to followers through the actor's owner-only outbox, as
- *   `fanOutMicropubCreateToActivityPub` does, unless `federate` is false. The caller decides
- *   that, so that republishing an edited post doesn't post it to followers again.
+ * - **ActivityPub:** through the actor's owner-only outbox, as `fanOutMicropubCreateToActivityPub`
+ *   does, as `federation` says: a `Create` on the post's first publish, an `Update` of that object
+ *   on a later one (#2174), so followers see the edit without being sent the post twice.
  * - **Webmention:** sent to every other site the post links to (`@dwk/webmention`'s sender,
  *   SSRF-guarded). Re-sent on every publish, as Webmention §3.1.4 asks of an updated source, and
  *   recorded in the D1 sent-log when the social database is bound, for a later deletion's resend.
@@ -1308,21 +1325,61 @@ export async function syndicatePublishedPost(
   post: PublishedPost,
   env: WorkerEnv,
   ctx: ExecutionContext,
-  options: { origin: string; federate: boolean; sendWebmentions?: typeof sendWebmentions },
+  options: { origin: string; federation: Federation; sendWebmentions?: typeof sendWebmentions },
 ): Promise<SyndicationOutcome> {
-  const { origin, federate } = options;
+  const { origin, federation } = options;
   // Each step reports its own failure, so one that throws never hides another's outcome; the
   // fallbacks are the backstop for a throw outside those reports.
-  const [activityPub, webmentions, websub] = await Promise.all([
-    federate
-      ? settle(publishToFollowers(post, env, ctx, origin), "failed" as const)
-      : Promise.resolve("skipped" as const),
+  const [federated, webmentions, websub] = await Promise.all([
+    federation
+      ? settle(publishToFollowers(post, env, ctx, origin, federation), { activityPub: "failed" as const })
+      : Promise.resolve({ activityPub: "skipped" as const }),
     settle(sendPostWebmentions(post, env, origin, options.sendWebmentions ?? sendWebmentions), {
       targets: 0, delivered: 0, failed: true as const,
     }),
     settle(notifyFeedSubscribers(env), "failed" as const),
   ]);
-  return { activityPub, webmentions, websub };
+  return { ...federated, webmentions, websub };
+}
+
+/**
+ * Takes a post back from followers (#2174): a `Delete` of the object its `Create` was given, for
+ * an article that was unpublished or deleted. The outbox then serves that object as a
+ * `Tombstone`. Never throws.
+ */
+export async function retractFromFollowers(
+  objectId: string,
+  env: WorkerEnv,
+  ctx: ExecutionContext,
+  origin: string,
+): Promise<"retracted" | "unavailable" | "failed"> {
+  if (!env.AP_PUBLISH_TOKEN || !env.ACTOR) return "unavailable";
+  const actorIRI = `${origin}/users/${ACTIVITYPUB_USERNAME}`;
+  try {
+    const response = await postToOutbox(actorIRI, env, ctx, {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Delete",
+      object: objectId,
+      to: [AS2_PUBLIC],
+      cc: [`${actorIRI}/followers`],
+    });
+    return response.ok ? "retracted" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** An owner activity (or bare object) posted to the actor's outbox, in-process. */
+function postToOutbox(actorIRI: string, env: WorkerEnv, ctx: ExecutionContext, body: unknown): Promise<Response> {
+  const request = new Request(`${actorIRI}/outbox`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/activity+json",
+      authorization: `Bearer ${env.AP_PUBLISH_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+  return handleActivityPub(request, env, ctx);
 }
 
 /** `promise`'s value, or `fallback` if it rejects. */
@@ -1356,12 +1413,14 @@ async function publishToFollowers(
   env: WorkerEnv,
   ctx: ExecutionContext,
   origin: string,
-): Promise<SyndicationOutcome["activityPub"]> {
-  if (!env.AP_PUBLISH_TOKEN || !env.ACTOR) return "unavailable";
+  federation: NonNullable<Federation>,
+): Promise<Pick<SyndicationOutcome, "activityPub">> {
+  if (!env.AP_PUBLISH_TOKEN || !env.ACTOR) return { activityPub: "unavailable" };
   const actorIRI = `${origin}/users/${ACTIVITYPUB_USERNAME}`;
   const mediaType = post.image ? imageMediaTypeForUrl(post.image.url) : undefined;
   const object = {
     "@context": "https://www.w3.org/ns/activitystreams",
+    id: federation.objectId,
     type: post.type,
     attributedTo: actorIRI,
     ...(post.name ? { name: post.name } : {}),
@@ -1384,19 +1443,25 @@ async function publishToFollowers(
     // Public: an EmDash site offers no audience-limited posts (external-CMS ADR, Consequences).
     to: [AS2_PUBLIC],
   };
-  const request = new Request(`${actorIRI}/outbox`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/activity+json",
-      authorization: `Bearer ${env.AP_PUBLISH_TOKEN}`,
-    },
-    body: JSON.stringify(object),
-  });
   try {
-    const response = await handleActivityPub(request, env, ctx);
-    return response.ok ? "published" : "failed";
+    if (federation.kind === "update") {
+      // The whole current object, under the IRI followers already have; the outbox merges an
+      // owner `Update` into the object it serves. Always with `updated`, which servers read as
+      // "refresh this": EmDash's edit time, else now.
+      const { "@context": _context, ...fields } = object;
+      const response = await postToOutbox(actorIRI, env, ctx, {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        type: "Update",
+        object: { ...fields, updated: post.updated ?? new Date().toISOString() },
+        to: [AS2_PUBLIC],
+        cc: [`${actorIRI}/followers`],
+      });
+      return { activityPub: response.ok ? "updated" : "failed" };
+    }
+    const response = await postToOutbox(actorIRI, env, ctx, object);
+    return { activityPub: response.ok ? "published" : "failed" };
   } catch {
-    return "failed";
+    return { activityPub: "failed" };
   }
 }
 

@@ -326,14 +326,22 @@ correction, retraction or takedown must never be blocked by the gate.
     the overlay registers a native EmDash plugin, `anglesite-syndication`. Its
     `content:afterPublish` hook runs after the publish response, for editor and scheduled
     publishes alike, and calls the template Worker's `syndicatePublishedPost` in-process.
-    - ActivityPub: the article goes to followers through the actor's outbox, once per entry,
-      claimed in the plugin's KV. A failed post gives its claim back.
+    - ActivityPub: the article goes to followers through the actor's outbox as a new post the
+      first time. The plugin's KV records the post's object IRI before it is sent; the IRI is
+      chosen in the outbox's namespace, so the outbox serves it. A failed post gives its claim
+      back, and a claim left unconfirmed past any hook's run time is taken over under the same
+      IRI. Publishing again sends an `Update` of that object. Unpublishing or deleting sends a
+      `Delete` and clears the record, so publishing it again posts afresh (#2174).
+    - Accepted narrow cases. If an article is unpublished while its first post is still being
+      sent, the `Delete` goes out and the outbox serves a `Tombstone`. A follower's server could
+      still receive the `Create` after the `Delete`. Articles first posted before #2174 have no
+      recorded IRI, so their edits and removals aren't sent (the plugin logs this).
     - Webmention: sent to the article's links on every publish.
     - WebSub: the hub is told the feeds changed.
     - POSSE and Standard.site stay with Publish Site, because they use credentials held in the
       app's Keychain.
-    - An edited article isn't sent to followers as an `Update`, and an unpublished one isn't
-      sent as a `Delete`.
+    - A deleted article's Webmentions aren't re-sent (Webmention §3.1.5 needs its page to
+      answer `410`; the article route answers `404`).
 - **Audience-limited posts** (#1568) aren't offered on EmDash sites until the render backstop and
   an IndieAuth read gate exist on the SSR path. The restricted-content check is what enforces
   that.
