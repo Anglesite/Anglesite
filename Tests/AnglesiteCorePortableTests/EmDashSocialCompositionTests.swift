@@ -128,6 +128,17 @@ struct EmDashSocialCompositionTests {
         #expect(await target.socialResources?.d1DatabaseID == "9e8d7c6b-aaaa-bbbb-cccc-1234567890ab")
     }
 
+    @Test("the deployed-set record omits Micropub on an EmDash site only (#2165)")
+    func recordedDeployedIDsOmitLeftOffWorkers() {
+        let active: Set<String> = [
+            WorkerComposition.webmentionWorkerID, WorkerComposition.micropubWorkerID, WorkerComposition.activitypubWorkerID,
+        ]
+        #expect(EmDashSocialComposition.deployedIDs(effectiveActiveIDs: active, serverRenderedDeploy: true)
+            == [WorkerComposition.webmentionWorkerID, WorkerComposition.activitypubWorkerID])
+        // A static site's Worker serves Micropub, so its baseline is the full set.
+        #expect(EmDashSocialComposition.deployedIDs(effectiveActiveIDs: active, serverRenderedDeploy: false) == active)
+    }
+
     @Test("features an EmDash site doesn't offer are left out, and named")
     func leavesOutGitFeatures() throws {
         #expect(EmDashSocialComposition.composableWorkers([Self.webmention, Self.micropub, Self.activitypub]).map(\.id)
