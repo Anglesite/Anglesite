@@ -1400,7 +1400,11 @@ final class DeployModel {
                 DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
             await DeployCoordinator.persistProvisionedResources(
                 configStore: configStore,
-                effectiveActiveIDs: effectiveActiveIDs, resources: resources,
+                // #2165: an EmDash site's Worker doesn't serve Micropub, so it isn't recorded as deployed.
+                effectiveActiveIDs: EmDashSocialComposition.deployedIDs(
+                    effectiveActiveIDs: effectiveActiveIDs,
+                    serverRenderedDeploy: SiteEditingSurfaces.forSourceDirectory(siteDirectory).serverRenderedDeploy),
+                resources: resources,
                 apUsername: activitypubProvisioned ? resolvedApUsername : nil,
                 communityActorURL: (isHostedCommunity && activitypubProvisioned)
                     ? ActivityPubActor.actorURL(siteURL: communityActorSiteURL) : nil
