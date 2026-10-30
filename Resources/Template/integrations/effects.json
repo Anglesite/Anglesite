@@ -6,6 +6,13 @@
       "title": "Fade-in text",
       "ownerDescription": "Text that fades in with a soft blur when the page loads.",
       "category": "text",
+      "aliases": [
+        "text fades in",
+        "heading gently appears",
+        "soft blurry entrance",
+        "text drifts in softly",
+        "words slowly come into view"
+      ],
       "keyProps": {
         "duration": "seconds (default 0.6)",
         "delay": "seconds (default 0)",
@@ -19,6 +26,12 @@
       "title": "Scale in",
       "ownerDescription": "Text or content that grows into place from a slightly smaller size.",
       "category": "text",
+      "aliases": [
+        "content grows into place",
+        "starts small then expands",
+        "pops up to full size",
+        "gentle zoom in on load"
+      ],
       "keyProps": {
         "initialScale": "starting scale (default 0.9)",
         "duration": "milliseconds (default 600)",
@@ -32,6 +45,12 @@
       "title": "Reveal image",
       "ownerDescription": "A headline where the letters reveal a background image as you scroll past.",
       "category": "text",
+      "aliases": [
+        "picture shows through the headline",
+        "photo inside big headline text",
+        "image revealed as you scroll",
+        "headline filled with a picture"
+      ],
       "keyProps": {
         "text": "overlay text (required)",
         "image1": "first image URL (required)",
@@ -49,6 +68,12 @@
       "title": "Highlight text",
       "ownerDescription": "A highlighter-style underline or background sweep behind a phrase.",
       "category": "text",
+      "aliases": [
+        "marker sweeps behind words",
+        "highlighted phrase",
+        "underline draws itself",
+        "phrase gets a highlighter stroke"
+      ],
       "keyProps": {
         "variant": "\"underline\" | \"background\" (default \"background\")",
         "color": "highlight color (default \"#FFD700\")",
@@ -62,6 +87,13 @@
       "title": "Typewriter text",
       "ownerDescription": "A line of text that types itself out, one character at a time.",
       "category": "text",
+      "aliases": [
+        "letters appear one at a time",
+        "text types itself out",
+        "typing animation",
+        "letter by letter reveal",
+        "old fashioned typing"
+      ],
       "keyProps": {
         "texts": "array of strings to cycle through (required)",
         "showCursor": "boolean (default true)",
@@ -81,6 +113,12 @@
       "title": "Animated card",
       "ownerDescription": "A card that lifts, scales, or shines on hover.",
       "category": "cards",
+      "aliases": [
+        "card lifts when hovered",
+        "box rises under the mouse",
+        "card gets a shiny sweep",
+        "tile grows on hover"
+      ],
       "keyProps": {
         "title": "card title (required)",
         "description": "card description (required)",
@@ -97,6 +135,12 @@
       "title": "Card stack",
       "ownerDescription": "A stack of testimonial or feature cards, one in front of the other.",
       "category": "cards",
+      "aliases": [
+        "pile of cards",
+        "testimonials stacked on top of each other",
+        "cards layered one behind another",
+        "deck of quotes"
+      ],
       "keyProps": {
         "cards": "array of { title, content } cards (required)",
         "stackSize": "visible cards (default 3)",
@@ -126,6 +170,12 @@
       "title": "Article card",
       "ownerDescription": "A blog-post or article preview card with a title, summary, and link.",
       "category": "cards",
+      "aliases": [
+        "blog post preview",
+        "news story teaser",
+        "post summary with a link",
+        "article tile with title and blurb"
+      ],
       "keyProps": {
         "title": "article title (required)",
         "description": "summary text (required)",
@@ -142,6 +192,12 @@
       "title": "Animated button",
       "ownerDescription": "A button with a shimmer, fill, or border sweep on hover.",
       "category": "buttons",
+      "aliases": [
+        "button shines when hovered",
+        "glittering button",
+        "button border sweeps around",
+        "sparkly call to action"
+      ],
       "keyProps": {
         "variant": "\"shimmer\" | \"fill\" | \"border\" | \"none\" (default \"none\")",
         "href": "renders as a link when set",
@@ -155,6 +211,12 @@
       "title": "Fill hover button",
       "ownerDescription": "A button whose background fills in from one edge on hover.",
       "category": "buttons",
+      "aliases": [
+        "button fills with color on hover",
+        "color floods the button",
+        "background slides across the button",
+        "button turns solid when pointed at"
+      ],
       "keyProps": {
         "as": "\"button\" | \"a\" (default \"button\")",
         "href": "link target when as=\"a\""
@@ -167,6 +229,12 @@
       "title": "Arrow CTA button",
       "ownerDescription": "A call-to-action link whose arrow slides forward on hover.",
       "category": "buttons",
+      "aliases": [
+        "arrow moves forward on hover",
+        "link with a sliding arrow",
+        "call to action arrow nudges ahead",
+        "next step arrow"
+      ],
       "keyProps": {
         "label": "button text (required)",
         "as": "\"button\" | \"a\" (default \"button\")",
@@ -182,6 +250,12 @@
       "title": "Sliding overlay button",
       "ownerDescription": "A button with a color overlay that slides in on hover.",
       "category": "buttons",
+      "aliases": [
+        "color panel slides over button",
+        "button covered by a sliding color",
+        "curtain wipes across the button",
+        "button cover slides in"
+      ],
       "keyProps": {
         "as": "\"button\" | \"a\" (default \"button\")",
         "href": "link target when as=\"a\""
@@ -194,6 +268,12 @@
       "title": "Grid dots background",
       "ownerDescription": "A subtle dot-grid or line-grid backdrop for a section.",
       "category": "backgrounds",
+      "aliases": [
+        "dotted backdrop",
+        "polka dot pattern behind a section",
+        "graph paper look",
+        "faint grid of dots"
+      ],
       "keyProps": {
         "variant": "\"dots\" | \"grid\" (default \"dots\")",
         "dotColor": "CSS color (default \"rgba(255,255,255,0.25)\")",
@@ -207,6 +287,13 @@
       "title": "Infinite marquee",
       "ownerDescription": "A row of logos, text, or cards that scrolls continuously and loops.",
       "category": "backgrounds",
+      "aliases": [
+        "logos scroll endlessly",
+        "scrolling ticker",
+        "text banner that keeps moving",
+        "looping carousel of logos",
+        "news crawl across the page"
+      ],
       "keyProps": {
         "direction": "\"left\" | \"right\" | \"up\" | \"down\" (default \"left\")",
         "speed": "CSS duration (default \"30s\")",
@@ -220,6 +307,12 @@
       "title": "Loader",
       "ownerDescription": "A spinning, dotted, or pulsing loading indicator.",
       "category": "navigation",
+      "aliases": [
+        "spinning wheel while waiting",
+        "loading circle",
+        "pulsing dots while loading",
+        "please wait spinner"
+      ],
       "keyProps": {
         "type": "\"spinner\" | \"dots\" | \"pulse\" (default \"spinner\")",
         "size": "pixels (default 40)",
@@ -233,6 +326,12 @@
       "title": "Progress bar",
       "ownerDescription": "A labeled progress bar that fills to a given value.",
       "category": "navigation",
+      "aliases": [
+        "bar that fills up",
+        "percentage meter",
+        "how far along indicator",
+        "filling gauge"
+      ],
       "keyProps": {
         "value": "current value 0-max (required)",
         "max": "maximum value (default 100)",
@@ -248,6 +347,13 @@
       "title": "Blob Morph",
       "ownerDescription": "An organic blob shape that continuously morphs between rounded shapes.",
       "category": "generativeArt",
+      "aliases": [
+        "wobbly shape that changes form",
+        "squishy blob",
+        "lava lamp shape",
+        "organic shape that keeps reshaping",
+        "rounded shape melting into another"
+      ],
       "keyProps": {
         "color": "CSS color (default \"currentColor\")",
         "size": "CSS size (default \"320px\")"
@@ -267,6 +373,12 @@
       "title": "Mesh Gradient",
       "ownerDescription": "Soft blurred color blobs that drift slowly, creating an organic gradient mesh.",
       "category": "generativeArt",
+      "aliases": [
+        "blurry colors drifting around",
+        "soft color clouds",
+        "dreamy colorful backdrop",
+        "moving blobs of color"
+      ],
       "keyProps": {
         "colors": "array of CSS colors (default purple/blue/teal/pink)"
       },
@@ -289,6 +401,12 @@
       "title": "Dot Grid Pulse",
       "ownerDescription": "A grid of dots that pulse in a wave pattern, creating a rhythmic animation.",
       "category": "generativeArt",
+      "aliases": [
+        "dots light up in a wave",
+        "rippling dots",
+        "pulsing dot pattern",
+        "rhythmic dots that throb"
+      ],
       "keyProps": {
         "columns": "grid columns (default 8)",
         "rows": "grid rows (default 4)",
@@ -310,6 +428,12 @@
       "title": "Particle Field",
       "ownerDescription": "Drifting dots connected by faint lines when close.",
       "category": "canvasBackground",
+      "aliases": [
+        "floating dots with connecting lines",
+        "starry network of specks",
+        "drifting particles",
+        "constellation of moving points"
+      ],
       "keyProps": {
         "density": "particle count (default 60)",
         "color": "dot/line color (default currentColor)"
@@ -329,6 +453,12 @@
       "title": "Aurora Gradient",
       "ownerDescription": "Slow blurred color-blob blending.",
       "category": "canvasBackground",
+      "aliases": [
+        "background colors slowly shimmer",
+        "northern lights effect",
+        "slow shifting glow behind the page",
+        "glowing color waves"
+      ],
       "keyProps": {
         "colors": "array of CSS colors (default a purple/blue/teal trio)"
       },
@@ -350,6 +480,12 @@
       "title": "Grain Overlay",
       "ownerDescription": "Subtle animated film-grain texture.",
       "category": "canvasBackground",
+      "aliases": [
+        "old film texture",
+        "grainy noise on top",
+        "vintage speckled look",
+        "flickering film grain"
+      ],
       "keyProps": {
         "opacity": "0-1 (default 0.05)"
       },
@@ -367,6 +503,12 @@
       "title": "Magnetic Button",
       "ownerDescription": "A button that eases toward the pointer as it gets close, then springs back.",
       "category": "cursorReactive",
+      "aliases": [
+        "button follows the mouse",
+        "button pulled toward the cursor",
+        "button leans toward the pointer",
+        "button snaps back after the mouse leaves"
+      ],
       "keyProps": {
         "text": "button label (default \"Get in touch\")",
         "href": "renders as a link when set"
@@ -385,6 +527,12 @@
       "title": "Cursor Glow",
       "ownerDescription": "A soft glow that follows the pointer around the page.",
       "category": "cursorReactive",
+      "aliases": [
+        "light that follows the mouse",
+        "spotlight under the cursor",
+        "glowing halo around the pointer",
+        "flashlight effect"
+      ],
       "keyProps": {
         "color": "glow color (default \"rgba(124, 58, 237, 0.35)\")"
       },
@@ -402,6 +550,12 @@
       "title": "Tilt Card",
       "ownerDescription": "A card that tilts in 3D as the pointer moves over it.",
       "category": "cursorReactive",
+      "aliases": [
+        "card tips as the mouse moves",
+        "three dimensional card",
+        "card leans toward the pointer",
+        "card swivels under the cursor"
+      ],
       "keyProps": {
         "title": "card title (default \"Card title\")",
         "body": "supporting copy (default a short placeholder line)",
@@ -422,6 +576,12 @@
       "title": "Parallax Layers",
       "ownerDescription": "A two-layer decorative block where the back layer drifts slower than the page scroll.",
       "category": "scrollDriven",
+      "aliases": [
+        "background moves slower than the page",
+        "depth effect while scrolling",
+        "layers shifting at different speeds",
+        "floating scenery as you scroll"
+      ],
       "keyProps": {
         "height": "block height (default \"40vh\")"
       },
@@ -439,6 +599,12 @@
       "title": "Reveal Mask",
       "ownerDescription": "Content that reveals with a clip-path wipe the first time it scrolls into view.",
       "category": "scrollDriven",
+      "aliases": [
+        "content wipes into view on scroll",
+        "section uncovers itself",
+        "curtain pulls back as you scroll",
+        "block revealed by a sweeping edge"
+      ],
       "keyProps": {},
       "props": {},
       "snippet": "---\nimport RevealMask from \"../components/effects/RevealMask.astro\";\n---\n<RevealMask>\n  Sample content that reveals as you scroll.\n</RevealMask>",
@@ -452,6 +618,12 @@
       "title": "Scroll Progress Trace",
       "ownerDescription": "A slim reading-progress line along the viewport edge that fills as the page scrolls.",
       "category": "scrollDriven",
+      "aliases": [
+        "reading progress line",
+        "thin bar showing how far down you are",
+        "line fills as you scroll",
+        "page position indicator"
+      ],
       "keyProps": {
         "color": "trace color (default \"currentColor\")"
       },

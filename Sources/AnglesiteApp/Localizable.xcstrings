@@ -232,6 +232,12 @@
     "%lld chars" : {
 
     },
+    "1 effect found" : {
+
+    },
+    "%lld effects found" : {
+
+    },
     "%lld followers" : {
 
     },
@@ -1931,6 +1937,9 @@
     "Deploy ${site}" : {
 
     },
+    "Describe the effect" : {
+
+    },
     "Describe what you're going for…" : {
 
     },
@@ -3119,6 +3128,9 @@
     "No editable properties" : {
 
     },
+    "No effects found" : {
+
+    },
     "No entries yet — follow a feed above to get started." : {
 
     },
@@ -3991,6 +4003,9 @@
 
     },
     "Result" : {
+
+    },
+    "Results" : {
 
     },
     "Retrieved context from %lld file%@" : {

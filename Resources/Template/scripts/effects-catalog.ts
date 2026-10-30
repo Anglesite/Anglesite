@@ -20,6 +20,7 @@ export interface EffectCatalogEntry {
   props: Record<string, unknown>;
   snippet: string;
   placement?: EffectPlacement;
+  aliases?: string[];
 }
 
 export interface EffectsCatalog {
