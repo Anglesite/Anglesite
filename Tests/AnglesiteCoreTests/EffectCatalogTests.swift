@@ -95,19 +95,22 @@ import AnglesiteTestSupport
         #expect(catalog.search("shimmer").map(\.component) == ["B", "C", "A"])
     }
 
-    @Test func prefixMatchScoresHalfWeight() {
+    @Test func singularQueryMatchesPluralAlias() {
         let catalog = EffectCatalog(entries: [
-            entry("A", title: "Alpha", aliases: ["shimmering glow"]),
-            entry("B", title: "Beta", aliases: ["shimmer"]),
+            entry("A", title: "Alpha", aliases: ["curtain wipes across the button"]),
+            entry("B", title: "Beta", aliases: ["card rises on hover"]),
         ])
-        // "shimmer" exact (3) beats prefix of "shimmering" (stem "shimmer" == exact after stemming),
-        // so use a true prefix: "shim".
-        #expect(catalog.search("shim").map(\.component) == ["A", "B"])
-        let weighted = EffectCatalog(entries: [
+        #expect(catalog.search("wipe").map(\.component) == ["A"])
+        #expect(catalog.search("wiping").map(\.component) == ["A"])
+        #expect(catalog.search("rise").map(\.component) == ["B"])
+    }
+
+    @Test func strongPrefixOutranksWeakPrefix() {
+        let catalog = EffectCatalog(entries: [
             entry("A", title: "Alpha", description: "shimmer here"),
             entry("B", title: "Beta", aliases: ["shimmery"]),
         ])
-        #expect(weighted.search("shim").map(\.component) == ["B", "A"])
+        #expect(catalog.search("shim").map(\.component) == ["B", "A"])
     }
 
     @Test func tiesKeepManifestOrder() {

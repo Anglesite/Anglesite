@@ -96,6 +96,7 @@ struct EffectsGalleryView: View {
     let exitOverlayMode: () -> Void
     @Environment(\.dismiss) private var dismiss
     @FocusState private var searchFocused: Bool
+    @State private var lastAnnouncedCount: Int?
 
     /// Set by ``startPlacement(for:)`` immediately before dismissing this sheet, so `onDisappear`
     /// can tell "the owner closed the gallery" from "the gallery handed off to the placement HUD".
@@ -144,11 +145,16 @@ struct EffectsGalleryView: View {
 
     /// VoiceOver: say how many effects the current query found (#2180).
     private func announceResultCount() {
-        guard model.isSearching else { return }
+        guard model.isSearching else { lastAnnouncedCount = nil; return }
         let count = model.results.count
-        let message = count == 0
-            ? String(localized: "No effects found")
-            : String(localized: "\(count) effects found")
+        // Only speak when the count changes, so typing doesn't stack announcements per keystroke.
+        guard count != lastAnnouncedCount else { return }
+        lastAnnouncedCount = count
+        let message = switch count {
+        case 0: String(localized: "No effects found")
+        case 1: String(localized: "1 effect found")
+        default: String(localized: "\(count) effects found")
+        }
         AccessibilityNotification.Announcement(message).post()
     }
 

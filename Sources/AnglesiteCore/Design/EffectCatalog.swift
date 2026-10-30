@@ -149,13 +149,16 @@ public struct EffectCatalog: Sendable {
     }
 
     /// Strips one of `ing`, `ed`, `es`, `ly`, `s` (first match, in that order) when at least
-    /// three characters remain.
+    /// three characters remain, then a trailing `e` from words longer than three characters.
     private static func stem(_ token: String) -> String {
+        var result = token
         for suffix in ["ing", "ed", "es", "ly", "s"] where token.hasSuffix(suffix) {
             let stem = String(token.dropLast(suffix.count))
-            if stem.count >= 3 { return stem }
+            if stem.count >= 3 { result = stem; break }
         }
-        return token
+        // "wipe"/"wipes"/"wiping" must share a root, so also drop a trailing silent "e".
+        if result.count > 3, result.hasSuffix("e") { result.removeLast() }
+        return result
     }
 
     /// Deterministic plain-language search over titles, aliases and owner descriptions.
