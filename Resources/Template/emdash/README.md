@@ -5,6 +5,12 @@ Files here replace the template's own when Anglesite creates an **EmDash site** 
 file, after `scripts/scaffold.sh` has copied the template. `scaffold.sh` leaves this directory
 out, so an Anglesite site never gets it.
 
+After that, everything under `src/` and `astro.config.ts` stays the app's (#2177), as does the
+template's `worker/`, which `src/worker.ts` imports. Opening an existing EmDash site brings those
+files up to date with this directory, and publishing restores any that were changed. Edit them
+here, not in a site. `package.json` and its lockfile are kept current by dependency sync;
+`seed/` is used once, when the site is made.
+
 The overlay turns the template into a server-rendered Astro site on Cloudflare Workers, with
 EmDash as the source of every article
 ([ADR](../../../docs/specs/2026-09-28-external-cms-content-source-decision.md), decisions 2

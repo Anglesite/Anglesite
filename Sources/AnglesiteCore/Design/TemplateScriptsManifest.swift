@@ -50,6 +50,72 @@ public enum TemplateScriptsManifest {
         return results.sorted()
     }
 
+    /// One app-owned file: where it sits in the site, and where the app's copy of it sits in the
+    /// template. The two differ only for an EmDash site's overlay files (`emdash/src/worker.ts` is
+    /// the site's `src/worker.ts`).
+    public struct AppOwnedFile: Sendable, Equatable {
+        /// The file's path in the site's `Source/`, which baselines and restores are keyed on.
+        public let sitePath: String
+        /// The file's path under the template root, which the app's bytes are read from.
+        public let templatePath: String
+
+        public init(sitePath: String, templatePath: String) {
+            self.sitePath = sitePath
+            self.templatePath = templatePath
+        }
+    }
+
+    /// The app-owned files of the site whose `Source/` is `sourceDirectory`, sorted by site path.
+    /// For an Anglesite site, exactly ``appOwnedRelativePaths(templateRoot:)``. An EmDash site
+    /// (#2050) also owns its overlay's code and routes and the social Worker they import (#2177,
+    /// owner decision 2026-10-30): see ``emdashOverlayFiles(templateRoot:)``.
+    public static func appOwnedFiles(templateRoot: URL, sourceDirectory: URL) -> [AppOwnedFile] {
+        var files: [String: AppOwnedFile] = [:]
+        for path in appOwnedRelativePaths(templateRoot: templateRoot) {
+            files[path] = AppOwnedFile(sitePath: path, templatePath: path)
+        }
+        if SiteEditingSurfaces.forSourceDirectory(sourceDirectory).serverRenderedDeploy {
+            // The overlay's copy wins where both have the file: it is what the site was given.
+            for file in emdashOverlayFiles(templateRoot: templateRoot) { files[file.sitePath] = file }
+        }
+        return files.values.sorted { $0.sitePath < $1.sitePath }
+    }
+
+    /// Where the app's copy of the site file `sitePath` sits under the template root: its overlay
+    /// path on an EmDash site, else `sitePath` itself.
+    public static func templatePath(forSitePath sitePath: String, templateRoot: URL, sourceDirectory: URL) -> String {
+        appOwnedFiles(templateRoot: templateRoot, sourceDirectory: sourceDirectory)
+            .first { $0.sitePath == sitePath }?.templatePath ?? sitePath
+    }
+
+    /// Files the generated-at-build-time artifacts in `worker/` are written to (each site's own,
+    /// gitignored), never a template file.
+    private static let workerGeneratedNames: Set<String> = ["experiments.json", "mcp-config.json"]
+
+    /// What an EmDash site owns beyond ``appOwnedRelativePaths(templateRoot:)``: everything under
+    /// the overlay's `src/` (its Worker entry, middleware, live-collections config, `src/lib/`
+    /// modules and the article, feed, sitemap and tag routes) and its `astro.config.ts`, which
+    /// `EmDashScaffold.applyTemplateOverlay` copies over the template; and the template's
+    /// `worker/`, the social Worker the overlay's entry and syndication import, which must move in
+    /// step with them. The overlay's `package.json` and lockfile are dependency sync's
+    /// (`DependencySync`), and its `seed/` is applied once, when the site is made.
+    public static func emdashOverlayFiles(templateRoot: URL) -> [AppOwnedFile] {
+        let overlay = templateRoot.appendingPathComponent(EmDashScaffold.overlayDirectoryName)
+        var files = enumerate(
+            root: overlay.appendingPathComponent("src"), relativePrefix: "src",
+            topLevelExcludedNames: [], excludeTopLevelTestFiles: false
+        ).map { AppOwnedFile(sitePath: $0, templatePath: "\(EmDashScaffold.overlayDirectoryName)/\($0)") }
+        let config = "astro.config.ts"
+        if FileManager.default.fileExists(atPath: overlay.appendingPathComponent(config).path) {
+            files.append(AppOwnedFile(sitePath: config, templatePath: "\(EmDashScaffold.overlayDirectoryName)/\(config)"))
+        }
+        files += enumerate(
+            root: templateRoot.appendingPathComponent("worker"), relativePrefix: "worker",
+            topLevelExcludedNames: workerGeneratedNames, excludeTopLevelTestFiles: false
+        ).map { AppOwnedFile(sitePath: $0, templatePath: $0) }
+        return files.sorted { $0.sitePath < $1.sitePath }
+    }
+
     private static func enumerate(
         root: URL,
         relativePrefix: String,

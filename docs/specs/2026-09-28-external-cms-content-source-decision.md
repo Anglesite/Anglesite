@@ -109,6 +109,13 @@ form of option B.
    `package.json` and lockfile (the extra packages are approved for EmDash sites only), and
    dependency sync tracks it for EmDash sites. The Worker config stays out of `Source/`:
    provisioning writes it into `Config/`.
+
+   The overlay's code and routes are app-owned on an existing EmDash site, like the template's
+   `scripts/` and `src/lib/` (#2177, owner decision 2026-10-30). These are everything under the
+   overlay's `src/`, its `astro.config.ts`, and the template's `worker/` that its entry imports.
+   `TemplateScriptsManifest.appOwnedFiles` maps each from its template path to its site path.
+   Site-open sync keeps them current, and the deploy gate pins and restores them, so an owner's
+   edit to one is replaced on publish. Pages, layout and theme stay the owner's.
 5. **Portability comes from EmDash, not a git mirror.** EmDash is MIT-licensed and open source,
    and its content lives in the owner's own D1/R2. Leaving EmDash means reading that store
    through EmDash's API or a database dump via the Portable Text rung (#2051), into a new
