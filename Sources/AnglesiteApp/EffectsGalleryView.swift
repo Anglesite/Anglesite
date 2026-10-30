@@ -16,6 +16,35 @@ final class EffectsGalleryModel {
     private(set) var templateDirectory: URL?
     private(set) var loadError: String?
     var selectedComponent: String?
+    /// The owner's plain-language search text. Non-empty switches the sidebar to a flat, ranked
+    /// "Results" list (#2180).
+    var query = ""
+
+    /// True while the query has any non-whitespace text.
+    var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// Ranked matches for the current query; empty when not searching.
+    var results: [EffectCatalogEntry] {
+        guard isSearching, let catalog else { return [] }
+        return catalog.search(query)
+    }
+
+    /// Keeps the detail pane on something visible: if the selection fell out of the results, move
+    /// to the top result; with zero results the existing selection stays.
+    func queryDidChange() {
+        guard isSearching, let first = results.first else { return }
+        if !results.contains(where: { $0.component == selectedComponent }) {
+            selectedComponent = first.component
+        }
+    }
+
+    /// Clears the query and selects the first entry of `category` (empty-state shortcut).
+    func browse(_ category: EffectCategory) {
+        query = ""
+        if let first = catalog?.entries(in: category).first {
+            selectedComponent = first.component
+        }
+    }
 
     var selectedEntry: EffectCatalogEntry? {
         guard let selectedComponent, let catalog else { return nil }
@@ -66,6 +95,7 @@ struct EffectsGalleryView: View {
     let enterOverlayMode: () -> Void
     let exitOverlayMode: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var searchFocused: Bool
 
     /// Set by ``startPlacement(for:)`` immediately before dismissing this sheet, so `onDisappear`
     /// can tell "the owner closed the gallery" from "the gallery handed off to the placement HUD".
@@ -84,6 +114,10 @@ struct EffectsGalleryView: View {
         }
         .frame(minWidth: 760, minHeight: 520)
         .task { model.load() }
+        .onChange(of: model.query) { _, _ in
+            model.queryDidChange()
+            announceResultCount()
+        }
         // Any dismissal that isn't a placement hand-off cancels an in-progress pick (#768 final
         // review, Finding 2). `.onExitCommand` alone covered Esc but not Done — or a click on the
         // dimmed parent, or a programmatic dismiss — each of which used to leave the controller
@@ -106,6 +140,16 @@ struct EffectsGalleryView: View {
         controller.startPlacement(
             for: entry, enterOverlayMode: enterOverlayMode, exitOverlayMode: exitOverlayMode)
         dismiss()
+    }
+
+    /// VoiceOver: say how many effects the current query found (#2180).
+    private func announceResultCount() {
+        guard model.isSearching else { return }
+        let count = model.results.count
+        let message = count == 0
+            ? String(localized: "No effects found")
+            : String(localized: "\(count) effects found")
+        AccessibilityNotification.Announcement(message).post()
     }
 
     @ViewBuilder private var galleryContent: some View {
@@ -143,12 +187,52 @@ struct EffectsGalleryView: View {
     /// eye in a running app, which isn't available while authoring this change) — a flat `Section`
     /// per category plus a plain `Text` group-header row above each group's first category is the
     /// construct known to render correctly in a macOS sidebar `List`.
+    @ViewBuilder
     private func sidebar(_ catalog: EffectCatalog) -> some View {
-        List(selection: $model.selectedComponent) {
-            sidebarGroup(catalog, title: "Micro-interactions", categories: Self.microInteractionCategories)
-            sidebarGroup(catalog, title: "Visual effects", categories: Self.visualEffectCategories)
+        Group {
+            if model.isSearching {
+                searchSidebar(catalog)
+            } else {
+                List(selection: $model.selectedComponent) {
+                    sidebarGroup(catalog, title: "Micro-interactions", categories: Self.microInteractionCategories)
+                    sidebarGroup(catalog, title: "Visual effects", categories: Self.visualEffectCategories)
+                }
+            }
         }
         .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        .searchable(text: $model.query, placement: .sidebar, prompt: "Describe the effect")
+        .searchFocused($searchFocused)
+        // ⌘F focuses the search field (docs/mac-assed-app-spec.md); a sheet doesn't always get the
+        // system Find binding for free.
+        .background {
+            Button("Find") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+        }
+    }
+
+    /// Flat, rank-ordered "Results" list, or the empty state with one button per category.
+    @ViewBuilder
+    private func searchSidebar(_ catalog: EffectCatalog) -> some View {
+        let results = model.results
+        if results.isEmpty {
+            VStack(spacing: 8) {
+                ContentUnavailableView.search(text: model.query)
+                ForEach(EffectCategory.allCases.filter { !catalog.entries(in: $0).isEmpty }, id: \.self) { category in
+                    Button(category.displayName) { model.browse(category) }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom)
+        } else {
+            List(selection: $model.selectedComponent) {
+                Section("Results") {
+                    ForEach(results) { entry in
+                        Text(entry.title).tag(entry.component)
+                    }
+                }
+            }
+        }
     }
 
     private static let microInteractionCategories: [EffectCategory] = [.text, .cards, .buttons, .backgrounds, .navigation]

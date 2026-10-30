@@ -28,8 +28,11 @@ public struct EffectCatalogEntry: Sendable, Codable, Identifiable, Hashable {
     /// How this effect gets deterministically inserted, or `nil` for a legacy library-backed
     /// micro-animation with no local component file to place.
     public let placement: Placement?
+    /// Everyday phrasings an owner might use to describe what a visitor sees ("text fades in"),
+    /// matched by ``EffectCatalog/search(_:)``. Optional in the manifest — a missing key is `[]`.
+    public let aliases: [String]
 
-    public init(component: String, title: String, ownerDescription: String, category: EffectCategory, keyProps: [String: String], snippet: String, placement: Placement? = nil) {
+    public init(component: String, title: String, ownerDescription: String, category: EffectCategory, keyProps: [String: String], snippet: String, placement: Placement? = nil, aliases: [String] = []) {
         self.component = component
         self.title = title
         self.ownerDescription = ownerDescription
@@ -37,6 +40,23 @@ public struct EffectCatalogEntry: Sendable, Codable, Identifiable, Hashable {
         self.keyProps = keyProps
         self.snippet = snippet
         self.placement = placement
+        self.aliases = aliases
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case component, title, ownerDescription, category, keyProps, snippet, placement, aliases
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        component = try c.decode(String.self, forKey: .component)
+        title = try c.decode(String.self, forKey: .title)
+        ownerDescription = try c.decode(String.self, forKey: .ownerDescription)
+        category = try c.decode(EffectCategory.self, forKey: .category)
+        keyProps = try c.decode([String: String].self, forKey: .keyProps)
+        snippet = try c.decode(String.self, forKey: .snippet)
+        placement = try c.decodeIfPresent(Placement.self, forKey: .placement)
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
     }
 
     /// Insertion behavior for a placeable effect.
@@ -111,5 +131,60 @@ public struct EffectCatalog: Sendable {
     /// under the same template root.
     public static func demoURL(templateDirectory: URL, component: String) -> URL {
         templateDirectory.appendingPathComponent("integrations/effects-demos/\(component).html")
+    }
+
+    // MARK: - Search (#2180)
+
+    private static let stopWords: Set<String> = [
+        "a", "an", "and", "at", "by", "for", "in", "is", "it", "its", "my", "of", "on", "one", "the", "to", "with",
+    ]
+
+    /// Folds case/diacritics, splits on non-alphanumerics, drops stop words, and lightly stems.
+    private static func tokens(_ text: String) -> [String] {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+            .filter { !stopWords.contains($0) }
+            .map(stem)
+    }
+
+    /// Strips one of `ing`, `ed`, `es`, `ly`, `s` (first match, in that order) when at least
+    /// three characters remain.
+    private static func stem(_ token: String) -> String {
+        for suffix in ["ing", "ed", "es", "ly", "s"] where token.hasSuffix(suffix) {
+            let stem = String(token.dropLast(suffix.count))
+            if stem.count >= 3 { return stem }
+        }
+        return token
+    }
+
+    /// Deterministic plain-language search over titles, aliases and owner descriptions.
+    ///
+    /// Each distinct query token scores its best match: an exact stemmed token in the title or an
+    /// alias is worth 3, in the description 1; a prefix match (query token of three or more
+    /// characters) is worth half. Results are sorted by score, ties in manifest order. A query with
+    /// no meaningful tokens returns every entry in manifest order.
+    public func search(_ query: String) -> [EffectCatalogEntry] {
+        var seen = Set<String>()
+        let queryTokens = Self.tokens(query).filter { seen.insert($0).inserted }
+        guard !queryTokens.isEmpty else { return entries }
+
+        let scored: [(index: Int, score: Double, entry: EffectCatalogEntry)] = entries.enumerated().compactMap { index, entry in
+            let strong = Set(Self.tokens(entry.title) + entry.aliases.flatMap(Self.tokens))
+            let weak = Set(Self.tokens(entry.ownerDescription))
+            var total = 0.0
+            for token in queryTokens {
+                var best = 0.0
+                if strong.contains(token) { best = 3 }
+                else if weak.contains(token) { best = 1 }
+                if best < 3, token.count >= 3 {
+                    if strong.contains(where: { $0.hasPrefix(token) }) { best = max(best, 1.5) }
+                    else if weak.contains(where: { $0.hasPrefix(token) }) { best = max(best, 0.5) }
+                }
+                total += best
+            }
+            return total > 0 ? (index, total, entry) : nil
+        }
+        return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }.map(\.entry)
     }
 }
