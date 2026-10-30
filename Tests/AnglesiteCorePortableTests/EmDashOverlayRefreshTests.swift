@@ -175,10 +175,19 @@ struct EmDashOverlayRefreshTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let template = try Self.makeTemplate(in: root)
         let site = try Self.makeSite(kind: .emdash, in: root.appendingPathComponent("e"))
-        // Listed by the walk of the overlay, but unreadable even as root: a link to nothing.
-        try FileManager.default.createSymbolicLink(
-            at: template.appendingPathComponent("emdash/src/lib/locked.ts"),
-            withDestinationURL: root.appendingPathComponent("missing.ts"))
+        // A file the walk of the overlay lists but the app can't read. A permission-denied file
+        // does it for an ordinary user (macOS CI). Root reads it anyway (this lane on Linux), and
+        // there a link to nothing does it instead: Darwin's walk can skip a dangling link, Linux's
+        // lists it.
+        let locked = template.appendingPathComponent("emdash/src/lib/locked.ts")
+        try "// locked\n".write(to: locked, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path) }
+        if (try? Data(contentsOf: locked)) != nil {
+            try FileManager.default.removeItem(at: locked)
+            try FileManager.default.createSymbolicLink(at: locked, withDestinationURL: root.appendingPathComponent("missing.ts"))
+        }
+        #expect((try? Data(contentsOf: locked)) == nil)
         #expect(TemplateScriptsManifest.appOwnedFiles(templateRoot: template, sourceDirectory: site.sourceURL)
             .contains { $0.sitePath == "src/lib/locked.ts" })
 
