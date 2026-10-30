@@ -169,6 +169,50 @@ struct EmDashOverlayRefreshTests {
         #expect(clean == .intact)
     }
 
+    @Test("the gate fails closed when it can't read an overlay file of its own")
+    func gateFailsClosedOnUnreadableOverlayFile() async throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let template = try Self.makeTemplate(in: root)
+        let site = try Self.makeSite(kind: .emdash, in: root.appendingPathComponent("e"))
+        // Listed by the walk of the overlay, but unreadable even as root: a link to nothing.
+        try FileManager.default.createSymbolicLink(
+            at: template.appendingPathComponent("emdash/src/lib/locked.ts"),
+            withDestinationURL: root.appendingPathComponent("missing.ts"))
+        #expect(TemplateScriptsManifest.appOwnedFiles(templateRoot: template, sourceDirectory: site.sourceURL)
+            .contains { $0.sitePath == "src/lib/locked.ts" })
+
+        let outcome = await AppOwnedScriptsGate.enforce(
+            sourceDirectory: site.sourceURL, configDirectory: site.configURL, templateDirectory: template,
+            source: "test", logCenter: LogCenter(), gitCommitBatch: { _, _, _ in "abc123" })
+        guard case .unverifiable(let reason) = outcome else {
+            Issue.record("expected .unverifiable, got \(outcome)")
+            return
+        }
+        #expect(reason.contains("src/lib/locked.ts"))
+    }
+
+    @Test("pins without a site are the plain set, as before")
+    func pinsWithoutSite() throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let template = try Self.makeTemplate(in: root)
+        let pins = AppOwnedScriptsGate.pins(templateDirectory: template)
+        #expect(pins.map(\.relativePath) == TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: template))
+        #expect(pins.first { $0.relativePath == "src/lib/feed-items.ts" }?.content == Data("export const feeds = 2;\n".utf8))
+        // An Anglesite site's pins are the same set.
+        let site = try Self.makeSite(kind: .anglesite, in: root.appendingPathComponent("a"))
+        #expect(AppOwnedScriptsGate.pins(templateDirectory: template, sourceDirectory: site.sourceURL) == pins)
+    }
+
+    @Test("a restored overlay route is named for what readers see, once")
+    func ownerFacingNames() {
+        #expect(AppOwnedFileDescription.summary(for: [
+            "src/pages/articles/[slug].astro", "src/pages/articles/index.astro",
+            "src/pages/tags/[tag]/index.astro", "src/worker.ts", "worker/worker.ts",
+        ]) == ["Article pages", "Tag pages", "2 site framework files"])
+    }
+
     @Test("the real template's overlay is covered: entry, syndication, routes, config and the social Worker")
     func realTemplate() throws {
         let template = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()

@@ -60,9 +60,10 @@ public enum AppOwnedScriptsGate {
     /// that predates a newly-added manifest entry) is silently absent from the result rather than
     /// throwing — the file the app can't check is exactly the one that must not slip through as
     /// "not part of the verified set" instead of "unverifiable". ``enforce(sourceDirectory:configDirectory:templateDirectory:runtimeCopy:source:logCenter:gitCommitBatch:)`` is the caller that
-    /// enforces that: it compares this result's count against
-    /// `TemplateScriptsManifest.appOwnedRelativePaths(templateRoot:)`'s and fails the whole gate
-    /// closed on any shortfall, rather than quietly verifying only the files it could read.
+    /// enforces that: it compares this result's count against the app-owned file set's
+    /// (`TemplateScriptsManifest.appOwnedFiles(templateRoot:sourceDirectory:)` for the site) and
+    /// fails the whole gate closed on any shortfall, rather than quietly verifying only the files
+    /// it could read.
     ///
     /// `sourceDirectory` is the site's `Source/`: an EmDash site's app-owned set also covers its
     /// overlay's code and routes (#2177), pinned at their site paths. `nil` pins the plain set.

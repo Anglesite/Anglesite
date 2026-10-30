@@ -115,7 +115,13 @@ form of option B.
    overlay's `src/`, its `astro.config.ts`, and the template's `worker/` that its entry imports.
    `TemplateScriptsManifest.appOwnedFiles` maps each from its template path to its site path.
    Site-open sync keeps them current, and the deploy gate pins and restores them, so an owner's
-   edit to one is replaced on publish. Pages, layout and theme stay the owner's.
+   edit to one is replaced on publish. The overlay's own routes under `src/pages/` (articles,
+   feeds, sitemaps, tags) are therefore the app's. Pages the overlay doesn't supply, the
+   layout and the theme stay the owner's. A restore is reported when the site opens, in the
+   same notice as a restored script ("Restored, because this copy had been changed: Article
+   pages…").
+   - Not yet: a file a later overlay drops or renames isn't removed from existing sites
+     (#2179). Sync only creates and updates, as it does for `scripts/`.
 5. **Portability comes from EmDash, not a git mirror.** EmDash is MIT-licensed and open source,
    and its content lives in the owner's own D1/R2. Leaving EmDash means reading that store
    through EmDash's API or a database dump via the Portable Text rung (#2051), into a new

@@ -82,14 +82,28 @@ public enum TemplateScriptsManifest {
     }
 
     /// Where the app's copy of the site file `sitePath` sits under the template root: its overlay
-    /// path on an EmDash site, else `sitePath` itself.
+    /// path on an EmDash site when the overlay supplies it, else `sitePath` itself. The same answer
+    /// ``appOwnedFiles(templateRoot:sourceDirectory:)`` gives for that file, from one file-exists
+    /// check rather than a walk of the template, since the sync applier asks once per file.
     public static func templatePath(forSitePath sitePath: String, templateRoot: URL, sourceDirectory: URL) -> String {
-        appOwnedFiles(templateRoot: templateRoot, sourceDirectory: sourceDirectory)
-            .first { $0.sitePath == sitePath }?.templatePath ?? sitePath
+        guard isOverlaySitePath(sitePath),
+              SiteEditingSurfaces.forSourceDirectory(sourceDirectory).serverRenderedDeploy
+        else { return sitePath }
+        let overlayPath = "\(EmDashScaffold.overlayDirectoryName)/\(sitePath)"
+        return FileManager.default.fileExists(atPath: templateRoot.appendingPathComponent(overlayPath).path)
+            ? overlayPath : sitePath
     }
 
-    /// Files the generated-at-build-time artifacts in `worker/` are written to (each site's own,
-    /// gitignored), never a template file.
+    /// The overlay's config file, the one overlay file outside its `src/`.
+    private static let overlayConfigName = "astro.config.ts"
+
+    /// Whether `sitePath` is where an overlay file would sit in a site: under `src/`, or its config.
+    private static func isOverlaySitePath(_ sitePath: String) -> Bool {
+        sitePath == overlayConfigName || sitePath.hasPrefix("src/")
+    }
+
+    /// Build-time artifacts each site generates into `worker/` (gitignored there), so never the
+    /// app's to pin even if a template checkout happens to have them.
     private static let workerGeneratedNames: Set<String> = ["experiments.json", "mcp-config.json"]
 
     /// What an EmDash site owns beyond ``appOwnedRelativePaths(templateRoot:)``: everything under
@@ -105,9 +119,10 @@ public enum TemplateScriptsManifest {
             root: overlay.appendingPathComponent("src"), relativePrefix: "src",
             topLevelExcludedNames: [], excludeTopLevelTestFiles: false
         ).map { AppOwnedFile(sitePath: $0, templatePath: "\(EmDashScaffold.overlayDirectoryName)/\($0)") }
-        let config = "astro.config.ts"
-        if FileManager.default.fileExists(atPath: overlay.appendingPathComponent(config).path) {
-            files.append(AppOwnedFile(sitePath: config, templatePath: "\(EmDashScaffold.overlayDirectoryName)/\(config)"))
+        if FileManager.default.fileExists(atPath: overlay.appendingPathComponent(overlayConfigName).path) {
+            files.append(AppOwnedFile(
+                sitePath: overlayConfigName,
+                templatePath: "\(EmDashScaffold.overlayDirectoryName)/\(overlayConfigName)"))
         }
         files += enumerate(
             root: templateRoot.appendingPathComponent("worker"), relativePrefix: "worker",

@@ -6,10 +6,10 @@ import Foundation
 import OSLog
 #endif
 
-/// Detects which app-owned files (`scripts/`, `src/lib/`, and an EmDash site's overlay code and
-/// routes, #2177) a site needs refreshed, and which have
-/// been customized since their last baseline (design doc, #1053). Both are applied by the app
-/// without asking (owner decision D1, #1962) — the split only changes how the owner is told.
+/// Detects which app-owned files a site needs refreshed (`scripts/`, `src/lib/`, and on an EmDash
+/// site its overlay's code and routes, #2177), and which have been customized since their last
+/// baseline (design doc, #1053). Both are applied by the app without asking (owner decision D1,
+/// #1962) — the split only changes how the owner is told.
 /// Unlike `DependencySyncChecker`, this type performs its own `Config/`-only baseline bookkeeping
 /// (backfilling a missing entry, initializing a first-encounter baseline) as it goes — see the
 /// design doc's "Note on checker purity." It never writes anything under `Source/`; only
