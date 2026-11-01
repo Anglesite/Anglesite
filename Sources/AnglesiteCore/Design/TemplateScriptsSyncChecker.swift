@@ -6,9 +6,10 @@ import Foundation
 import OSLog
 #endif
 
-/// Detects which app-owned files (`scripts/`, `src/lib/`) a site needs refreshed, and which have
-/// been customized since their last baseline (design doc, #1053). Both are applied by the app
-/// without asking (owner decision D1, #1962) — the split only changes how the owner is told.
+/// Detects which app-owned files a site needs refreshed (`scripts/`, `src/lib/`, and on an EmDash
+/// site its overlay's code and routes, #2177), and which have been customized since their last
+/// baseline (design doc, #1053). Both are applied by the app without asking (owner decision D1,
+/// #1962) — the split only changes how the owner is told.
 /// Unlike `DependencySyncChecker`, this type performs its own `Config/`-only baseline bookkeeping
 /// (backfilling a missing entry, initializing a first-encounter baseline) as it goes — see the
 /// design doc's "Note on checker purity." It never writes anything under `Source/`; only
@@ -45,9 +46,11 @@ public enum TemplateScriptsSyncChecker {
         var toApply: [TemplateScriptsSyncAction] = []
         var divergences: [TemplateScriptsDivergence] = []
 
-        for relativePath in TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: templateDirectory) {
+        for file in TemplateScriptsManifest.appOwnedFiles(templateRoot: templateDirectory, sourceDirectory: sourceDirectory) {
+            // Keyed on the site path; an EmDash site's overlay files are read from the overlay (#2177).
+            let relativePath = file.sitePath
             guard let templateContent = try? String(
-                contentsOf: templateDirectory.appendingPathComponent(relativePath), encoding: .utf8
+                contentsOf: templateDirectory.appendingPathComponent(file.templatePath), encoding: .utf8
             ) else { continue }
             let templateHash = VectorMath.stableHash(templateContent)
 

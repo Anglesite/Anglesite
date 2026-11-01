@@ -65,7 +65,9 @@ public enum TemplateScriptsSyncApplier {
         configDirectory: URL,
         templateDirectory: URL
     ) throws {
-        let templateURL = templateDirectory.appendingPathComponent(relativePath)
+        // An EmDash site's overlay files are read from the overlay (#2177).
+        let templateURL = templateDirectory.appendingPathComponent(TemplateScriptsManifest.templatePath(
+            forSitePath: relativePath, templateRoot: templateDirectory, sourceDirectory: sourceDirectory))
         guard let templateContent = try? String(contentsOf: templateURL, encoding: .utf8) else {
             throw ApplyError.templateReadFailed(relativePath: relativePath)
         }

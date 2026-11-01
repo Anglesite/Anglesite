@@ -50,6 +50,87 @@ public enum TemplateScriptsManifest {
         return results.sorted()
     }
 
+    /// One app-owned file: where it sits in the site, and where the app's copy of it sits in the
+    /// template. The two differ only for an EmDash site's overlay files (`emdash/src/worker.ts` is
+    /// the site's `src/worker.ts`).
+    public struct AppOwnedFile: Sendable, Equatable {
+        /// The file's path in the site's `Source/`, which baselines and restores are keyed on.
+        public let sitePath: String
+        /// The file's path under the template root, which the app's bytes are read from.
+        public let templatePath: String
+
+        public init(sitePath: String, templatePath: String) {
+            self.sitePath = sitePath
+            self.templatePath = templatePath
+        }
+    }
+
+    /// The app-owned files of the site whose `Source/` is `sourceDirectory`, sorted by site path.
+    /// For an Anglesite site, exactly ``appOwnedRelativePaths(templateRoot:)``. An EmDash site
+    /// (#2050) also owns its overlay's code and routes and the social Worker they import (#2177,
+    /// owner decision 2026-10-30): see ``emdashOverlayFiles(templateRoot:)``.
+    public static func appOwnedFiles(templateRoot: URL, sourceDirectory: URL) -> [AppOwnedFile] {
+        var files: [String: AppOwnedFile] = [:]
+        for path in appOwnedRelativePaths(templateRoot: templateRoot) {
+            files[path] = AppOwnedFile(sitePath: path, templatePath: path)
+        }
+        if SiteEditingSurfaces.forSourceDirectory(sourceDirectory).serverRenderedDeploy {
+            // The overlay's copy wins where both have the file: it is what the site was given.
+            for file in emdashOverlayFiles(templateRoot: templateRoot) { files[file.sitePath] = file }
+        }
+        return files.values.sorted { $0.sitePath < $1.sitePath }
+    }
+
+    /// Where the app's copy of the site file `sitePath` sits under the template root: its overlay
+    /// path on an EmDash site when the overlay supplies it, else `sitePath` itself. The same answer
+    /// ``appOwnedFiles(templateRoot:sourceDirectory:)`` gives for that file, from one file-exists
+    /// check rather than a walk of the template, since the sync applier asks once per file.
+    public static func templatePath(forSitePath sitePath: String, templateRoot: URL, sourceDirectory: URL) -> String {
+        guard isOverlaySitePath(sitePath),
+              SiteEditingSurfaces.forSourceDirectory(sourceDirectory).serverRenderedDeploy
+        else { return sitePath }
+        let overlayPath = "\(EmDashScaffold.overlayDirectoryName)/\(sitePath)"
+        return FileManager.default.fileExists(atPath: templateRoot.appendingPathComponent(overlayPath).path)
+            ? overlayPath : sitePath
+    }
+
+    /// The overlay's config file, the one overlay file outside its `src/`.
+    private static let overlayConfigName = "astro.config.ts"
+
+    /// Whether `sitePath` is where an overlay file would sit in a site: under `src/`, or its config.
+    private static func isOverlaySitePath(_ sitePath: String) -> Bool {
+        sitePath == overlayConfigName || sitePath.hasPrefix("src/")
+    }
+
+    /// Build-time artifacts each site generates into `worker/` (gitignored there), so never the
+    /// app's to pin even if a template checkout happens to have them.
+    private static let workerGeneratedNames: Set<String> = ["experiments.json", "mcp-config.json"]
+
+    /// What an EmDash site owns beyond ``appOwnedRelativePaths(templateRoot:)``: everything under
+    /// the overlay's `src/` (its Worker entry, middleware, live-collections config, `src/lib/`
+    /// modules and the article, feed, sitemap and tag routes) and its `astro.config.ts`, which
+    /// `EmDashScaffold.applyTemplateOverlay` copies over the template; and the template's
+    /// `worker/`, the social Worker the overlay's entry and syndication import, which must move in
+    /// step with them. The overlay's `package.json` and lockfile are dependency sync's
+    /// (`DependencySync`), and its `seed/` is applied once, when the site is made.
+    public static func emdashOverlayFiles(templateRoot: URL) -> [AppOwnedFile] {
+        let overlay = templateRoot.appendingPathComponent(EmDashScaffold.overlayDirectoryName)
+        var files = enumerate(
+            root: overlay.appendingPathComponent("src"), relativePrefix: "src",
+            topLevelExcludedNames: [], excludeTopLevelTestFiles: false
+        ).map { AppOwnedFile(sitePath: $0, templatePath: "\(EmDashScaffold.overlayDirectoryName)/\($0)") }
+        if FileManager.default.fileExists(atPath: overlay.appendingPathComponent(overlayConfigName).path) {
+            files.append(AppOwnedFile(
+                sitePath: overlayConfigName,
+                templatePath: "\(EmDashScaffold.overlayDirectoryName)/\(overlayConfigName)"))
+        }
+        files += enumerate(
+            root: templateRoot.appendingPathComponent("worker"), relativePrefix: "worker",
+            topLevelExcludedNames: workerGeneratedNames, excludeTopLevelTestFiles: false
+        ).map { AppOwnedFile(sitePath: $0, templatePath: $0) }
+        return files.sorted { $0.sitePath < $1.sitePath }
+    }
+
     private static func enumerate(
         root: URL,
         relativePrefix: String,

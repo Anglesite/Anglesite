@@ -60,16 +60,28 @@ public enum AppOwnedScriptsGate {
     /// that predates a newly-added manifest entry) is silently absent from the result rather than
     /// throwing — the file the app can't check is exactly the one that must not slip through as
     /// "not part of the verified set" instead of "unverifiable". ``enforce(sourceDirectory:configDirectory:templateDirectory:runtimeCopy:source:logCenter:gitCommitBatch:)`` is the caller that
-    /// enforces that: it compares this result's count against
-    /// `TemplateScriptsManifest.appOwnedRelativePaths(templateRoot:)`'s and fails the whole gate
-    /// closed on any shortfall, rather than quietly verifying only the files it could read.
-    public static func pins(templateDirectory: URL) -> [Pin] {
-        TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: templateDirectory).compactMap { relativePath in
-            guard let content = try? Data(contentsOf: templateDirectory.appendingPathComponent(relativePath)) else {
+    /// enforces that: it compares this result's count against the app-owned file set's
+    /// (`TemplateScriptsManifest.appOwnedFiles(templateRoot:sourceDirectory:)` for the site) and
+    /// fails the whole gate closed on any shortfall, rather than quietly verifying only the files
+    /// it could read.
+    ///
+    /// `sourceDirectory` is the site's `Source/`: an EmDash site's app-owned set also covers its
+    /// overlay's code and routes (#2177), pinned at their site paths. `nil` pins the plain set.
+    public static func pins(templateDirectory: URL, sourceDirectory: URL? = nil) -> [Pin] {
+        appOwnedFiles(templateDirectory: templateDirectory, sourceDirectory: sourceDirectory).compactMap { file in
+            guard let content = try? Data(contentsOf: templateDirectory.appendingPathComponent(file.templatePath)) else {
                 return nil
             }
-            return Pin(relativePath: relativePath, content: content)
+            return Pin(relativePath: file.sitePath, content: content)
         }
+    }
+
+    private static func appOwnedFiles(templateDirectory: URL, sourceDirectory: URL?) -> [TemplateScriptsManifest.AppOwnedFile] {
+        guard let sourceDirectory else {
+            return TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: templateDirectory)
+                .map { TemplateScriptsManifest.AppOwnedFile(sitePath: $0, templatePath: $0) }
+        }
+        return TemplateScriptsManifest.appOwnedFiles(templateRoot: templateDirectory, sourceDirectory: sourceDirectory)
     }
 
     /// The per-file comparison result for one copy of the site.
@@ -218,8 +230,8 @@ public enum AppOwnedScriptsGate {
                 "Anglesite couldn't find its own copy of the site scripts to verify against",
                 source: source, logCenter: logCenter)
         }
-        let manifestPaths = TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: templateDirectory)
-        let pins = pins(templateDirectory: templateDirectory)
+        let manifestPaths = appOwnedFiles(templateDirectory: templateDirectory, sourceDirectory: sourceDirectory).map(\.sitePath)
+        let pins = pins(templateDirectory: templateDirectory, sourceDirectory: sourceDirectory)
         guard !pins.isEmpty else {
             return await unverifiable(
                 "Anglesite's template at \(templateDirectory.path) has no app-owned scripts to verify against",

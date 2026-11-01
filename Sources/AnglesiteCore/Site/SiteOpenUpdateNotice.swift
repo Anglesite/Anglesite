@@ -14,6 +14,10 @@ public enum AppOwnedFileDescription {
         case "scripts/csp.ts": return "Content security policy"
         case "scripts/well-known.ts": return "Well-known site files"
         case "scripts/redirects.ts": return "Redirects"
+        // An EmDash site's overlay routes (#2177): what its readers see of each article.
+        case "src/pages/articles/[slug].astro", "src/pages/articles/index.astro": return "Article pages"
+        case "src/pages/tags/index.astro", "src/pages/tags/[tag]/index.astro": return "Tag pages"
+        case "src/lib/syndication-plugin.ts": return "Sharing new articles with followers"
         default: return nil
         }
     }
@@ -21,7 +25,8 @@ public enum AppOwnedFileDescription {
     /// The owner-facing line for a set of paths: named files first (sorted), then one rolled-up
     /// count for the rest — e.g. `["Security check", "Redirects", "3 site framework files"]`.
     public static func summary(for relativePaths: [String]) -> [String] {
-        let named = relativePaths.compactMap(name(for:)).sorted()
+        // Several files can share a name ("Article pages"); each name is listed once.
+        let named = Set(relativePaths.compactMap(name(for:))).sorted()
         let unnamed = relativePaths.filter { name(for: $0) == nil }.count
         var lines = named
         if unnamed > 0 {
