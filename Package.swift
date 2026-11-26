@@ -493,21 +493,22 @@ packageDependencies.append(
 // pinning to anglesite/main's tip would silently pick up unreviewed future commits. Bump
 // deliberately.
 //
-// Fork-tracking plan (#1804): `anglesite/main` carries 8 substantive commits beyond upstream's
+// Fork-tracking plan (#1804): `anglesite/main` carries 9 substantive commits beyond upstream's
 // `develop` — the unborn-HEAD commit fix, defaultSignature(), remove/headHasEntry/
 // restorePathFromHEAD (delete+undo), push/addAll/aheadBehind/addRemote (backup/publish),
-// sandboxed remote/credential/error hardening, the #994 GIT_THREADS threading fix, and git-bundle
-// read support (#988) — none offered upstream yet, though mbernson/SwiftGit2 is actively
-// maintained (pushed as recently as 2026-08), not dead. libgit2 itself is a vendored submodule
-// inside the fork, pinned at v1.9.4; nothing automated watches it for security releases —
-// Dependabot's swift-ecosystem entry only sees this revision pin, not the submodule two hops
-// down — so a libgit2 CVE reaches this app only via a manual rebase by whoever's doing dependency
-// maintenance. Drop the fork once upstream tags an SPM release (blocked on its own PR #1) that
-// carries equivalents of at least the unborn-HEAD and GIT_THREADS fixes — the two that are
-// correctness/safety fixes rather than added convenience API. See #1804 for the full
+// sandboxed remote/credential/error hardening, the #994 GIT_THREADS threading fix, git-bundle
+// read support (#988), and the libgit2 1.9.7 security bump (Anglesite/SwiftGit2#5) — none
+// offered upstream yet, though mbernson/SwiftGit2 is actively maintained (pushed as recently as
+// 2026-08), not dead. libgit2 itself is a vendored submodule inside the fork, pinned at v1.9.7
+// (moved from v1.9.4 for CVE-2026-53584..53587); nothing automated watches it for security
+// releases — Dependabot's swift-ecosystem entry only sees this revision pin, not the submodule
+// two hops down — so a libgit2 CVE reaches this app only via a manual rebase by whoever's doing
+// dependency maintenance. Drop the fork once upstream tags an SPM release (blocked on its own
+// PR #1) that carries equivalents of at least the unborn-HEAD and GIT_THREADS fixes — the two
+// that are correctness/safety fixes rather than added convenience API. See #1804 for the full
 // commit-by-commit accounting.
 packageDependencies.append(
-    .package(url: "https://github.com/Anglesite/SwiftGit2.git", revision: "446d4777ae4413c2faaa88425693ff29981e4b07")
+    .package(url: "https://github.com/Anglesite/SwiftGit2.git", revision: "cabf713c7db9b6c82d36ad45ff14b22f4d915be2")
 )
 
 // Anywhere runtime (#1208): prebuilt libwebrtc for the P2P transport core.

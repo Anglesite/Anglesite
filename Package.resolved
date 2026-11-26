@@ -1,5 +1,5 @@
 {
-  "originHash" : "9b710f39522a16789f5549a3625d47a6615586e9178022522dbf351daf6feda4",
+  "originHash" : "f056ddb887ca348eec063cfd7d4a76976a8838cdb2a1e05d5284254eeccaef3d",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -344,7 +344,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Anglesite/SwiftGit2.git",
       "state" : {
-        "revision" : "446d4777ae4413c2faaa88425693ff29981e4b07"
+        "revision" : "cabf713c7db9b6c82d36ad45ff14b22f4d915be2"
       }
     },
     {
