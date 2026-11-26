@@ -225,8 +225,19 @@ export function normalizeHref(input: string): string | null {
   }
   if (/^[/#?]/.test(value) || value.startsWith("./") || value.startsWith("../")) return value;
   if (/\s/.test(value)) return null;
-  if (/^[^@/]+@[^@/]+\.[^@/]+$/.test(value)) return `mailto:${value}`;
+  if (looksLikeEmail(value)) return `mailto:${value}`;
   return `https://${value}`;
+}
+
+/** `local@domain.tld`, with no `/` anywhere. Plain string checks rather than a regex: two
+ *  dot-matching quantifiers around `\.` backtrack polynomially on long dotted input. */
+function looksLikeEmail(value: string): boolean {
+  if (value.includes("/")) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
 }
 
 /** A selection rect in the top-level page's viewport coordinates (CSS px). */

@@ -719,10 +719,19 @@ describe("normalizeHref (#2216)", () => {
     ["example.com/menu", "https://example.com/menu"],
     ["localhost:4321/x", "https://localhost:4321/x"],
     ["chef@example.com", "mailto:chef@example.com"],
+    ["a@b@example.com", "https://a@b@example.com"],
+    ["@example.com", "https://@example.com"],
+    ["chef@localhost", "https://chef@localhost"],
     ["", ""],
     ["   ", ""],
   ])("%j → %j", (input, expected) => {
     expect(normalizeHref(input)).toBe(expected);
+  });
+
+  it("classifies a long dotted input in linear time (CodeQL js/polynomial-redos)", () => {
+    const start = performance.now();
+    normalizeHref(`.@${"..".repeat(50_000)}`);
+    expect(performance.now() - start).toBeLessThan(50);
   });
 
   it.each(["javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,<p>x", "vbscript:x", "two words"])(
