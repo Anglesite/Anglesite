@@ -12,7 +12,12 @@
 #   * HEAD not on any origin branch      -> refuses
 #   * --force without --validate-only    -> refuses
 #   * --validate-only --force, dirty     -> archives unstamped, creates no tag
+#   * --validate-only, dirty (no --force) -> warns, archives unstamped
 #   * archive missing the source stamp   -> refuses before export/upload
+#   * HEAD only on a branch since deleted on origin -> refuses (fetch --prune)
+#   * origin unreachable                 -> validate-only warns and archives unstamped;
+#                                           an upload refuses
+#   * local tag on HEAD, origin's tag on another commit -> refuses before archiving
 #
 # Runs in CI's linux-build-test lane (ci.yml) beside the other self-contained script tests: it
 # needs only bash, git, sed and awk.
@@ -193,5 +198,47 @@ else
 fi
 [[ -z "$(git -C "$repo" tag -l v1.2.3-8)" ]] \
     && pass "a refused upload creates no tag" || fail "a refused upload creates no tag"
+
+echo dirty > "$repo/file.txt"
+: > "$log"
+if run --validate-only && grep -q "ANGLESITE_SOURCE_REVISION= archive" "$log" \
+    && grep -q '^warning: worktree is dirty' "$tmp/out"; then
+    pass "--validate-only on a dirty tree, no --force -> warns, unstamped archive"
+else
+    fail "--validate-only on a dirty tree, no --force -> warns, unstamped archive"
+    sed 's/^/  | /' "$tmp/out"
+fi
+git -C "$repo" checkout -q -- file.txt
+
+# A branch pushed, then deleted on GitHub: the local origin/feature ref is stale until a prune.
+git -C "$repo" checkout -q -b feature
+echo four > "$repo/file.txt"
+git -C "$repo" commit -qam four
+git -C "$repo" push -q origin feature
+git -C "$origin" branch -q -D feature
+expect_refusal "HEAD only on a branch deleted on origin" "isn't on any origin branch"
+git -C "$repo" checkout -q main
+
+git -C "$repo" remote set-url origin "$tmp/missing.git"
+: > "$log"
+if run --validate-only && grep -q "ANGLESITE_SOURCE_REVISION= archive" "$log" \
+    && grep -q "^warning: couldn't fetch origin" "$tmp/out"; then
+    pass "origin unreachable, --validate-only -> warns, unstamped archive"
+else
+    fail "origin unreachable, --validate-only -> warns, unstamped archive"
+    sed 's/^/  | /' "$tmp/out"
+fi
+expect_refusal "origin unreachable, upload" "error: couldn't fetch origin"
+git -C "$repo" remote set-url origin "$origin"
+
+# The local tag agrees with HEAD, but origin's (the one a push would collide with) doesn't.
+git -C "$repo" push -q origin "$head1:refs/tags/v1.2.3-8"
+git -C "$repo" tag -a -m local v1.2.3-8 HEAD
+expect_refusal "local tag on HEAD, origin's tag elsewhere" "already exists on $head1 (origin)"
+if grep -q ' archive$' "$log"; then
+    fail "local tag on HEAD, origin's tag elsewhere -> refused before archiving"
+else
+    pass "local tag on HEAD, origin's tag elsewhere -> refused before archiving"
+fi
 
 exit "$overall_status"

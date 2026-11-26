@@ -37,9 +37,10 @@
 #   --validate-only   Archive + export the signed .pkg locally (destination: export),
 #                     but stop before upload. Useful before a real App Store upload;
 #                     Transporter.app's "Verify" can pre-validate the exported .pkg.
-#   --force           With --validate-only only: proceed even if the git worktree is dirty
-#                     or HEAD isn't on an origin branch. Such an archive is not stamped with
-#                     a source revision. An upload always requires a clean, published HEAD.
+#   --force           Accepted with --validate-only for compatibility, where it has no effect:
+#                     a validate-only run already proceeds on a dirty, unpushed or already-
+#                     tagged checkout, with a warning and an unstamped archive. Rejected for an
+#                     upload, which always requires a clean, published, untagged-elsewhere HEAD.
 #
 # Env:
 #   TEAM_ID               (required) 10-char Apple Developer Team ID.
@@ -77,10 +78,22 @@ SCHEME="Anglesite"
 CONFIGURATION="Release"
 
 bail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+step() { printf '\n=== %s ===\n' "$*"; }
 
 [[ "$FORCE" -eq 0 || "$VALIDATE_ONLY" -eq 1 ]] \
     || bail "--force is only allowed with --validate-only: an uploaded build must match a clean, published, tagged commit (#2231)."
-step() { printf '\n=== %s ===\n' "$*"; }
+
+# A build that can't be tied to public source: fatal for an upload, which gets distributed. A
+# validate-only run never ships, so there it's a warning and the archive is left unstamped.
+not_releasable() {
+    if [[ "$VALIDATE_ONLY" -eq 1 ]]; then
+        warn "$* (validate-only: archiving unstamped; an upload would stop here)"
+        SOURCE_REVISION=""
+    else
+        bail "$*"
+    fi
+}
 
 # --- Preflight ---------------------------------------------------------------
 step "0/6 preflight"
@@ -93,28 +106,24 @@ step "0/6 preflight"
 command -v xcodegen >/dev/null || bail "xcodegen not installed. brew install xcodegen"
 command -v xcodebuild >/dev/null || bail "xcodebuild not on PATH (install Xcode + command line tools)."
 
-# Refuse to archive a dirty worktree or an unpublished commit: the .xcarchive would bake in
-# changes that match no public commit, so the shipped build would have no corresponding source
-# (#2231). --force (validate-only) overrides for deliberate local experiments, and such an
-# archive is left unstamped.
+# An upload must come from a clean commit that's already on an origin branch: otherwise the
+# .xcarchive bakes in changes that match no public commit, and the shipped build has no
+# corresponding source (#2231). See not_releasable above for validate-only runs.
 git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
     || bail "$REPO_ROOT is not a git checkout; a release must be built from one."
 SOURCE_REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 dirty=$(git -C "$REPO_ROOT" status --porcelain)
 if [[ -n "$dirty" ]]; then
-    if [[ "$FORCE" -eq 0 ]]; then
-        printf '%s\n' "$dirty" | sed 's/^/    /' >&2
-        bail "worktree is dirty (uncommitted changes above). Commit them, or for a local validate-only run re-run with --validate-only --force."
-    fi
-    SOURCE_REVISION=""
+    printf '%s\n' "$dirty" | sed 's/^/    /' >&2
+    not_releasable "worktree is dirty (uncommitted changes above). Commit them before an upload."
 fi
 if [[ -n "$SOURCE_REVISION" ]]; then
-    git -C "$REPO_ROOT" fetch --quiet origin \
-        || bail "couldn't fetch origin to confirm HEAD is published."
-    if [[ -z "$(git -C "$REPO_ROOT" branch -r --contains "$SOURCE_REVISION" 'origin/*')" ]]; then
-        [[ "$FORCE" -eq 1 ]] \
-            || bail "HEAD ($SOURCE_REVISION) isn't on any origin branch. Push it first, so the build's source is public."
-        SOURCE_REVISION=""
+    # --prune, so a stale origin/<branch> ref left after the branch was deleted on GitHub can't
+    # count as "published".
+    if ! git -C "$REPO_ROOT" fetch --quiet --prune origin; then
+        not_releasable "couldn't fetch origin to confirm HEAD is published."
+    elif [[ -z "$(git -C "$REPO_ROOT" branch -r --contains "$SOURCE_REVISION" 'origin/*')" ]]; then
+        not_releasable "HEAD ($SOURCE_REVISION) isn't on any origin branch. Push it first, so the build's source is public."
     fi
 fi
 
@@ -141,7 +150,7 @@ if [[ "$VALIDATE_ONLY" -eq 0 ]]; then
     ASC_KEY_PATH="$(resolve_asc_key_path "$ASC_API_KEY_ID")"
 fi
 
-echo "  source:      ${SOURCE_REVISION:-(unstamped: --force with a dirty or unpublished HEAD)}"
+echo "  source:      ${SOURCE_REVISION:-(unstamped: validate-only, see the warning above)}"
 echo "  team:        $TEAM_ID"
 echo "  profile:     $PROVISIONING_PROFILE"
 echo "  mode:        $([[ "$VALIDATE_ONLY" -eq 1 ]] && echo 'validate-only (export .pkg, no upload)' || echo 'export + upload to App Store Connect')"
@@ -151,7 +160,9 @@ step "1/6 xcodegen generate + release tag preflight"
 (cd "$REPO_ROOT" && xcodegen generate)
 
 # The release tag is derived from the version the archive will carry. Check it now, before the
-# slow archive: an existing tag on another commit means the version wasn't bumped.
+# slow archive: an existing tag on another commit, locally or on origin, means the version wasn't
+# bumped, and the tag push after upload would fail. Both sides are checked, since either one
+# alone can be stale.
 build_setting() {
     xcodebuild -project "$REPO_ROOT/Anglesite.xcodeproj" -scheme "$SCHEME" \
         -configuration "$CONFIGURATION" -showBuildSettings 2>/dev/null \
@@ -162,15 +173,22 @@ BUILD_NUMBER="$(build_setting CURRENT_PROJECT_VERSION)"
 [[ -n "$MARKETING_VERSION" && -n "$BUILD_NUMBER" ]] \
     || bail "couldn't read MARKETING_VERSION / CURRENT_PROJECT_VERSION from the $SCHEME scheme."
 RELEASE_TAG="v${MARKETING_VERSION}-${BUILD_NUMBER}"
-# The commit an existing local or remote tag points at (peeled), or nothing.
-existing_tag_commit() {
-    git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$RELEASE_TAG^{commit}" 2>/dev/null && return
-    git -C "$REPO_ROOT" ls-remote origin "refs/tags/$RELEASE_TAG^{}" "refs/tags/$RELEASE_TAG" \
-        | awk '{c=$1} /\^\{\}$/ {p=$1} END {print p ? p : c}'
-}
-tag_commit="$(existing_tag_commit)"
-if [[ -n "$tag_commit" && "$tag_commit" != "$SOURCE_REVISION" ]]; then
-    bail "tag $RELEASE_TAG already exists on $tag_commit. Bump MARKETING_VERSION or CURRENT_PROJECT_VERSION in project.yml."
+# An unstamped validate-only archive never gets a tag, so there's nothing to check (and no
+# network to need).
+if [[ -n "$SOURCE_REVISION" ]]; then
+    local_tag="$(git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$RELEASE_TAG^{commit}" 2>/dev/null || true)"
+    if ! remote_refs="$(git -C "$REPO_ROOT" ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"; then
+        not_releasable "couldn't check origin for an existing tag $RELEASE_TAG."
+    else
+        # The peeled (^{}) line, for an annotated tag, names the commit; else the plain one does.
+        remote_tag="$(printf '%s\n' "$remote_refs" | awk 'NF {c=$1} /\^\{\}$/ {p=$1} END {print p ? p : c}')"
+        for found in "local:$local_tag" "origin:$remote_tag"; do
+            where="${found%%:*}" commit="${found#*:}"
+            if [[ -n "$commit" && "$commit" != "$SOURCE_REVISION" && -n "$SOURCE_REVISION" ]]; then
+                not_releasable "tag $RELEASE_TAG already exists on $commit ($where). Bump MARKETING_VERSION or CURRENT_PROJECT_VERSION in project.yml."
+            fi
+        done
+    fi
 fi
 echo "  release tag: $RELEASE_TAG"
 
@@ -242,7 +260,11 @@ xcodebuild "${export_args[@]}"
 # --- Result ------------------------------------------------------------------
 if [[ "$VALIDATE_ONLY" -eq 1 ]]; then
     step "5/6 release tag (skipped: validate-only)"
-    echo "  an upload of this checkout would tag ${SOURCE_REVISION:-(unstamped)} as $RELEASE_TAG"
+    if [[ -n "$SOURCE_REVISION" ]]; then
+        echo "  an upload of this checkout would tag $SOURCE_REVISION as $RELEASE_TAG"
+    else
+        echo "  unstamped archive: an upload needs a clean, published HEAD (see the warnings above)"
+    fi
 else
     # Tag only after a successful upload, so a failed upload never leaves a tag behind. The
     # upload has already happened by now, so a tag failure doesn't undo it; it prints how to
