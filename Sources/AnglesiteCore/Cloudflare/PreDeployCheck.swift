@@ -54,7 +54,8 @@ public actor PreDeployCheck {
             /// expose the site's editing UI to the public.
             case keystaticRoute = "keystatic-route"
             /// `dist/_headers` is missing, lacks a Content-Security-Policy, or carries a
-            /// misconfigured one.
+            /// misconfigured one — or a built page has an inline `<script>` that policy would
+            /// block, so it would silently not run once published (#2228).
             case cspMisconfigured = "csp-misconfigured"
             /// Built output references embed media on a platform CDN instead of the snapshot
             /// copy under `public/embeds/`. See `checkEmbedMedia` in
