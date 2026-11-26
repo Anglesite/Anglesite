@@ -456,6 +456,9 @@
     "Add Integration…" : {
 
     },
+    "Add Link" : {
+
+    },
     "Add Link…" : {
 
     },
@@ -2786,7 +2789,13 @@
     "Likes" : {
 
     },
+    "Link address for “%@”" : {
+
+    },
     "Link Post" : {
+
+    },
+    "Link to" : {
 
     },
     "Linked to a Fediverse follower" : {
@@ -4745,6 +4754,9 @@
     "Text" : {
 
     },
+    "That address can’t be used as a link." : {
+
+    },
     "That doesn't look like a URL." : {
 
     },
@@ -5086,6 +5098,9 @@
 
     },
     "Update Available" : {
+
+    },
+    "Update Link" : {
 
     },
     "Update This File" : {

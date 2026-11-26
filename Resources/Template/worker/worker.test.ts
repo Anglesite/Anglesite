@@ -5,6 +5,7 @@ import { generateSigningJwk, type SolidOidcAuthorizationRequest } from "@dwk/sol
 import { beforeEach, expect, test } from "vitest";
 import {
   newPostObjectIri,
+  notifyLinkedSitesOfRemoval,
   retractFromFollowers,
   validateInboxFields,
   isRateLimited,
@@ -3199,6 +3200,27 @@ test("syndication: Webmentions go to the post's targets with the D1 sent-log, an
     },
   });
   expect(failing).toEqual({ activityPub: "skipped", webmentions: { targets: 1, delivered: 0, failed: true }, websub: "notified" });
+});
+
+test("syndication: a removed post's linked sites are re-sent its Webmentions from the sent-log (#2221)", async () => {
+  const url = "https://owner.example/articles/withdrawn/";
+  const calls: Array<{ source: string; sentLog: boolean }> = [];
+  const resent = await notifyLinkedSitesOfRemoval(url, testEnv, {
+    resend: async (source, options) => {
+      calls.push({ source, sentLog: options.sentLog !== undefined });
+      return [
+        { target: "https://other.example/a", endpoint: "https://other.example/wm", delivered: true, status: 202 },
+        { target: "https://third.example/b", endpoint: null, delivered: false, status: 0 },
+      ];
+    },
+  });
+  expect(calls).toEqual([{ source: url, sentLog: true }]);
+  expect(resent).toEqual({ targets: 2, delivered: 1 });
+
+  expect(await notifyLinkedSitesOfRemoval(url, testEnv, { resend: async () => { throw new Error("D1 down"); } }))
+    .toEqual({ targets: 0, delivered: 0, failed: true });
+  const { WEBMENTION_INBOX: _inbox, ...withoutSentLog } = testEnv;
+  expect(await notifyLinkedSitesOfRemoval(url, withoutSentLog as WorkerEnv)).toBe("unavailable");
 });
 
 test("syndication: an edit reaches followers as an Update of the same object, and an unpublish as a Delete (#2174)", async () => {

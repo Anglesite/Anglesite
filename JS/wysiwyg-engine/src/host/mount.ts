@@ -5,6 +5,7 @@ import { KeyboardNavigation } from "../keyboard-nav.js";
 import { AccessibilityAnnotator } from "../accessibility.js";
 import { SelectionToolbar } from "./selection-toolbar.js";
 import { NativeHostTransport } from "./native-host-transport.js";
+import { SelfWriteAnnouncingTransport } from "./self-write-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
 import { renderHoverOutline } from "./hover-outline.js";
 import { wireImageDrop } from "./image-drop.js";
@@ -304,7 +305,9 @@ window.__anglesiteWysiwygMount = {
     // final-review round 2, Finding B) — see the original comment on this behavior for why.
     disposeMounted();
     const transport = new NativeHostTransport();
-    const engine = new WysiwygEngine(initialModel, transport);
+    // Only the ops path is wrapped: it tells the dev server which writes are the editor's own, so
+    // a text edit no longer reloads the page and replaces this engine (#2214).
+    const engine = new WysiwygEngine(initialModel, new SelfWriteAnnouncingTransport(transport, initialModel.path));
     window.__anglesiteWysiwygEngine = engine;
     window.__anglesiteWysiwygRichTextEditor = new RichTextEditor(engine);
     // Same `transport` instance passed to both — `NativeHostTransport` implements both
