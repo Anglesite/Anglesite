@@ -111,3 +111,23 @@ describe("effects catalog (legacy)", () => {
     }
   });
 });
+
+describe("effects catalog aliases (#2180)", () => {
+  const JARGON = ["css", "javascript", "js", "keyframe", "svg", "webgl", "canvas"];
+
+  for (const entry of catalog.components) {
+    it(`${entry.component} has 3-8 owner-language aliases`, () => {
+      const aliases = entry.aliases ?? [];
+      expect(aliases.length).toBeGreaterThanOrEqual(3);
+      expect(aliases.length).toBeLessThanOrEqual(8);
+      const lowered = aliases.map((a) => a.trim().toLowerCase());
+      for (const a of lowered) expect(a.length).toBeGreaterThan(0);
+      expect(new Set(lowered).size).toBe(lowered.length);
+      for (const a of lowered) {
+        expect(a, "contains component name").not.toContain(entry.component.toLowerCase());
+        const tokens = a.split(/[^a-z0-9]+/);
+        for (const j of JARGON) expect(tokens, `jargon "${j}" in "${a}"`).not.toContain(j);
+      }
+    });
+  }
+});
