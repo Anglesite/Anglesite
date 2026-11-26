@@ -63,16 +63,20 @@ const example = '<slot name="from-frontmatter" />';
   assert.deepEqual(namedSlotSamples(source), [{ name: "aside", label: "Aside slot content" }]);
 });
 
-test("anglesiteHarness injects the component route only in dev", async () => {
+test("anglesiteHarness injects the component route and the reload guard only in dev", async () => {
   const integration = anglesiteHarness();
   const setup = integration.hooks["astro:config:setup"];
   assert.ok(setup);
 
   const devRoutes: unknown[] = [];
+  const devConfigs: { vite?: { plugins?: { name?: string }[] } }[] = [];
   await setup({
     command: "dev",
     injectRoute(route: unknown) {
       devRoutes.push(route);
+    },
+    updateConfig(config: (typeof devConfigs)[number]) {
+      devConfigs.push(config);
     },
   } as never);
 
@@ -82,14 +86,22 @@ test("anglesiteHarness injects the component route only in dev", async () => {
     entrypoint: fileURLToPath(new URL("./harness/component.astro", import.meta.url)),
     prerender: false,
   });
+  assert.deepEqual(devConfigs.flatMap((config) => config.vite?.plugins ?? []).map((plugin) => plugin.name), [
+    "anglesite-editor-write-reload",
+  ]);
 
   const buildRoutes: unknown[] = [];
+  const buildConfigs: unknown[] = [];
   await setup({
     command: "build",
     injectRoute(route: unknown) {
       buildRoutes.push(route);
     },
+    updateConfig(config: unknown) {
+      buildConfigs.push(config);
+    },
   } as never);
 
   assert.deepEqual(buildRoutes, []);
+  assert.deepEqual(buildConfigs, []);
 });
