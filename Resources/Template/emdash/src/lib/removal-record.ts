@@ -28,11 +28,14 @@ export interface GoneRule {
   groupName: string | null;
 }
 
-/** The slice of EmDash's plugin `RedirectAccessWithWrite` the record uses. */
+/**
+ * The slice of EmDash's plugin `RedirectAccess` the record uses. `create` and `delete` are there
+ * only with `redirects:write`; without them nothing is added or lifted.
+ */
 export interface GoneRules {
-  create(input: { source: string; type: 410; groupName: string }): Promise<unknown>;
+  create?(input: { source: string; type: 410; groupName: string }): Promise<unknown>;
   get(id: string): Promise<{ redirect: GoneRule; _rev: string } | null>;
-  delete(id: string, options: { _rev: string }): Promise<boolean>;
+  delete?(id: string, options: { _rev: string }): Promise<boolean>;
   list(options: { search: string }): Promise<{ items: GoneRule[] }>;
 }
 
@@ -74,7 +77,7 @@ export async function recordPublished(
   { warn = () => {} }: { warn?: RemovalWarning } = {},
 ): Promise<"lifted" | "none"> {
   let outcome: "lifted" | "none" = "none";
-  if (rules) {
+  if (rules?.delete) {
     try {
       const rule = await ruleFor(rules, path);
       if (rule && isOurs(rule)) {
@@ -111,7 +114,7 @@ export async function recordRemoved(
   pathHint: string | null,
   { warn = () => {} }: { warn?: RemovalWarning } = {},
 ): Promise<string | null> {
-  if (!rules) return null;
+  if (!rules?.create) return null;
   let path = pathHint;
   if (!path && key) {
     try {

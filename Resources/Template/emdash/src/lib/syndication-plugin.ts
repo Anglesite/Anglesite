@@ -51,7 +51,7 @@ const originFor = (siteURL: string) => syndicationOrigin(workerEnv().SITE_URL, r
 interface HookContext {
   kv: RecordStore & PathStore;
   /** Present with the `redirects:write` capability. */
-  redirects?: GoneRules;
+  redirects?: GoneRules | undefined;
   site: { url: string };
   log: { info(message: string): void; warn(message: string): void };
 }
