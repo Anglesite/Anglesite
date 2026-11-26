@@ -479,6 +479,20 @@ async function main() {
     check(unpublished.status === 200, `unpublishing the article succeeds (HTTP ${unpublished.status})`);
     const retraction = await loggedActivityPub(new RegExp(`unpublished entry ${cleanID}: ActivityPub (\\w+)`), beforeUnpublish);
     check(retraction === "retracted", `unpublishing it takes the post back from followers with a Delete (${retraction ?? "no retraction logged"})`);
+
+    // Its URL answers 410 through an EmDash redirect rule, and the sites it linked to are re-sent
+    // its Webmentions so they drop theirs (#2221). Publishing it again lifts the rule.
+    const removal = await loggedActivityPub(new RegExp(`unpublished entry ${cleanID}: (\\S+) answers 410`), beforeUnpublish);
+    check(removal === articlePath, `unpublishing it makes its URL answer 410 for the Webmention re-send (${removal ?? "no removal logged"})`);
+    const gone = await request(base, articlePath);
+    check(gone.status === 410, `the unpublished article's URL answers 410 Gone (HTTP ${gone.status})`);
+    const beforeReturn = serverLog.length;
+    const back = await request(base, `/_emdash/api/content/articles/${cleanID}/publish`, { method: "POST", token, body: {} });
+    check(back.status === 200, `publishing it again succeeds (HTTP ${back.status})`);
+    const lifted = await loggedActivityPub(/(\S+) is published again: its 410 is lifted/, beforeReturn);
+    check(lifted?.endsWith(articlePath) === true, `publishing it again lifts the 410 (${lifted ?? "nothing lifted"})`);
+    const returned = await request(base, articlePath);
+    check(returned.status === 200 && returned.text.includes("h-entry"), `the article answers again once it is published again (HTTP ${returned.status})`);
   }
 
   await stopServer();

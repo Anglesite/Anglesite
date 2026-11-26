@@ -9,6 +9,7 @@ import {
   createD1Inbox,
   createD1SentLog,
   extractLinks,
+  resendForDeletedSource,
   sendWebmentions,
   type WebmentionEnv,
   type WebmentionJob,
@@ -1366,6 +1367,27 @@ export async function retractFromFollowers(
     return response.ok ? "retracted" : "failed";
   } catch {
     return "failed";
+  }
+}
+
+/**
+ * Tells the sites a removed post linked to that it is gone (#2221): Webmention §3.1.5's re-send,
+ * to every target the D1 sent-log recorded for `url` when it was syndicated. Call it once `url`
+ * answers `410 Gone`, so each receiver that re-fetches it drops its mention. `unavailable` when
+ * the social database (and so the sent-log) isn't bound. `resend` replaces `@dwk/webmention`'s,
+ * for tests.
+ */
+export async function notifyLinkedSitesOfRemoval(
+  url: string,
+  env: WorkerEnv,
+  options: { resend?: typeof resendForDeletedSource } = {},
+): Promise<SyndicationOutcome["webmentions"] | "unavailable"> {
+  if (!env.WEBMENTION_INBOX) return "unavailable";
+  try {
+    const results = await (options.resend ?? resendForDeletedSource)(url, { sentLog: createD1SentLog(env.WEBMENTION_INBOX) });
+    return { targets: results.length, delivered: results.filter((result) => result.delivered).length };
+  } catch {
+    return { targets: 0, delivered: 0, failed: true };
   }
 }
 

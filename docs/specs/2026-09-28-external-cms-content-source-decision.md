@@ -360,8 +360,18 @@ correction, retraction or takedown must never be blocked by the gate.
     - WebSub: the hub is told the feeds changed.
     - POSSE and Standard.site stay with Publish Site, because they use credentials held in the
       app's Keychain.
-    - A deleted article's Webmentions aren't re-sent (Webmention §3.1.5 needs its page to
-      answer `410`; the article route answers `404`).
+    - Removal (#2221). Unpublishing or deleting an article makes its URL answer `410 Gone`
+      through an EmDash redirect rule. The plugin has `redirects:write`, and its rules are
+      grouped as "Removed articles (Anglesite)" in EmDash's admin. The sites the article linked
+      to are then re-sent its Webmentions from the D1 sent-log (Webmention §3.1.5), so they drop
+      their mentions. Publishing it again lifts the rule before anything goes out. A redirect the
+      owner made for the path is never touched. The plugin's KV keeps each article's path, which
+      a deletion's event doesn't carry. Accepted narrow cases:
+      - EmDash caches redirect rules per isolate for up to 30 s, so a re-fetch in that window
+        can see the route's `404`.
+      - An article published before #2221 and deleted without being unpublished first has no
+        recorded path, so its linked sites aren't told.
+      - Coming back under a new slug leaves the old URL at `410`.
 - **Audience-limited posts** (#1568) aren't offered on EmDash sites until the render backstop and
   an IndieAuth read gate exist on the SSR path. The restricted-content check is what enforces
   that.
