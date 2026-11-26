@@ -101,6 +101,143 @@ enum OwnerFacingCopy {
         }
     }
 
+    // MARK: Safety check (pre-deploy gate)
+
+    /// One safety-check finding as the blocked-publish sheet shows it (#2211). `title` names what
+    /// was found and `consequence` says what publishing it would do, both in the owner's terms;
+    /// `page` is the visitor-facing address it's on, when it's on a page. The scan's own wording
+    /// (message, suggested fix, file path) is technical — it names `dist/`, `_headers`,
+    /// `.gitignore` — so it goes in `detail`, behind the sheet's Details disclosure (D1).
+    struct GateFinding: Equatable {
+        let title: String
+        let consequence: String
+        let page: String?
+        let detail: String?
+    }
+
+    /// The owner-facing reading of a blocker the pre-deploy scan reported.
+    static func gate(_ failure: PreDeployCheck.ScanFailure) -> GateFinding {
+        let title: String
+        let consequence: String
+        switch failure.category {
+        case .piiEmail:
+            title = String(localized: "A personal email address")
+            consequence = String(localized: "Anyone visiting your site could read it, and spammers collect addresses like this.")
+        case .piiPhone:
+            title = String(localized: "A phone number")
+            consequence = String(localized: "Anyone visiting your site could read it.")
+        case .piiSSN:
+            title = String(localized: "A Social Security number")
+            consequence = String(localized: "Anyone visiting your site could read it and use it to steal an identity.")
+        case .exposedToken:
+            title = String(localized: "A password or access key")
+            consequence = String(localized: "Anyone who found it could use it to get into your accounts.")
+        case .thirdPartyScript:
+            title = String(localized: "Tracking code from another company")
+            consequence = String(localized: "It would share what your visitors do on your site with that company.")
+        case .keystaticRoute:
+            title = String(localized: "Your editing pages")
+            consequence = String(localized: "The pages you use to edit your site would be open to everyone.")
+        case .cspMisconfigured:
+            title = String(localized: "Missing protection against harmful code")
+            consequence = String(localized: "Your site would lose the protection that stops other sites' code from running on your pages.")
+        case .embedMediaHotlink:
+            title = String(localized: "Media loaded from another service")
+            consequence = String(localized: "Embedded media would load straight from that service, which can track your visitors and may stop working if it's removed there.")
+        case .wellKnownCollision:
+            title = String(localized: "Two files for the same special address")
+            consequence = String(localized: "Apps and other sites look for this address, and with two files there, neither can be relied on.")
+        case .anglesiteConfigInvalid:
+            title = String(localized: "Your site's settings can't be read")
+            consequence = String(localized: "Anglesite can't check your site safely until its settings can be read.")
+        case .restrictedContentInSource, .restrictedContentInDist:
+            title = String(localized: "Content you limited to certain people")
+            consequence = String(localized: "It would be visible to everyone, not just the people you chose.")
+        case .appOwnedScriptRestored:
+            // #1958: the scan's own message is already owner-phrased ("your safety check had been
+            // changed; it's been restored"), so it leads; only the file paths stay in detail.
+            title = String(localized: "Safety check restored")
+            consequence = failure.message
+        case .other:
+            title = String(localized: "Something that shouldn't go public")
+            consequence = String(localized: "The safety check found a problem it can't describe more simply. Show Details says what it found.")
+        }
+        let detail = failure.category == .appOwnedScriptRestored
+            ? gateDetail(message: nil, detail: failure.detail, remediation: failure.remediation, file: nil)
+            : gateDetail(message: failure.message, detail: failure.detail, remediation: failure.remediation, file: failure.file)
+        return GateFinding(
+            title: title,
+            consequence: consequence,
+            page: failure.file.flatMap(PreDeployCheck.pageAddress(forPublishedFile:)),
+            detail: detail
+        )
+    }
+
+    /// The owner-facing reading of an advisory the pre-deploy scan reported. Warnings never block,
+    /// so `consequence` says what the visitor or owner would notice, not why publishing stopped.
+    static func gate(_ warning: PreDeployCheck.ScanWarning) -> GateFinding {
+        let title: String
+        let consequence: String
+        switch warning.category {
+        case .missingOgImage:
+            title = String(localized: "No picture for link previews")
+            consequence = String(localized: "When someone shares a page, it will appear without a picture.")
+        case .maintenanceOverdue:
+            title = String(localized: "Routine upkeep is overdue")
+            consequence = String(localized: "Some of your site's regular checkups haven't run for a while.")
+        case .seoCritical:
+            title = String(localized: "Hard for search engines to list")
+            consequence = String(localized: "A page is missing something search engines need in order to show it.")
+        case .seoWarning:
+            title = String(localized: "Could be easier to find in search")
+            consequence = String(localized: "A page is missing something that helps search engines describe it.")
+        case .orphanedRoute:
+            title = String(localized: "A page nothing links to")
+            consequence = String(localized: "Visitors can only reach it if they already know its address.")
+        case .mixedContent:
+            title = String(localized: "Something loads without protection")
+            consequence = String(localized: "Part of a page loads over an unprotected connection, so browsers may block it or warn visitors.")
+        case .sriMissing:
+            title = String(localized: "Unchecked code from another service")
+            consequence = String(localized: "A file loaded from another service isn't checked for tampering before it runs.")
+        case .externalLinkRel:
+            title = String(localized: "Links to other sites need a safety setting")
+            consequence = String(localized: "A link that opens in a new tab could let the other site change your page.")
+        case .missingSecurityArtifact, .securityTxtIssue:
+            title = String(localized: "Security contact details need attention")
+            consequence = String(localized: "People who find a security problem on your site may not know how to tell you.")
+        case .mtaStsIssue:
+            title = String(localized: "Email protection needs attention")
+            consequence = String(localized: "A setting that protects email sent to your address isn't working.")
+        case .thirdPartyScript:
+            title = String(localized: "Tracking code from another company")
+            consequence = String(localized: "It shares what your visitors do on your site with that company.")
+        case .wellKnownArtifact:
+            title = String(localized: "A special file was left out")
+            consequence = String(localized: "A file that apps and other sites look for won't be published.")
+        case .other:
+            title = String(localized: "Worth a look")
+            consequence = String(localized: "The safety check noticed something that may need attention. Show Details says what it found.")
+        }
+        return GateFinding(
+            title: title,
+            consequence: consequence,
+            page: warning.file.flatMap(PreDeployCheck.pageAddress(forPublishedFile:)),
+            detail: gateDetail(message: warning.message, detail: warning.detail, remediation: warning.remediation, file: warning.file)
+        )
+    }
+
+    /// The scan's technical wording, one line per field, for the Details disclosure. `nil` when
+    /// the scan gave nothing beyond the category.
+    private static func gateDetail(message: String?, detail: String?, remediation: String?, file: String?) -> String? {
+        let lines = [message, detail, remediation, file]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var seen = Set<String>()
+        let unique = lines.filter { seen.insert($0).inserted }
+        return unique.isEmpty ? nil : unique.joined(separator: "\n")
+    }
+
     // MARK: Backup success
 
     /// "Backed up to GitHub" — the destination as the owner knows it, never the remote URL or
