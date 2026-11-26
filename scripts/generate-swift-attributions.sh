@@ -25,7 +25,9 @@ fi
 python3 - "$REPO_ROOT" "$OUTPUT" "$OVERRIDES" <<'PY'
 import json
 import os
+import re
 import sys
+import textwrap
 
 repo_root, output_path, overrides_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
@@ -74,6 +76,125 @@ def find_license_text(directory):
     return None
 
 
+# Code statically linked into the app from *inside* a pinned checkout (a git submodule the
+# package compiles from source), which Package.resolved never lists, so the pin loop below can't
+# see it. Each entry is read from the nested checkout itself, so its version and notices follow
+# the pin. libgit2's COPYING also carries notices for most of what it bundles and SwiftGit2
+# compiles (PCRE2, zlib, llhttp). libgit2's linking exception is word-for-word GCC-exception-2.0.
+#
+# deps/xdiff has no license file and no section in COPYING, so its entry is assembled from
+# `licenseParts` instead: each part is a file's leading /* … */ notice ("header") or a whole file
+# ("file"), both relative to the component's directory. LibXDiff is LGPL-2.1-or-later (#2231);
+# xhistogram.c, from JGit, is under the Eclipse Distribution License 1.0, which is BSD-3-Clause.
+# The LGPL 2.1 text itself is the copy libgit2 ships for winhttp (deps/winhttp/COPYING.LGPL).
+LIBGIT2_VERSION = {
+    "versionPattern": r'#define\s+LIBGIT2_VERSION\s+"([^"]+)"',
+}
+NESTED_COMPONENTS = {
+    "SwiftGit2": [
+        {
+            "name": "libgit2",
+            "path": "libgit2",
+            "versionFile": os.path.join("include", "git2", "version.h"),
+            **LIBGIT2_VERSION,
+            "licenseSPDXId": "GPL-2.0-only WITH GCC-exception-2.0",
+            "homepage": "https://github.com/libgit2/libgit2",
+        },
+        {
+            "name": "LibXDiff (bundled in libgit2)",
+            "path": os.path.join("libgit2", "deps", "xdiff"),
+            # xdiff has no version of its own; it is the copy libgit2 vendors at this version.
+            "versionFile": os.path.join("..", "..", "include", "git2", "version.h"),
+            **LIBGIT2_VERSION,
+            "licenseParts": [
+                {"header": "xdiff.h"},
+                {"header": "xhistogram.c"},
+                {"file": os.path.join("..", "winhttp", "COPYING.LGPL")},
+            ],
+            "licenseSPDXId": "LGPL-2.1-or-later AND BSD-3-Clause",
+            "homepage": "https://github.com/libgit2/libgit2/tree/main/deps/xdiff",
+        },
+    ],
+}
+
+
+def leading_comment(path):
+    """The text of a C file's leading /* … */ block, with each line's ` * ` prefix removed."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        match = re.match(r"\s*/\*(.*?)\*/", f.read(), re.S)
+    if not match:
+        return None
+    lines = [re.sub(r"^\s*\*", "", line).rstrip() for line in match.group(1).splitlines()]
+    # Dedent uniformly (headers like ` *  text` keep a consistent indent otherwise) and trim
+    # only the blank lines at either end, so the first line isn't indented differently.
+    text = textwrap.dedent("\n".join(lines)).strip("\n")
+    return text + "\n" if text.strip() else None
+
+
+def assemble_license(directory, parts):
+    """Joins a component's license parts, or returns (None, missing part) for the first part that
+    is absent or has no leading comment."""
+    texts = []
+    for part in parts:
+        kind, relpath = next(iter(part.items()))
+        path = os.path.join(directory, relpath)
+        try:
+            if kind == "header":
+                text = leading_comment(path)
+            else:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+        except FileNotFoundError:
+            text = None
+        if not text:
+            return None, f"{kind} {relpath}"
+        texts.append(text.rstrip("\n") + "\n")
+    return ("\n" + "-" * 70 + "\n\n").join(texts), None
+
+
+def nested_entries(parent, parent_dir, nested_failures):
+    # Failures go to their own list: overrides don't apply here, so the pin loop's "add an
+    # override" advice would be wrong. Fail rather than drop the entry, since an empty submodule
+    # checkout would otherwise silently remove a statically linked library from the notices.
+    entries = []
+    for component in NESTED_COMPONENTS.get(parent, []):
+        directory = os.path.join(parent_dir, component["path"])
+        label = f"{parent}/{component['path']}"
+        if not os.path.isdir(directory) or not os.listdir(directory):
+            nested_failures.append(f"{label}: checkout missing or empty (submodule not checked out?)")
+            continue
+        if "licenseParts" in component:
+            license_text, missing = assemble_license(directory, component["licenseParts"])
+            if not license_text:
+                nested_failures.append(f"{label}: license part not found ({missing})")
+                continue
+        else:
+            license_text = find_license_text(directory)
+            if not license_text:
+                nested_failures.append(f"{label}: no license file found")
+                continue
+        version_path = os.path.join(directory, component["versionFile"])
+        try:
+            with open(version_path, encoding="utf-8") as f:
+                match = re.search(component["versionPattern"], f.read())
+        except FileNotFoundError:
+            match = None
+        if not match:
+            nested_failures.append(
+                f"{label}: version not found in {component['versionFile']} (file missing, or its "
+                "format changed; update versionPattern in NESTED_COMPONENTS)"
+            )
+            continue
+        entries.append({
+            "name": component["name"],
+            "version": match.group(1),
+            "licenseSPDXId": component["licenseSPDXId"],
+            "licenseText": license_text,
+            "homepage": component["homepage"],
+        })
+    return entries
+
+
 def checkout_dir_name(location):
     # SwiftPM names .build/checkouts/<dir> after the repo name in the URL, not the (often
     # lowercased/hyphenated) `identity` field — verified against all pins in this repo.
@@ -90,6 +211,7 @@ with open(overrides_path, encoding="utf-8") as f:
 checkouts_root = os.path.join(repo_root, ".build", "checkouts")
 entries = []
 failures = []
+nested_failures = []
 
 for pin in resolved["pins"]:
     name = checkout_dir_name(pin["location"])
@@ -112,12 +234,16 @@ for pin in resolved["pins"]:
         "licenseText": license_text,
         "homepage": homepage,
     })
+    entries.extend(nested_entries(name, os.path.join(checkouts_root, name), nested_failures))
 
 if failures:
     sys.stderr.write(
         "error: no license file found and no override for: " + ", ".join(sorted(failures)) + "\n"
         "       Add an entry to " + overrides_path + " once a human confirms the license.\n"
     )
+for failure in nested_failures:
+    sys.stderr.write("error: nested component " + failure + "\n")
+if failures or nested_failures:
     sys.exit(1)
 
 entries.sort(key=lambda e: e["name"].lower())

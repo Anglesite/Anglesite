@@ -79,6 +79,7 @@ Two scripts, because the two ecosystems need different tooling:
 
 - Parses `Package.resolved` for each pin's identity, resolved version, and repository URL.
 - For each pin, looks for a license file (`LICENSE`, `LICENSE.md`, `LICENSE.txt`, `COPYING`) under `.build/checkouts/<name>/` — populated by `swift package resolve` / `swift build`, both of which CI already runs before this script would need to.
+- Also emits code a pin compiles from a vendored submodule, which `Package.resolved` doesn't list. The script's `NESTED_COMPONENTS` table maps a pin to its nested components, currently SwiftGit2's `libgit2` and the LibXDiff it bundles. Each one's version and license text are read from inside that checkout, so they follow the pin. A missing nested checkout fails the run the same way a missing license does. A component with no license file of its own (LibXDiff, whose notices exist only in its source headers; #2231) lists `licenseParts` instead: source files whose leading comment holds a notice, plus a whole license text file.
 - Writes `Resources/Attributions/app-binary.json`.
 
 ### `scripts/generate-npm-attributions.mjs <node_modules-root> <output.json>`

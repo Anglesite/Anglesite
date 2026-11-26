@@ -674,6 +674,12 @@ jobs:
       - name: Build (debug)
         run: swift build -c debug
 
+      # Fixture test for the generator's nested-component path (libgit2 inside SwiftGit2). It
+      # needs python3, which the swift:6.3.3-noble image in linux-build-test lacks, so it runs
+      # here beside the manifest check that uses the same script.
+      - name: Test generate-swift-attributions.sh nested components
+        run: scripts/generate-swift-attributions.test.sh
+
       - name: Check app-binary attributions manifest
         # This job builds under the workflow-level ANGLESITE_SKIP_CONTAINER=1 (line 23), which
         # drops AnglesiteContainer's whole dependency graph (grpc-swift, containerization, etc.)
