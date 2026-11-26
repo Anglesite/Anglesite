@@ -11,6 +11,13 @@ public enum EmDashSocialComposition {
         workers.filter { $0.id != WorkerComposition.micropubWorkerID }
     }
 
+    /// The worker ids a successful publish records as deployed (`SiteSettings.lastDeployedWorkerIDs`,
+    /// the baseline route removal and drift detection read): `effectiveActiveIDs`, less the ids an
+    /// EmDash site's Worker doesn't serve (#2165). Every other site's Worker serves its full set.
+    public static func deployedIDs(effectiveActiveIDs: Set<String>, serverRenderedDeploy: Bool) -> Set<String> {
+        serverRenderedDeploy ? effectiveActiveIDs.subtracting([WorkerComposition.micropubWorkerID]) : effectiveActiveIDs
+    }
+
     /// The route claims of the workers that run: `claims` less those a left-off worker
     /// declared, so the pre-deploy inventory only counts endpoints the Worker serves.
     /// App-owned claims (`app:…`) are kept.
