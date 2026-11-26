@@ -123,7 +123,12 @@ form of option B.
    - A file a later overlay (or template) drops is removed from an existing site when it
      opens, if the site's copy is still the app's, and the removal is committed (#2179). A
      dropped file the owner had changed stays, as theirs: the app stops keeping it, and the
-     notice says so ("Kept as yours…"). A rename is a drop plus a new file.
+     notice says so ("Kept as yours…"). A rename is a drop plus a new file. A file the
+     template still ships but no longer counts as the app's is kept and released, never removed;
+     nothing is removed under a template root that wasn't read (`scripts/`, `src/lib/`, the
+     overlay's `src/`, `worker/`), or on a site of unknown kind. Known cost: a site opened by an
+     older app build removes files a newer build added, and the newer build adds them back, so
+     the two builds' updates alternate in the site's history, as refreshes already do.
 5. **Portability comes from EmDash, not a git mirror.** EmDash is MIT-licensed and open source,
    and its content lives in the owner's own D1/R2. Leaving EmDash means reading that store
    through EmDash's API or a database dump via the Portable Text rung (#2051), into a new

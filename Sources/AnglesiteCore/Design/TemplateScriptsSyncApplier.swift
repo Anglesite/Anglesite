@@ -65,6 +65,10 @@ public enum TemplateScriptsSyncApplier {
         sourceDirectory: URL,
         configDirectory: URL
     ) throws {
+        // Never outside `Source/`, whatever the baseline key says.
+        guard TemplateScriptsSyncChecker.isContainedRelativePath(relativePath) else {
+            throw ApplyError.writeFailed(relativePath: relativePath)
+        }
         let siteURL = sourceDirectory.appendingPathComponent(relativePath)
         if FileManager.default.fileExists(atPath: siteURL.path) {
             do {
@@ -80,13 +84,14 @@ public enum TemplateScriptsSyncApplier {
     }
 
     /// Removes the directories a removal left empty, up to (not including) `sourceDirectory`, so a
-    /// dropped route doesn't leave an empty `src/pages/…` folder behind.
+    /// dropped route doesn't leave an empty `src/pages/…` folder behind. A folder holding only
+    /// Finder's `.DS_Store` counts as empty, as it does in the manifest.
     private static func removeEmptyParents(of url: URL, within sourceDirectory: URL) {
         let root = sourceDirectory.standardizedFileURL.path
         var directory = url.deletingLastPathComponent().standardizedFileURL
         while directory.path.hasPrefix(root + "/"),
               let contents = try? FileManager.default.contentsOfDirectory(atPath: directory.path),
-              contents.isEmpty {
+              contents.allSatisfy({ $0 == ".DS_Store" }) {
             guard (try? FileManager.default.removeItem(at: directory)) != nil else { return }
             directory = directory.deletingLastPathComponent().standardizedFileURL
         }

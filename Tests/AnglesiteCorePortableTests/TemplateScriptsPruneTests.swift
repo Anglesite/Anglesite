@@ -62,6 +62,8 @@ struct TemplateScriptsPruneTests {
             files: [Self.gate: "// gate\n", "scripts/retired/old.ts": "// old\n", "src/lib/kept.ts": "// kept\n"],
             kept: [Self.gate, "src/lib/kept.ts"], in: root)
         try Self.write("SECURITY_TXT_MODE=disabled\n", to: ".site-config", in: site.sourceURL)
+        // Finder's leftover doesn't keep the emptied folder around.
+        try Self.write("", to: "scripts/retired/.DS_Store", in: site.sourceURL)
 
         let report = await ExistingSiteMigration.runNoninteractively(
             sourceDirectory: site.sourceURL, configDirectory: site.configURL, templateDirectory: template,
@@ -127,27 +129,88 @@ struct TemplateScriptsPruneTests {
         #expect(TemplateScriptsBaseline.load(from: site.configURL).files["scripts/old.ts"] == nil)
     }
 
-    @Test("nothing is pruned from a template read without its gate, or a site whose kind isn't known")
+    @Test("nothing is pruned under a root the template is missing, or on a site whose kind isn't known")
     func noPruneWhenTheSetCantBeTrusted() throws {
         let root = try Self.tempDir()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        // A template missing its gate: likely an incomplete copy, not a deliberate drop.
+        // `src/lib/` missing from the template entirely (a partial copy, an incomplete override):
+        // its files are left, while a drop under `scripts/`, which was read, still goes.
         let (site, template) = try Self.syncedThenDropped(
-            files: [Self.gate: "// gate\n", "scripts/a.ts": "// a\n"], kept: [], in: root.appendingPathComponent("1"))
+            files: [Self.gate: "// gate\n", "scripts/old.ts": "// old\n", "src/lib/csp-config.ts": "// lib\n"],
+            kept: [Self.gate], in: root.appendingPathComponent("1"))
         let partial = TemplateScriptsSyncChecker.check(
             sourceDirectory: site.sourceURL, configDirectory: site.configURL, templateDirectory: template)
-        #expect(partial.toRemove.isEmpty && partial.releasedCustomized.isEmpty)
-        #expect(TemplateScriptsBaseline.load(from: site.configURL).files["scripts/a.ts"] != nil)
+        #expect(partial.toRemove == ["scripts/old.ts"])
+        #expect(partial.releasedCustomized.isEmpty)
+        #expect(TemplateScriptsBaseline.load(from: site.configURL).files["src/lib/csp-config.ts"] != nil)
+
+        // An EmDash site whose template is missing the overlay and `worker/`: none of their files go.
+        let (emdash, emdashTemplate) = try Self.syncedThenDropped(
+            kind: .emdash,
+            files: [
+                Self.gate: "// gate\n", "emdash/src/worker.ts": "// entry\n", "emdash/astro.config.ts": "// config\n",
+                "worker/worker.ts": "// social\n",
+            ],
+            kept: [Self.gate], in: root.appendingPathComponent("2"))
+        #expect(TemplateScriptsSyncChecker.check(
+            sourceDirectory: emdash.sourceURL, configDirectory: emdash.configURL, templateDirectory: emdashTemplate
+        ).toRemove.isEmpty)
 
         // A marker from a newer app: its overlay files would all look dropped.
         let (newer, newerTemplate) = try Self.syncedThenDropped(
             kind: .unrecognized("future"), files: [Self.gate: "// gate\n", "scripts/a.ts": "// a\n"],
-            kept: [Self.gate], in: root.appendingPathComponent("2"))
+            kept: [Self.gate], in: root.appendingPathComponent("3"))
         let unknown = TemplateScriptsSyncChecker.check(
             sourceDirectory: newer.sourceURL, configDirectory: newer.configURL, templateDirectory: newerTemplate)
         #expect(unknown.toRemove.isEmpty)
         #expect(Self.exists("scripts/a.ts", in: newer.sourceURL))
+    }
+
+    @Test("a file the template still ships but no longer counts as the app's stays, and is no longer kept")
+    func stillShippedButNoLongerAppOwned() throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let template = root.appendingPathComponent("Template", isDirectory: true)
+        try Self.write("// gate\n", to: Self.gate, in: template)
+        // `scripts/themes.ts` is shipped in the template but excluded from the app-owned set; a
+        // baseline entry for it stands in for a file an earlier version counted as the app's.
+        try Self.write("// themes\n", to: "scripts/themes.ts", in: template)
+        let site = try Self.makeSite(kind: .anglesite, in: root)
+        try Self.write("// themes\n", to: "scripts/themes.ts", in: site.sourceURL)
+        var baseline = TemplateScriptsBaseline()
+        baseline.files["scripts/themes.ts"] = .init(baselineHash: VectorMath.stableHash("// themes\n"))
+        try baseline.save(to: site.configURL)
+
+        let plan = TemplateScriptsSyncChecker.check(
+            sourceDirectory: site.sourceURL, configDirectory: site.configURL, templateDirectory: template)
+        #expect(plan.toRemove.isEmpty && plan.releasedCustomized.isEmpty)
+        #expect(Self.exists("scripts/themes.ts", in: site.sourceURL))
+        #expect(TemplateScriptsBaseline.load(from: site.configURL).files["scripts/themes.ts"] == nil)
+    }
+
+    @Test("a baseline key that would reach outside Source/ is forgotten, never followed")
+    func uncontainedKeyIsNeverFollowed() throws {
+        let root = try Self.tempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (site, template) = try Self.syncedThenDropped(files: [Self.gate: "// gate\n"], kept: [Self.gate], in: root)
+        let outside = site.url.appendingPathComponent("Notes.txt")
+        let outsideContent = "beside Source/\n"
+        try outsideContent.write(to: outside, atomically: true, encoding: .utf8)
+        var baseline = TemplateScriptsBaseline.load(from: site.configURL)
+        baseline.files["scripts/../../Notes.txt"] = .init(baselineHash: VectorMath.stableHash(outsideContent))
+        try baseline.save(to: site.configURL)
+
+        let plan = TemplateScriptsSyncChecker.check(
+            sourceDirectory: site.sourceURL, configDirectory: site.configURL, templateDirectory: template)
+        #expect(plan.toRemove.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: outside.path))
+        #expect(TemplateScriptsBaseline.load(from: site.configURL).files["scripts/../../Notes.txt"] == nil)
+        #expect(throws: TemplateScriptsSyncApplier.ApplyError.self) {
+            try TemplateScriptsSyncApplier.remove(
+                relativePath: "scripts/../../Notes.txt", sourceDirectory: site.sourceURL, configDirectory: site.configURL)
+        }
+        #expect(FileManager.default.fileExists(atPath: outside.path))
     }
 
     @Test("an EmDash route a later overlay drops is removed at its site path")
