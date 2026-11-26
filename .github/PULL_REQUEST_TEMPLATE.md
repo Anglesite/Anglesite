@@ -2,10 +2,10 @@ Closes #<!-- issue number this PR resolves, e.g. "123". Use a GitHub closing key
 
 ## Summary
 
-<!-- The opener: 1–3 human-curated sentences — the shortest text that tells a reviewer what this PR is for and whether it deserves more of their attention. A screenshot is welcome for UI changes. Keep it outside the <details> block below. -->
+<!-- The opener: 1–3 human-curated sentences — the shortest text that tells a reviewer what this PR is for and whether it deserves more of their attention. A screenshot is welcome for UI changes. Keep it outside the <details> block below. An agent opening this PR with no human review first ends the opener with "_(agent draft — not yet reviewed)_"; the human deletes that marker once they confirm or rewrite the opener. -->
 
 <details>
-<summary><!-- Agent-written PR? Name the model (and effort level, if any), e.g. "Claude Opus 5.5 Medium". Hand-written PR? Use "Details", or delete this block if the opener says it all. --></summary>
+<summary><!-- Agent-written PR? Name the model and effort level when you know them and your harness allows it (e.g. "Claude Opus 5.5 Medium"); otherwise use "Agent write-up". Never guess. Hand-written PR? Use "Details", or delete this block if the opener says it all. --></summary>
 
 <!-- The full write-up: problem, approach, design notes, trade-offs. Leave a blank line after <summary> so GitHub renders the Markdown in here. -->
 
