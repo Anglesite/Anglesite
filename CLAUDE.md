@@ -8,7 +8,7 @@ This is the **native macOS app**. The sibling repo at `../anglesite` supplies th
 
 Before handing work off, re-check the changed files against `CONTRIBUTING.md`, run the relevant test/build commands it specifies, and report any required check you could not run. When delegating work, explicitly instruct each agent to read `CONTRIBUTING.md` **in its assigned worktree before acting**; the delegating agent remains responsible for verifying compliance.
 
-**Immediately before running the commit or `gh pr create` command**, re-check against `CONTRIBUTING.md` ▸ "Commits and pull requests" instead of falling back to a generic format: commit subject ≤72 characters, and a PR body built from `.github/PULL_REQUEST_TEMPLATE.md`'s actual headings — even for a docs-only or otherwise trivial change — not the generic Summary/Test-plan shape a general tool default falls back to, which silently drops the **Paired PR check** section.
+**Immediately before running the commit or `gh pr create` command**, re-check against `CONTRIBUTING.md` ▸ "Commits and pull requests" instead of falling back to a generic format: commit subject ≤72 characters, and a PR body built from `.github/PULL_REQUEST_TEMPLATE.md`'s actual headings — even for a docs-only or otherwise trivial change — not the generic Summary/Test-plan shape a general tool default falls back to, which silently drops the **Paired PR check** section. Put a short opener at the top of **Summary** and fold the full agent-written text into the template's `<details><summary>` block, with the model and effort level as the summary text (`CONTRIBUTING.md` ▸ "Lead with a human opener").
 
 ## Two-repo coordination
 
