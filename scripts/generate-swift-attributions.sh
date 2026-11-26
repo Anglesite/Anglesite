@@ -25,6 +25,7 @@ fi
 python3 - "$REPO_ROOT" "$OUTPUT" "$OVERRIDES" <<'PY'
 import json
 import os
+import re
 import sys
 
 repo_root, output_path, overrides_path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -74,6 +75,52 @@ def find_license_text(directory):
     return None
 
 
+# Code statically linked into the app from *inside* a pinned checkout (a git submodule the
+# package compiles from source), which Package.resolved never lists, so the pin loop below can't
+# see it. Each entry is read from the nested checkout itself, so its version and notices follow
+# the pin. libgit2's COPYING also carries notices for most of what it bundles and SwiftGit2
+# compiles (PCRE2, zlib, llhttp); deps/xdiff is LGPL-2.1+ with its notice only in its source
+# headers. libgit2's linking exception is word-for-word GCC-exception-2.0.
+NESTED_COMPONENTS = {
+    "SwiftGit2": [
+        {
+            "name": "libgit2",
+            "path": "libgit2",
+            "versionFile": os.path.join("include", "git2", "version.h"),
+            "versionPattern": r'#define\s+LIBGIT2_VERSION\s+"([^"]+)"',
+            "licenseSPDXId": "GPL-2.0-only WITH GCC-exception-2.0",
+            "homepage": "https://github.com/libgit2/libgit2",
+        },
+    ],
+}
+
+
+def nested_entries(parent, parent_dir, failures):
+    entries = []
+    for component in NESTED_COMPONENTS.get(parent, []):
+        directory = os.path.join(parent_dir, component["path"])
+        label = f"{parent}/{component['path']}"
+        try:
+            with open(os.path.join(directory, component["versionFile"]), encoding="utf-8") as f:
+                match = re.search(component["versionPattern"], f.read())
+        except FileNotFoundError:
+            match = None
+        license_text = find_license_text(directory)
+        if not match or not license_text:
+            # Fail rather than drop it: an empty submodule checkout would otherwise silently
+            # remove a statically linked library from the notices.
+            failures.append(label)
+            continue
+        entries.append({
+            "name": component["name"],
+            "version": match.group(1),
+            "licenseSPDXId": component["licenseSPDXId"],
+            "licenseText": license_text,
+            "homepage": component["homepage"],
+        })
+    return entries
+
+
 def checkout_dir_name(location):
     # SwiftPM names .build/checkouts/<dir> after the repo name in the URL, not the (often
     # lowercased/hyphenated) `identity` field — verified against all pins in this repo.
@@ -112,6 +159,7 @@ for pin in resolved["pins"]:
         "licenseText": license_text,
         "homepage": homepage,
     })
+    entries.extend(nested_entries(name, os.path.join(checkouts_root, name), failures))
 
 if failures:
     sys.stderr.write(
