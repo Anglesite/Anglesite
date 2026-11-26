@@ -493,6 +493,31 @@ async function main() {
     check(lifted?.endsWith(articlePath) === true, `publishing it again lifts the 410 (${lifted ?? "nothing lifted"})`);
     const returned = await request(base, articlePath);
     check(returned.status === 200 && returned.text.includes("h-entry"), `the article answers again once it is published again (HTTP ${returned.status})`);
+    const held = await loggedActivityPub(/is published again: its 410 is lifted, and it goes out at (\S+)/, beforeReturn);
+    check(held !== undefined, `a republished article goes out once EmDash's redirect cache has cleared (${held ?? "sent straight away"})`);
+
+    // Moving it to the trash takes it back too (afterDelete fires with `permanent: false`), and
+    // restoring brings it back as a draft, so it is never live behind its 410; publishing lifts it.
+    const beforeTrash = serverLog.length;
+    const trashed = await request(base, `/_emdash/api/content/articles/${cleanID}`, { method: "DELETE", token });
+    check(trashed.status === 200, `moving the article to the trash succeeds (HTTP ${trashed.status})`);
+    const trashRemoval = await loggedActivityPub(new RegExp(`(?:unpublished|deleted) entry ${cleanID}: (\\S+) answers 410`), beforeTrash);
+    check(trashRemoval === articlePath, `the trash makes its URL answer 410 (${trashRemoval ?? "no removal logged"})`);
+    const trashedPage = await request(base, articlePath);
+    check(trashedPage.status === 410, `the trashed article's URL answers 410 Gone (HTTP ${trashedPage.status})`);
+    const restored = await request(base, `/_emdash/api/content/articles/${cleanID}/restore`, { method: "POST", token, body: {} });
+    check(restored.status === 200, `restoring it from the trash succeeds (HTTP ${restored.status})`);
+    const afterRestore = await request(base, `/_emdash/api/content/articles/${cleanID}`, { token });
+    check(afterRestore.json?.data?.item?.status === "draft", `a restored article comes back as a draft, not live behind its 410 (${afterRestore.json?.data?.item?.status})`);
+    const stillGone = await request(base, articlePath);
+    check(stillGone.status === 410, `until it is published again, its URL still answers 410 (HTTP ${stillGone.status})`);
+    const beforeRepublishRestored = serverLog.length;
+    const republishedRestored = await request(base, `/_emdash/api/content/articles/${cleanID}/publish`, { method: "POST", token, body: {} });
+    check(republishedRestored.status === 200, `publishing the restored article succeeds (HTTP ${republishedRestored.status})`);
+    const liftedRestored = await loggedActivityPub(/(\S+) is published again: its 410 is lifted/, beforeRepublishRestored);
+    check(liftedRestored?.endsWith(articlePath) === true, `publishing the restored article lifts the 410 (${liftedRestored ?? "nothing lifted"})`);
+    const backAgain = await request(base, articlePath);
+    check(backAgain.status === 200, `the restored article answers again once published (HTTP ${backAgain.status})`);
   }
 
   await stopServer();

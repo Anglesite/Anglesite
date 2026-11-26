@@ -53,8 +53,10 @@ and 4):
   - as Webmentions to the sites it links to. When the article is unpublished or deleted, its URL
     answers `410 Gone` through an EmDash redirect rule (listed in EmDash's admin under "Removed
     articles (Anglesite)"), and those sites are sent its Webmentions again so they drop theirs
-    (#2221). Publishing it again lifts the rule. `src/lib/removal-record.ts` keeps the path each
-    article was published at, since a deletion doesn't say;
+    (#2221). Moving it to the trash counts. Publishing it again lifts the rule, and the article
+    goes out 35 s later from a one-shot EmDash task, once no cached copy of the rule can answer.
+    `src/lib/removal-record.ts` keeps the path each article was published at, since a deletion
+    doesn't say;
   - as a WebSub notice for the feeds.
   `src/lib/published-article.ts` maps EmDash's entry onto what `syndicatePublishedPost` in
   `worker/worker.ts` sends.

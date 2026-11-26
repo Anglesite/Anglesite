@@ -364,9 +364,16 @@ correction, retraction or takedown must never be blocked by the gate.
       through an EmDash redirect rule. The plugin has `redirects:write`, and its rules are
       grouped as "Removed articles (Anglesite)" in EmDash's admin. The sites the article linked
       to are then re-sent its Webmentions from the D1 sent-log (Webmention §3.1.5), so they drop
-      their mentions. Publishing it again lifts the rule before anything goes out. A redirect the
-      owner made for the path is never touched. The plugin's KV keeps each article's path, which
-      a deletion's event doesn't carry. Accepted narrow cases:
+      their mentions. The re-send and the followers' `Delete` run side by side, so a slow re-send
+      can't cost followers the `Delete`. Moving an article to the trash counts as removal;
+      EmDash restores it as a draft, so it is never live behind its `410`.
+      - Publishing it again lifts the rule. The article then goes out from a one-shot EmDash task
+        35 s later, once no isolate's redirect cache can still answer `410` to a site fetching it.
+      - A redirect the owner made for the path, at either spelling (with or without the trailing
+        slash), is never touched, and a turned-off rule counts as none.
+      - The plugin's KV keeps each article's path, which a deletion's event doesn't carry.
+
+      Accepted narrow cases:
       - EmDash caches redirect rules per isolate for up to 30 s, so a re-fetch in that window
         can see the route's `404`.
       - An article published before #2221 and deleted without being unpublished first has no
