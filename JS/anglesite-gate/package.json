@@ -30,7 +30,7 @@
     "@emdash-cms/auth-atproto": "0.2.45",
     "@emdash-cms/plugin-cli": "0.13.1",
     "@emdash-cms/plugin-test": "0.2.6",
-    "astro": "7.3.5",
+    "astro": "7.4.13",
     "emdash": "1.0.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
