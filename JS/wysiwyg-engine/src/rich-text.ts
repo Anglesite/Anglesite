@@ -181,17 +181,30 @@ export function setLinkFormat(root: HTMLElement, href: string, doc: Document = d
   if (!root.contains(range.commonAncestorContainer)) return;
 
   const existing = findAncestorTag(range.commonAncestorContainer, "a", root);
+  if (existing && range.toString() === existing.textContent) {
+    // The whole link is selected: change its address in place, no unwrap/re-wrap.
+    existing.setAttribute("href", href);
+    return;
+  }
   if (existing) {
-    // Unwrapping moves the link's children, and moving a node collapses any live Range boundary
-    // inside it — so re-linking text that's already a link used to wrap nothing. The boundary
-    // nodes themselves survive the move; re-anchor the range on them afterwards.
-    const { startContainer, startOffset, endContainer, endOffset } = range;
+    // Part of a link: unwrap it, then link just the selection. Unwrapping moves the link's
+    // children, which collapses any live Range boundary inside them, so re-anchor afterwards —
+    // translating a boundary that sat on the `<a>` itself to the same spot in its parent.
+    const parent = existing.parentNode;
+    const index = parent ? Array.prototype.indexOf.call(parent.childNodes, existing) : 0;
+    const remap = (container: Node, offset: number): [Node, number] =>
+      container === existing && parent ? [parent, index + offset] : [container, offset];
+    const [startContainer, startOffset] = remap(range.startContainer, range.startOffset);
+    const [endContainer, endOffset] = remap(range.endContainer, range.endOffset);
     unwrapElement(existing);
     range.setStart(startContainer, startOffset);
     range.setEnd(endContainer, endOffset);
   }
   const anchor = wrapRange(range, "a", doc);
   anchor.setAttribute("href", href);
+  // A selection spanning a whole link plus more text extracts that link inside the new one;
+  // nested links aren't valid HTML, so keep only the outer one.
+  for (const nested of Array.from(anchor.querySelectorAll("a"))) unwrapElement(nested as HTMLElement);
 }
 
 /** Removes the link ancestor around the current selection or caret, if any. */
@@ -219,8 +232,10 @@ export function normalizeHref(input: string): string | null {
   if (value.length === 0) return "";
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(value)?.[1]?.toLowerCase();
   if (scheme !== undefined) {
-    // `localhost:4321` parses as a scheme too; treat a scheme followed by digits as a host:port.
-    if (/^[a-z][a-z0-9+.-]*:\d/i.test(value) && !value.includes("://")) return `https://${value}`;
+    // `localhost:4321` and `example.com:8080` parse as a scheme too. Treat them as host:port only
+    // when the part before the colon looks like a host, so `tel:5551212` stays a phone link.
+    const looksLikeHost = scheme === "localhost" || scheme.includes(".");
+    if (looksLikeHost && /^[^:]+:\d/.test(value) && !value.includes("://")) return `https://${value}`;
     return UNSAFE_LINK_SCHEMES.has(scheme) ? null : value;
   }
   if (/^[/#?]/.test(value) || value.startsWith("./") || value.startsWith("../")) return value;
@@ -246,6 +261,48 @@ export interface ViewportRect {
   y: number;
   width: number;
   height: number;
+}
+
+/** Characters of `root`'s text before (`container`, `offset`). */
+function textOffset(root: Node, container: Node, offset: number): number {
+  const range = (root.ownerDocument ?? document).createRange();
+  range.setStart(root, 0);
+  range.setEnd(container, offset);
+  return range.toString().length;
+}
+
+/**
+ * Rebuilds a Range over characters [`start`, `end`) of `root`'s text. A boundary that falls
+ * between two text nodes goes inside the one the selected text is in — the start into the later
+ * node, the end into the earlier — so a selection of a link's text resolves inside the `<a>`.
+ */
+function rangeFromTextOffsets(root: HTMLElement, start: number, end: number): Range | null {
+  const doc = root.ownerDocument;
+  const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+  const range = doc.createRange();
+  let seen = 0;
+  let startSet = false;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = (node as Text).data.length;
+    if (!startSet && start < seen + length) {
+      range.setStart(node, start - seen);
+      startSet = true;
+    }
+    if (startSet && end <= seen + length) {
+      range.setEnd(node, end - seen);
+      return range;
+    }
+    seen += length;
+  }
+  return null;
+}
+
+/** The selection `beginLinkEdit` holds, as text offsets in the block rather than a live `Range`,
+ *  so it survives a re-render of the block while the popover is open (#2223 review). */
+interface HeldLinkSelection {
+  start: number;
+  end: number;
+  text: string;
 }
 
 /** What `beginLinkEdit` hands the native host to anchor and pre-fill its URL popover. */
@@ -315,7 +372,7 @@ export class RichTextEditor {
   #blurExitDelayMs: number;
   #blurTimer: ReturnType<typeof setTimeout> | null = null;
   /** The selection saved by `beginLinkEdit`, while the native link popover holds the session. */
-  #heldRange: Range | null = null;
+  #held: HeldLinkSelection | null = null;
   #onInput = () => this.#committer.notifyChange();
   /**
    * Blur no longer ends the session on the spot (#2216). While a link edit holds the session,
@@ -324,12 +381,12 @@ export class RichTextEditor {
    * element, or the document itself lost focus (the owner clicked native app chrome).
    */
   #onBlur = () => {
-    if (this.#heldRange) return;
+    if (this.#held) return;
     this.#cancelBlurTimer();
     this.#blurTimer = setTimeout(() => {
       this.#blurTimer = null;
       const el = this.#activeElement;
-      if (!el || this.#heldRange) return;
+      if (!el || this.#held) return;
       const doc = el.ownerDocument;
       if (doc.activeElement !== el || !doc.hasFocus()) this.exit();
     }, this.#blurExitDelayMs);
@@ -349,7 +406,7 @@ export class RichTextEditor {
 
   /** Whether a link edit currently holds the session open (`beginLinkEdit` → commit/cancel). */
   get isHoldingForLinkEdit(): boolean {
-    return this.#heldRange !== null;
+    return this.#held !== null;
   }
 
   get activeBlockId(): BlockId | null {
@@ -444,7 +501,7 @@ export class RichTextEditor {
    *  blur/Escape (design doc §4: both commit immediately, alongside a format command). */
   exit(): void {
     this.#cancelBlurTimer();
-    this.#heldRange = null;
+    this.#held = null;
     this.#unsubscribeEngine?.();
     this.#unsubscribeEngine = null;
     this.#committer.flush();
@@ -487,9 +544,10 @@ export class RichTextEditor {
 
   /**
    * Format ▸ Add Link… (#2216), step 1: saves the selection and holds the session open so moving
-   * focus into the native URL popover doesn't end it. With a caret inside an existing link, the
-   * whole link is selected so the edit replaces its address. Returns `null` — and holds nothing —
-   * when there's no active session, or no text selected and no link under the caret.
+   * focus into the native URL popover doesn't end it. With the caret or selection inside an
+   * existing link, the whole link is selected, so the edit replaces its address. Returns `null` —
+   * and holds nothing — when there's no active session, or no text selected and no link under the
+   * caret.
    */
   beginLinkEdit(): LinkEditContext | null {
     const el = this.#activeElement;
@@ -501,17 +559,22 @@ export class RichTextEditor {
     if (!el.contains(range.commonAncestorContainer)) return null;
 
     const link = findAncestorTag(range.commonAncestorContainer, "a", el);
-    if (range.collapsed) {
-      if (!link) return null;
+    if (link) {
       range.selectNodeContents(link);
       selection.removeAllRanges();
       selection.addRange(range);
+    } else if (range.collapsed) {
+      return null;
     }
     const text = range.toString();
     if (text.length === 0) return null;
 
     this.#cancelBlurTimer();
-    this.#heldRange = range;
+    this.#held = {
+      start: textOffset(el, range.startContainer, range.startOffset),
+      end: textOffset(el, range.endContainer, range.endOffset),
+      text,
+    };
     return { href: link?.getAttribute("href") ?? null, text, rect: toTopLevelViewport(range.getBoundingClientRect(), doc) };
   }
 
@@ -521,16 +584,12 @@ export class RichTextEditor {
    * An `invalid` address keeps the hold so the owner can fix it in the still-open popover.
    */
   commitLinkEdit(input: string): LinkCommitResult {
-    const range = this.#heldRange;
     const el = this.#activeElement;
-    if (!range || !el) return "stale";
+    if (!this.#held || !el) return "stale";
     const href = normalizeHref(input);
     if (href === null) return "invalid";
-    this.#heldRange = null;
-    // A re-render while the popover was open (some other op applied) can replace the nodes the
-    // saved range points into; linking a detached range would silently do nothing.
-    // Removing the range's text collapses it onto the element, hence the `collapsed` check.
-    if (range.collapsed || !el.contains(range.commonAncestorContainer)) {
+    const range = this.#releaseHold(el);
+    if (!range) {
       el.focus();
       return "stale";
     }
@@ -546,10 +605,23 @@ export class RichTextEditor {
   /** Step 2, on Escape or a popover dismissed without Return: releases the hold and puts the
    *  selection and focus back where they were, changing nothing. */
   cancelLinkEdit(): void {
-    const range = this.#heldRange;
     const el = this.#activeElement;
-    this.#heldRange = null;
-    if (range && el && el.contains(range.commonAncestorContainer)) this.#restoreSelection(el, range);
+    const range = el ? this.#releaseHold(el) : null;
+    this.#held = null;
+    if (range && el) this.#restoreSelection(el, range);
+  }
+
+  /**
+   * Ends the hold and rebuilds its range in `el` — the current element, which a re-render while
+   * the popover was open (a debounced commit landing, another op) may have replaced. `null` when
+   * the held text isn't at the held offsets any more: the block's text itself changed.
+   */
+  #releaseHold(el: HTMLElement): Range | null {
+    const held = this.#held;
+    this.#held = null;
+    if (!held) return null;
+    const range = rangeFromTextOffsets(el, held.start, held.end);
+    return range && range.toString() === held.text ? range : null;
   }
 
   /**
@@ -624,7 +696,7 @@ export class RichTextEditor {
       current.contentEditable = "true";
       // While a link edit holds the session, focus belongs to the native URL popover;
       // `commitLinkEdit`/`cancelLinkEdit` refocus once it closes.
-      if (!this.#heldRange) current.focus();
+      if (!this.#held) current.focus();
       // `#baselineRuns` is deliberately NOT re-resolved from `current`'s content here: the whole
       // point of a fixed enter()-time baseline (see this class's header comment) is that a
       // version-mismatch rejection mid-edit can discard the whole in-progress edit in one step. The

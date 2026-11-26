@@ -711,6 +711,10 @@ describe("normalizeHref (#2216)", () => {
     ["  https://example.com/a  ", "https://example.com/a"],
     ["mailto:me@example.com", "mailto:me@example.com"],
     ["tel:+14085551212", "tel:+14085551212"],
+    ["tel:5551212", "tel:5551212"],
+    ["sms:5551212", "sms:5551212"],
+    ["mailto:123@example.com", "mailto:123@example.com"],
+    ["example.com:8080/x", "https://example.com:8080/x"],
     ["/about", "/about"],
     ["#contact", "#contact"],
     ["?page=2", "?page=2"],
@@ -864,6 +868,54 @@ describe("RichTextEditor link edit hold (#2216)", () => {
     expect(editor.commitLinkEdit("/about")).toBe("stale");
     expect(el.innerHTML).toBe("Replaced");
     expect(editor.commitLinkEdit("/about")).toBe("stale"); // and the hold is released
+  });
+
+  it("updates an existing link's address from a caret inside it, keeping its text (#2223 review)", () => {
+    const { editor, el } = setup('Hello <a href="/old">world</a>');
+    select(el.querySelector("a")?.firstChild as Text, 2, 2);
+    editor.beginLinkEdit();
+
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.innerHTML).toBe('Hello <a href="/new">world</a>');
+  });
+
+  it("a partial selection inside a link edits the whole link, not just the selected letters", () => {
+    const { editor, el } = setup('Hello <a href="/old">world</a>');
+    select(el.querySelector("a")?.firstChild as Text, 1, 3); // "or"
+
+    expect(editor.beginLinkEdit()).toMatchObject({ href: "/old", text: "world" });
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.innerHTML).toBe('Hello <a href="/new">world</a>');
+  });
+
+  it("linking a span that contains a whole link doesn't nest links", () => {
+    const { editor, el } = setup('Say <a href="/old">hi</a> now');
+    const range = document.createRange();
+    range.setStart(el.firstChild as Text, 0);
+    range.setEnd(el.lastChild as Text, 4); // "Say hi now"
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+    editor.beginLinkEdit();
+
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.querySelectorAll("a")).toHaveLength(1);
+    expect(el.textContent).toBe("Say hi now");
+  });
+
+  it("the hold survives a re-render of the block while the popover is open (#2223 review)", async () => {
+    const { engine, editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+
+    // What a debounced commit or another op landing does: the block is re-rendered as new nodes.
+    const replacement = document.createElement("div");
+    replacement.setAttribute(BLOCK_ID_ATTR, "t1");
+    replacement.textContent = "Hello world";
+    el.replaceWith(replacement);
+    await engine.submit({ kind: "setProp", blockId: "t1", propName: "x", value: "y", previousValue: "z" });
+
+    expect(editor.commitLinkEdit("/about")).toBe("applied");
+    expect(replacement.innerHTML).toBe('Hello <a href="/about">world</a>');
   });
 
   it("exit() releases a hold", () => {

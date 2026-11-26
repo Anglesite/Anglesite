@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 import WebKit
 import AnglesiteBridgeCore
@@ -13,7 +14,15 @@ import AnglesiteBridgeCore
 /// (Escape, Cancel, a click outside) cancels in `popoverDidClose(_:)`.
 @MainActor
 final class WYSIWYGLinkPopoverPresenter: NSObject, NSPopoverDelegate {
+    private static let logger = Logger(subsystem: "io.dwk.anglesite", category: "WYSIWYGLinkPopover")
+
     private var popover: NSPopover?
+    /// True from the first ⌘K until the popover closes, including while `beginLinkEdit()` is in
+    /// flight — so a second quick ⌘K can't build a second popover over the same hold.
+    private var isPresenting = false
+    /// Set when the popover closes from its own Return, Escape or Cancel. A click elsewhere also
+    /// closes a transient popover, and then focus belongs to whatever was clicked, not the canvas.
+    private var closedFromPopover = false
     private var model: WYSIWYGLinkPopoverModel?
     private weak var webView: WKWebView?
     /// Set once a commit closed the popover, so `popoverDidClose(_:)` doesn't also cancel.
@@ -24,10 +33,11 @@ final class WYSIWYGLinkPopoverPresenter: NSObject, NSPopoverDelegate {
     /// Starts a link edit on `webView`'s active text block. Beeps instead when there's nothing to
     /// link: no text block being edited, or no text selected and no link under the caret.
     func present(in webView: WKWebView) async {
-        guard popover == nil else { return }
-        let reply = try? await webView.callAsyncJavaScript(
-            WYSIWYGLinkEdit.beginScript, arguments: [:], in: nil, contentWorld: .page)
+        guard !isPresenting else { return }
+        isPresenting = true
+        let reply = await Self.call(WYSIWYGLinkEdit.beginScript, in: webView)
         guard let context = WYSIWYGLinkEdit.Context(jsReply: reply) else {
+            isPresenting = false
             NSSound.beep()
             return
         }
@@ -37,7 +47,10 @@ final class WYSIWYGLinkPopoverPresenter: NSObject, NSPopoverDelegate {
             model: model,
             selectedText: context.text,
             onCommit: { [weak self] in Task { await self?.commit() } },
-            onCancel: { [weak self] in self?.popover?.performClose(nil) })
+            onCancel: { [weak self] in
+                self?.closedFromPopover = true
+                self?.popover?.performClose(nil)
+            })
 
         let popover = NSPopover()
         popover.behavior = .transient
@@ -49,6 +62,7 @@ final class WYSIWYGLinkPopoverPresenter: NSObject, NSPopoverDelegate {
         self.model = model
         self.webView = webView
         committed = false
+        closedFromPopover = false
 
         let anchor = WYSIWYGLinkEdit.anchorRect(
             for: context.rect,
@@ -67,11 +81,14 @@ final class WYSIWYGLinkPopoverPresenter: NSObject, NSPopoverDelegate {
         guard let webView, let model, !isCommitting else { return }
         isCommitting = true
         defer { isCommitting = false }
-        let reply = try? await webView.callAsyncJavaScript(
-            WYSIWYGLinkEdit.commitScript, arguments: ["href": model.address], in: nil, contentWorld: .page)
+        let reply = await Self.call(WYSIWYGLinkEdit.commitScript, arguments: ["href": model.address], in: webView)
         let result = (reply as? String).flatMap(WYSIWYGLinkEdit.CommitResult.init(rawValue:)) ?? .stale
         if result.closesPopover {
+            // `stale`: the text changed underneath the popover and nothing was linked — say so
+            // rather than closing as if it worked.
+            if result == .stale { NSSound.beep() }
             committed = true
+            closedFromPopover = true
             popover?.performClose(nil)
         } else {
             model.isInvalid = true
@@ -82,11 +99,24 @@ final class WYSIWYGLinkPopoverPresenter: NSObject, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         if !committed { webView?.evaluateJavaScript(WYSIWYGLinkEdit.cancelScript) }
         // Back to the canvas, where `commitLinkEdit`/`cancelLinkEdit` already restored the
-        // selection inside the page.
-        webView?.window?.makeFirstResponder(webView)
+        // selection inside the page — unless a click elsewhere closed the popover.
+        if closedFromPopover { webView?.window?.makeFirstResponder(webView) }
         popover = nil
         model = nil
         committed = false
+        closedFromPopover = false
+        isPresenting = false
+    }
+
+    /// Runs `script` in the page world. A thrown JS exception is logged and treated as no reply,
+    /// so a bug in the engine shows up in the log instead of passing as `stale`.
+    private static func call(_ script: String, arguments: [String: Any] = [:], in webView: WKWebView) async -> Any? {
+        do {
+            return try await webView.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page)
+        } catch {
+            logger.error("Link edit script failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 }
 
