@@ -81,6 +81,30 @@ There is one app target, ad-hoc-signed in Debug so it builds without an Apple ac
 
 The Debug configuration uses ad-hoc signing so contributors can build and run locally without any Apple Developer enrollment. App Store Release builds require a paid Apple Developer account and a provisioning profile with the app's restricted entitlements; see [`docs/release.md`](docs/release.md).
 
+### Rebuilding with a modified libgit2
+
+Anglesite builds libgit2, including its bundled LibXDiff (LGPL-2.1-or-later), from source through [`Anglesite/SwiftGit2`](https://github.com/Anglesite/SwiftGit2), which carries libgit2 as a git submodule. To rebuild a released version against your own copy:
+
+```sh
+# The source of a released version: its tag, or the revision linked from the app's
+# Acknowledgments window (Anglesite ▸ Open Source Acknowledgments…).
+git clone https://github.com/Anglesite/Anglesite.git && cd Anglesite
+git checkout v<version>-<build>
+
+# SwiftGit2 at the revision that version pins (the SwiftGit2 entry in Package.resolved), with
+# its libgit2 submodule. Make your changes under libgit2/.
+git clone --recurse-submodules https://github.com/Anglesite/SwiftGit2.git ../SwiftGit2
+git -C ../SwiftGit2 checkout <SwiftGit2 revision from Package.resolved>
+git -C ../SwiftGit2 submodule update --init
+
+# Point Package.swift at your copy: replace the SwiftGit2 entry's
+# `.package(url: "https://github.com/Anglesite/SwiftGit2.git", revision: "…")` with
+# `.package(path: "../SwiftGit2")`, then build as above.
+scripts/build-app.sh -project Anglesite.xcodeproj -scheme Anglesite -configuration Debug build
+```
+
+See [`docs/release.md`](docs/release.md#source-availability-2231) for how each release is tied to its tagged source.
+
 ## Developing on Linux
 
 The app shell is macOS-only today, but Anglesite is going multi-platform — Linux first — per the [cross-platform port design](docs/superpowers/specs/2026-07-08-cross-platform-swift-port-design.md). On Linux, `Package.swift` exposes only the **portable SwiftPM targets** (currently `AnglesiteSiteModel`; the set grows as the "purity phase" lands seam by seam), and CI runs `swift build && swift test` on Ubuntu to enforce that boundary.

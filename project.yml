@@ -119,6 +119,10 @@ targets:
         SWIFT_VERSION: "5.10"
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"
+        # The revision this build was made from, read by AppSourceCode for the Acknowledgments
+        # window's source link (#2231). scripts/release.sh passes the published, tagged revision;
+        # every other build leaves it empty and links to the repository instead.
+        ANGLESITE_SOURCE_REVISION: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         COMBINE_HIDPI_IMAGES: YES

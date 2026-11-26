@@ -400,6 +400,13 @@ jobs:
       - name: Test prune-worktrees.sh safety rails
         run: scripts/prune-worktrees.test.sh
 
+      # Stubs xcodebuild/xcodegen/security/codesign/plutil and runs against a throwaway repo
+      # with a bare origin, so release.sh's source-availability rules (clean, published HEAD;
+      # stamped archive; release tag pushed after upload, #2231) run without Xcode or Apple
+      # credentials.
+      - name: Test release.sh source-availability rules
+        run: scripts/release.test.sh
+
       # No docker/network dependency — runs against throwaway container/ fixtures, so
       # the CANONICAL_IMAGE_DIGEST -> Dockerfile.cloudflare rewrite (#1644) is checked
       # without touching this repo's real files.

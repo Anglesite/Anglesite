@@ -11,6 +11,7 @@ struct AcknowledgmentsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $model.selection) {
+                SourceCodeSection(source: .current)
                 ForEach(AttributionSource.allCases, id: \.self) { source in
                     Section(source.displayName) {
                         if model.unavailableSources.contains(source) {
@@ -45,6 +46,26 @@ struct AcknowledgmentsView: View {
         }
         .task { await model.loadAll() }
         .frame(minWidth: 640, minHeight: 420)
+    }
+}
+
+/// Where this version's complete source code is published (#2231). The app statically links
+/// LGPL-2.1+ code (LibXDiff, inside libgit2), so recipients need to be able to find the source
+/// they'd rebuild it from; ``AppSourceCode`` links a released build to its exact revision.
+private struct SourceCodeSection: View {
+    let source: AppSourceCode
+
+    var body: some View {
+        Section("Source Code") {
+            Text("Anglesite is open source. The complete source code for this version, including the libgit2 and LibXDiff code built into it, is published on GitHub with instructions for rebuilding it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if source.isExactBuild {
+                Link("View Source Code for This Version", destination: source.url)
+            } else {
+                Link("View Source Code on GitHub", destination: source.url)
+            }
+        }
     }
 }
 

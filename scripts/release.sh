@@ -12,6 +12,13 @@
 # There is deliberately no direct-download update feed or GitHub Release step. On the App Store,
 # App Store Connect is the distribution channel and updates ship through it.
 #
+# Every uploaded build corresponds to a tagged, public commit (#2231). The app statically links
+# LGPL-2.1+ code (libgit2's LibXDiff, via SwiftGit2), which LGPL-2.1 section 6 allows when
+# recipients can get the source to rebuild it. So an upload requires a clean checkout whose HEAD
+# is already on an origin branch; the archive is stamped with that revision (Info.plist
+# AnglesiteSourceRevision, shown as a link in the Acknowledgments window); and after a successful
+# upload the commit is tagged v<MARKETING_VERSION>-<CURRENT_PROJECT_VERSION> and the tag pushed.
+#
 # Prerequisites (one-time, see docs/release.md "Mac App Store submission"):
 #   - An App Store Connect app record for bundle id io.dwk.anglesite.
 #   - An "Apple Distribution" cert + a "Mac Installer Distribution" cert in the keychain.
@@ -30,8 +37,10 @@
 #   --validate-only   Archive + export the signed .pkg locally (destination: export),
 #                     but stop before upload. Useful before a real App Store upload;
 #                     Transporter.app's "Verify" can pre-validate the exported .pkg.
-#   --force           Proceed even if the git worktree is dirty. By default the script
-#                     refuses to archive uncommitted changes.
+#   --force           Accepted with --validate-only for compatibility, where it has no effect:
+#                     a validate-only run already proceeds on a dirty, unpushed or already-
+#                     tagged checkout, with a warning and an unstamped archive. Rejected for an
+#                     upload, which always requires a clean, published, untagged-elsewhere HEAD.
 #
 # Env:
 #   TEAM_ID               (required) 10-char Apple Developer Team ID.
@@ -50,7 +59,7 @@ for arg in "$@"; do
     case "$arg" in
         --validate-only) VALIDATE_ONLY=1 ;;
         --force) FORCE=1 ;;
-        -h|--help) sed -n '2,43p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,52p' "$0"; exit 0 ;;
         *) echo "error: unknown argument '$arg'" >&2; exit 64 ;;
     esac
 done
@@ -69,10 +78,25 @@ SCHEME="Anglesite"
 CONFIGURATION="Release"
 
 bail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
 step() { printf '\n=== %s ===\n' "$*"; }
 
+[[ "$FORCE" -eq 0 || "$VALIDATE_ONLY" -eq 1 ]] \
+    || bail "--force is only allowed with --validate-only: an uploaded build must match a clean, published, tagged commit (#2231)."
+
+# A build that can't be tied to public source: fatal for an upload, which gets distributed. A
+# validate-only run never ships, so there it's a warning and the archive is left unstamped.
+not_releasable() {
+    if [[ "$VALIDATE_ONLY" -eq 1 ]]; then
+        warn "$* (validate-only: archiving unstamped; an upload would stop here)"
+        SOURCE_REVISION=""
+    else
+        bail "$*"
+    fi
+}
+
 # --- Preflight ---------------------------------------------------------------
-step "0/5 preflight"
+step "0/6 preflight"
 
 [[ -n "${TEAM_ID:-}" ]] \
     || bail "TEAM_ID is unset. Export your 10-character Apple Developer Team ID and re-run."
@@ -82,14 +106,24 @@ step "0/5 preflight"
 command -v xcodegen >/dev/null || bail "xcodegen not installed. brew install xcodegen"
 command -v xcodebuild >/dev/null || bail "xcodebuild not on PATH (install Xcode + command line tools)."
 
-# Refuse to archive a dirty worktree: the .xcarchive would bake in uncommitted changes
-# that match no commit, making the shipped build unreproducible. --force overrides for
-# deliberate local experiments.
-if [[ "$FORCE" -eq 0 ]] && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    dirty=$(git -C "$REPO_ROOT" status --porcelain)
-    if [[ -n "$dirty" ]]; then
-        printf '%s\n' "$dirty" | sed 's/^/    /' >&2
-        bail "worktree is dirty (uncommitted changes above). Commit/stash them, or re-run with --force."
+# An upload must come from a clean commit that's already on an origin branch: otherwise the
+# .xcarchive bakes in changes that match no public commit, and the shipped build has no
+# corresponding source (#2231). See not_releasable above for validate-only runs.
+git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || bail "$REPO_ROOT is not a git checkout; a release must be built from one."
+SOURCE_REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+dirty=$(git -C "$REPO_ROOT" status --porcelain)
+if [[ -n "$dirty" ]]; then
+    printf '%s\n' "$dirty" | sed 's/^/    /' >&2
+    not_releasable "worktree is dirty (uncommitted changes above). Commit them before an upload."
+fi
+if [[ -n "$SOURCE_REVISION" ]]; then
+    # --prune, so a stale origin/<branch> ref left after the branch was deleted on GitHub can't
+    # count as "published".
+    if ! git -C "$REPO_ROOT" fetch --quiet --prune origin; then
+        not_releasable "couldn't fetch origin to confirm HEAD is published."
+    elif [[ -z "$(git -C "$REPO_ROOT" branch -r --contains "$SOURCE_REVISION" 'origin/*')" ]]; then
+        not_releasable "HEAD ($SOURCE_REVISION) isn't on any origin branch. Push it first, so the build's source is public."
     fi
 fi
 
@@ -116,13 +150,47 @@ if [[ "$VALIDATE_ONLY" -eq 0 ]]; then
     ASC_KEY_PATH="$(resolve_asc_key_path "$ASC_API_KEY_ID")"
 fi
 
+echo "  source:      ${SOURCE_REVISION:-(unstamped: validate-only, see the warning above)}"
 echo "  team:        $TEAM_ID"
 echo "  profile:     $PROVISIONING_PROFILE"
 echo "  mode:        $([[ "$VALIDATE_ONLY" -eq 1 ]] && echo 'validate-only (export .pkg, no upload)' || echo 'export + upload to App Store Connect')"
 
 # --- Generate project + export options ---------------------------------------
-step "1/5 xcodegen generate"
+step "1/6 xcodegen generate + release tag preflight"
 (cd "$REPO_ROOT" && xcodegen generate)
+
+# The release tag is derived from the version the archive will carry. Check it now, before the
+# slow archive: an existing tag on another commit, locally or on origin, means the version wasn't
+# bumped, and the tag push after upload would fail. Both sides are checked, since either one
+# alone can be stale.
+build_setting() {
+    xcodebuild -project "$REPO_ROOT/Anglesite.xcodeproj" -scheme "$SCHEME" \
+        -configuration "$CONFIGURATION" -showBuildSettings 2>/dev/null \
+        | sed -n "s/^ *$1 = //p" | head -1
+}
+MARKETING_VERSION="$(build_setting MARKETING_VERSION)"
+BUILD_NUMBER="$(build_setting CURRENT_PROJECT_VERSION)"
+[[ -n "$MARKETING_VERSION" && -n "$BUILD_NUMBER" ]] \
+    || bail "couldn't read MARKETING_VERSION / CURRENT_PROJECT_VERSION from the $SCHEME scheme."
+RELEASE_TAG="v${MARKETING_VERSION}-${BUILD_NUMBER}"
+# An unstamped validate-only archive never gets a tag, so there's nothing to check (and no
+# network to need).
+if [[ -n "$SOURCE_REVISION" ]]; then
+    local_tag="$(git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$RELEASE_TAG^{commit}" 2>/dev/null || true)"
+    if ! remote_refs="$(git -C "$REPO_ROOT" ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"; then
+        not_releasable "couldn't check origin for an existing tag $RELEASE_TAG."
+    else
+        # The peeled (^{}) line, for an annotated tag, names the commit; else the plain one does.
+        remote_tag="$(printf '%s\n' "$remote_refs" | awk 'NF {c=$1} /\^\{\}$/ {p=$1} END {print p ? p : c}')"
+        for found in "local:$local_tag" "origin:$remote_tag"; do
+            where="${found%%:*}" commit="${found#*:}"
+            if [[ -n "$commit" && "$commit" != "$SOURCE_REVISION" && -n "$SOURCE_REVISION" ]]; then
+                not_releasable "tag $RELEASE_TAG already exists on $commit ($where). Bump MARKETING_VERSION or CURRENT_PROJECT_VERSION in project.yml."
+            fi
+        done
+    fi
+fi
+echo "  release tag: $RELEASE_TAG"
 
 mkdir -p "$BUILD_DIR"
 # Fill in the template with plutil, not sed: a team id / profile name containing sed
@@ -141,7 +209,7 @@ if [[ "$VALIDATE_ONLY" -eq 0 ]]; then
 fi
 
 # --- Archive -----------------------------------------------------------------
-step "2/5 xcodebuild archive ($SCHEME)"
+step "2/6 xcodebuild archive ($SCHEME)"
 rm -rf "$ARCHIVE_PATH"
 xcodebuild \
     -project "$REPO_ROOT/Anglesite.xcodeproj" \
@@ -149,12 +217,17 @@ xcodebuild \
     -configuration "$CONFIGURATION" \
     -archivePath "$ARCHIVE_PATH" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
+    ANGLESITE_SOURCE_REVISION="$SOURCE_REVISION" \
     archive
 [[ -d "$ARCHIVE_PATH" ]] || bail "archive produced no .xcarchive at $ARCHIVE_PATH"
 
 # --- Verify the app signature survived the archive ---------------------------
-step "3/5 verify archived app signature"
+step "3/6 verify archived app signature + source stamp"
 ARCHIVED_APP="$ARCHIVE_PATH/Products/Applications/Anglesite.app"
+stamped="$(plutil -extract AnglesiteSourceRevision raw -o - "$ARCHIVED_APP/Contents/Info.plist" 2>/dev/null || true)"
+[[ "$stamped" == "$SOURCE_REVISION" ]] \
+    || bail "archived Info.plist AnglesiteSourceRevision is '$stamped', expected '$SOURCE_REVISION'."
+echo "  source stamp: ${stamped:-(none)}"
 codesign --verify --strict --verbose=2 "$ARCHIVED_APP" \
     || bail "archived app failed codesign --verify."
 app_team="$(codesign -dvv "$ARCHIVED_APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
@@ -166,7 +239,7 @@ echo "  app: signed, team=$app_team"
 # With `destination: upload` in the export options, this single xcodebuild call
 # packages AND submits to App Store Connect, authenticated by the ASC API key —
 # the supported replacement for the retired `altool --validate/--upload-app`.
-step "4/5 xcodebuild -exportArchive ($([[ "$VALIDATE_ONLY" -eq 1 ]] && echo 'destination: export' || echo 'destination: upload'))"
+step "4/6 xcodebuild -exportArchive ($([[ "$VALIDATE_ONLY" -eq 1 ]] && echo 'destination: export' || echo 'destination: upload'))"
 rm -rf "$EXPORT_DIR"
 export_args=(
     -exportArchive
@@ -185,7 +258,27 @@ fi
 xcodebuild "${export_args[@]}"
 
 # --- Result ------------------------------------------------------------------
-step "5/5 result"
+if [[ "$VALIDATE_ONLY" -eq 1 ]]; then
+    step "5/6 release tag (skipped: validate-only)"
+    if [[ -n "$SOURCE_REVISION" ]]; then
+        echo "  an upload of this checkout would tag $SOURCE_REVISION as $RELEASE_TAG"
+    else
+        echo "  unstamped archive: an upload needs a clean, published HEAD (see the warnings above)"
+    fi
+else
+    # Tag only after a successful upload, so a failed upload never leaves a tag behind. The
+    # upload has already happened by now, so a tag failure doesn't undo it; it prints how to
+    # finish by hand instead.
+    step "5/6 tag $RELEASE_TAG and push it"
+    if ! git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$RELEASE_TAG" >/dev/null; then
+        git -C "$REPO_ROOT" tag -a "$RELEASE_TAG" -m "Anglesite $MARKETING_VERSION ($BUILD_NUMBER)" "$SOURCE_REVISION" \
+            || bail "uploaded, but creating tag $RELEASE_TAG failed. Run: git tag -a $RELEASE_TAG $SOURCE_REVISION && git push origin $RELEASE_TAG"
+    fi
+    git -C "$REPO_ROOT" push origin "refs/tags/$RELEASE_TAG" \
+        || bail "uploaded, but pushing tag $RELEASE_TAG failed. Run: git push origin $RELEASE_TAG"
+fi
+
+step "6/6 result"
 if [[ "$VALIDATE_ONLY" -eq 1 ]]; then
     PKG_PATH="$(find "$EXPORT_DIR" -maxdepth 1 -name '*.pkg' -print -quit)"
     [[ -n "$PKG_PATH" && -f "$PKG_PATH" ]] || bail "export produced no .pkg under $EXPORT_DIR"
@@ -204,7 +297,7 @@ fi
 
 cat <<EOF
 
-✅ Uploaded $SCHEME to App Store Connect.
+✅ Uploaded $SCHEME to App Store Connect, built from $SOURCE_REVISION (tag $RELEASE_TAG).
    (Upload logs, if any, are under $EXPORT_DIR.)
 
 Next steps:

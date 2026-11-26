@@ -53,14 +53,44 @@ ASC_API_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
 
 The script:
 
-1. runs `xcodegen generate`;
-2. archives the `Anglesite` scheme;
-3. verifies the archived app signature and Team ID;
-4. exports, and unless `--validate-only` uploads, an App Store `.pkg` via
-   `xcodebuild -exportArchive`.
+1. checks the checkout is clean and its HEAD is already on an `origin` branch (after a
+   `git fetch --prune`);
+2. runs `xcodegen generate`, then checks the release tag
+   `v<MARKETING_VERSION>-<CURRENT_PROJECT_VERSION>` doesn't already exist on another commit,
+   locally or on `origin`;
+3. archives the `Anglesite` scheme, stamping HEAD's revision into the app's `Info.plist`
+   (`AnglesiteSourceRevision`);
+4. verifies the archived app signature, Team ID and source stamp;
+5. exports, and unless `--validate-only` uploads, an App Store `.pkg` via
+   `xcodebuild -exportArchive`;
+6. after a successful upload, creates the annotated release tag on HEAD and pushes it.
 
-Use `--validate-only` to archive/export/validate without uploading. Transporter
-is still a valid manual fallback: drop the exported `.pkg` onto Transporter.app.
+Use `--validate-only` to archive/export/validate without uploading. It works on any checkout:
+when the tree is dirty, HEAD is unpushed, origin is unreachable, or the version's tag already
+exists on another commit, it prints a `warning:` and archives unstamped instead of stopping. An
+upload treats each of those as an `error:`. `--force` is a no-op kept for compatibility with
+`--validate-only`, and is rejected for uploads. Transporter is still a valid manual fallback: drop the exported
+`.pkg` onto Transporter.app. A build uploaded that way still needs its release tag: run
+`git tag -a v<version>-<build> <revision>` and `git push origin v<version>-<build>` by hand.
+
+### Source availability (#2231)
+
+The app statically links LGPL-2.1-or-later code: libgit2's bundled LibXDiff, compiled in through
+SwiftGit2. LGPL-2.1 §6 allows that when the people who receive the app can get the corresponding
+source and rebuild the app against a modified copy of the library. Anglesite meets this by keeping
+all of its source public. That covers this repository (ISC) and the
+[`Anglesite/SwiftGit2`](https://github.com/Anglesite/SwiftGit2) fork it pins, including the libgit2
+submodule. The release rules above tie each distributed build to its source:
+
+- every uploaded build is made from a clean commit that is already public, and that commit is
+  tagged with the build's version;
+- the build carries its revision, and the Acknowledgments window links straight to that revision's
+  source (`AppSourceCode`), next to the libgit2 and LibXDiff notices;
+- the README's [Rebuilding with a modified libgit2](../README.md#rebuilding-with-a-modified-libgit2)
+  section explains how to rebuild against a changed copy.
+
+Any other distribution channel, such as a build published on GitHub, must follow the same rules:
+build from a tagged public commit and stamp `ANGLESITE_SOURCE_REVISION`.
 
 ## TestFlight Beta Distribution
 
