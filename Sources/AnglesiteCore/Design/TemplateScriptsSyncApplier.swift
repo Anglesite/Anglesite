@@ -56,6 +56,42 @@ public enum TemplateScriptsSyncApplier {
         )
     }
 
+    /// Removes a file a later template dropped (`TemplateScriptsSyncPlan.toRemove`, #2179) and
+    /// forgets its baseline entry. The checker only queues a file whose site copy is still the
+    /// app's, so nothing of the owner's is lost; the caller commits the removal. Throws
+    /// `writeFailed` when the file can't be removed, leaving its entry for the next pass.
+    public static func remove(
+        relativePath: String,
+        sourceDirectory: URL,
+        configDirectory: URL
+    ) throws {
+        let siteURL = sourceDirectory.appendingPathComponent(relativePath)
+        if FileManager.default.fileExists(atPath: siteURL.path) {
+            do {
+                try FileManager.default.removeItem(at: siteURL)
+            } catch {
+                throw ApplyError.writeFailed(relativePath: relativePath)
+            }
+            removeEmptyParents(of: siteURL, within: sourceDirectory)
+        }
+        var baseline = TemplateScriptsBaseline.load(from: configDirectory)
+        baseline.files[relativePath] = nil
+        try? baseline.save(to: configDirectory)
+    }
+
+    /// Removes the directories a removal left empty, up to (not including) `sourceDirectory`, so a
+    /// dropped route doesn't leave an empty `src/pages/…` folder behind.
+    private static func removeEmptyParents(of url: URL, within sourceDirectory: URL) {
+        let root = sourceDirectory.standardizedFileURL.path
+        var directory = url.deletingLastPathComponent().standardizedFileURL
+        while directory.path.hasPrefix(root + "/"),
+              let contents = try? FileManager.default.contentsOfDirectory(atPath: directory.path),
+              contents.isEmpty {
+            guard (try? FileManager.default.removeItem(at: directory)) != nil else { return }
+            directory = directory.deletingLastPathComponent().standardizedFileURL
+        }
+    }
+
     /// The one write path: template → site, then the baseline entry, persisted immediately so a
     /// later failure in the same batch can't lose it.
     private static func write(

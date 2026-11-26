@@ -46,7 +46,8 @@ public enum TemplateScriptsSyncChecker {
         var toApply: [TemplateScriptsSyncAction] = []
         var divergences: [TemplateScriptsDivergence] = []
 
-        for file in TemplateScriptsManifest.appOwnedFiles(templateRoot: templateDirectory, sourceDirectory: sourceDirectory) {
+        let appOwned = TemplateScriptsManifest.appOwnedFiles(templateRoot: templateDirectory, sourceDirectory: sourceDirectory)
+        for file in appOwned {
             // Keyed on the site path; an EmDash site's overlay files are read from the overlay (#2177).
             let relativePath = file.sitePath
             guard let templateContent = try? String(
@@ -104,9 +105,55 @@ public enum TemplateScriptsSyncChecker {
             }
         }
 
+        // Files a later template dropped (#2179): baselined once, no longer app-owned.
+        var toRemove: [String] = []
+        var releasedCustomized: [String] = []
+        if canPrune(appOwned: appOwned, sourceDirectory: sourceDirectory) {
+            let current = Set(appOwned.map(\.sitePath))
+            for (relativePath, entry) in baseline.files.sorted(by: { $0.key < $1.key }) where !current.contains(relativePath) {
+                let siteURL = sourceDirectory.appendingPathComponent(relativePath)
+                guard FileManager.default.fileExists(atPath: siteURL.path) else {
+                    // Already gone: nothing to remove, and nothing left to keep track of.
+                    baseline.files[relativePath] = nil
+                    baselineChanged = true
+                    continue
+                }
+                // Unreadable: left alone, as above, rather than guessing whether it was changed.
+                guard let siteContent = try? String(contentsOf: siteURL, encoding: .utf8) else {
+                    logUnreadableSiteFile(relativePath)
+                    continue
+                }
+                if VectorMath.stableHash(siteContent) == entry.baselineHash {
+                    toRemove.append(relativePath)
+                } else {
+                    // Changed since the app wrote it: the owner's work now, so it stays, and the
+                    // app stops keeping it (no later pass restores or removes it).
+                    releasedCustomized.append(relativePath)
+                    baseline.files[relativePath] = nil
+                    baselineChanged = true
+                }
+            }
+        }
+
         if baselineChanged {
             try? baseline.save(to: configDirectory)
         }
-        return TemplateScriptsSyncPlan(toApply: toApply, divergences: divergences)
+        return TemplateScriptsSyncPlan(
+            toApply: toApply, divergences: divergences, toRemove: toRemove, releasedCustomized: releasedCustomized)
+    }
+
+    /// The file every real template has: a set without it is a template that couldn't be read
+    /// whole (a resource-copy gap, an incomplete Settings override), not one that dropped files.
+    static let pruneSentinel = "scripts/pre-deploy-check.ts"
+
+    /// Whether a file missing from `appOwned` can be trusted to mean the template dropped it. Only
+    /// for a site whose kind is known (an unreadable or newer marker would hide an EmDash site's
+    /// overlay from the set, making every overlay file look dropped) and a template read whole.
+    static func canPrune(appOwned: [TemplateScriptsManifest.AppOwnedFile], sourceDirectory: URL) -> Bool {
+        guard appOwned.contains(where: { $0.sitePath == pruneSentinel }) else { return false }
+        switch SiteEditingSurfaces.forSourceDirectory(sourceDirectory).kind {
+        case .anglesite, .emdash: return true
+        case .unrecognized: return false
+        }
     }
 }

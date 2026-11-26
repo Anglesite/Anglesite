@@ -32,6 +32,12 @@ public enum ExistingSiteMigration {
         public var restoredPaths: [String] = []
         /// App-owned files the app couldn't write — left as they were, retried on the next pass.
         public var failedPaths: [String] = []
+        /// App-owned files a later template dropped, removed because the site copy was still the
+        /// app's (#2179).
+        public var removedPaths: [String] = []
+        /// Files a later template dropped whose site copy had been changed: left in place as the
+        /// owner's, and no longer kept by the app (#2179). Nothing was written for them.
+        public var releasedPaths: [String] = []
         /// Non-script paths this pass touched (`.site-config`, `.gitignore`,
         /// `public/.well-known/security.txt`).
         public var otherTouchedPaths: [String] = []
@@ -46,7 +52,7 @@ public enum ExistingSiteMigration {
         public init() {}
 
         /// Every path written this pass — what the committer staged.
-        public var touchedPaths: [String] { refreshedPaths + restoredPaths + otherTouchedPaths }
+        public var touchedPaths: [String] { refreshedPaths + restoredPaths + removedPaths + otherTouchedPaths }
         /// `true` when nothing at all was written.
         public var isEmpty: Bool { touchedPaths.isEmpty }
     }
@@ -124,6 +130,28 @@ public enum ExistingSiteMigration {
                         text: "Existing-site migration couldn't restore \(divergence.relativePath) (\(error)) — it will be retried on the next open."
                     )
                 }
+            }
+            // #2179: a file the template no longer ships. Removed only when the site copy is still
+            // the app's; one the owner changed stays theirs (`releasedCustomized`).
+            for relativePath in plan.toRemove {
+                do {
+                    try TemplateScriptsSyncApplier.remove(
+                        relativePath: relativePath, sourceDirectory: sourceDirectory, configDirectory: configDirectory)
+                    report.removedPaths.append(relativePath)
+                } catch {
+                    report.failedPaths.append(relativePath)
+                    await logCenter.append(
+                        source: source, stream: .stderr,
+                        text: "Existing-site migration couldn't remove \(relativePath), which the template no longer includes (\(error)) — it will be retried on the next open."
+                    )
+                }
+            }
+            report.releasedPaths = plan.releasedCustomized
+            if !plan.releasedCustomized.isEmpty {
+                await logCenter.append(
+                    source: source, stream: .stdout,
+                    text: "Existing-site migration left \(plan.releasedCustomized.joined(separator: ", ")) in place: the template no longer includes it, and this copy had been changed, so it is the site's own now."
+                )
             }
         }
 

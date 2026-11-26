@@ -120,8 +120,10 @@ form of option B.
    layout and the theme stay the owner's. A restore is reported when the site opens, in the
    same notice as a restored script ("Restored, because this copy had been changed: Article
    pages…").
-   - Not yet: a file a later overlay drops or renames isn't removed from existing sites
-     (#2179). Sync only creates and updates, as it does for `scripts/`.
+   - A file a later overlay (or template) drops is removed from an existing site when it
+     opens, if the site's copy is still the app's, and the removal is committed (#2179). A
+     dropped file the owner had changed stays, as theirs: the app stops keeping it, and the
+     notice says so ("Kept as yours…"). A rename is a drop plus a new file.
 5. **Portability comes from EmDash, not a git mirror.** EmDash is MIT-licensed and open source,
    and its content lives in the owner's own D1/R2. Leaving EmDash means reading that store
    through EmDash's API or a database dump via the Portable Text rung (#2051), into a new
