@@ -657,6 +657,9 @@
     "Anglesite couldn't send this site's changes to its online backup. Check your connection and GitHub sign-in, then try again." : {
 
     },
+    "Anglesite is open source. The complete source code for this version, including the libgit2 and LibXDiff code built into it, is published on GitHub with instructions for rebuilding it." : {
+
+    },
     "Anglesite keeps the newer version of each. Choose the other version for anything you'd rather keep from this Mac or the other one, then click Apply." : {
 
     },
@@ -4591,6 +4594,9 @@
     "Source (e.g. rss)" : {
 
     },
+    "Source Code" : {
+
+    },
     "Sources" : {
 
     },
@@ -5179,6 +5185,12 @@
 
     },
     "View" : {
+
+    },
+    "View Source Code for This Version" : {
+
+    },
+    "View Source Code on GitHub" : {
 
     },
     "View all in Security Reports" : {

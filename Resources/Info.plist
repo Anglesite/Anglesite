@@ -24,6 +24,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>AnglesiteSourceRevision</key>
+	<string>$(ANGLESITE_SOURCE_REVISION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>27.0</string>
 	<key>NSHumanReadableCopyright</key>
