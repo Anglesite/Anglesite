@@ -88,6 +88,7 @@ public enum WYSIWYGLinkEdit {
     /// Maps `rect` into the web view's own coordinate space, for anchoring a popover.
     ///
     /// - Parameters:
+    ///   - rect: The selection, as `beginLinkEdit()` reported it.
     ///   - zoom: CSS px → view points (`pageZoom × magnification` on WKWebView).
     ///   - viewHeight: the web view's height in points. Only used when `isFlipped` is false.
     ///   - isFlipped: whether the view's y axis points down, as the page's does.
