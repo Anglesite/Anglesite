@@ -382,3 +382,142 @@ export function checkNoRestrictedContentInDist(relPath: string, content: string)
     remediation: "Rebuild after removing the restricted content from Source/, and check for a regression in the composer/Micropub-to-D1 publish path.",
   }];
 }
+
+/**
+ * What a Content-Security-Policy lets through as inline `<script>` — the part of the policy
+ * `checkInlineScripts` needs. Built by `inlineScriptPolicy` from the CSP header value.
+ */
+export interface InlineScriptPolicy {
+  /** `'unsafe-inline'` is in effect: every inline script runs. */
+  allowsAll: boolean;
+  /** `'sha256-…'` / `'sha384-…'` / `'sha512-…'` source expressions, as `"<alg>-<base64>"`. */
+  hashes: ReadonlySet<string>;
+  /** `'inline-speculation-rules'` is present: inline `type="speculationrules"` is allowed. */
+  allowsSpeculationRules: boolean;
+}
+
+/** The policy for a missing CSP: nothing is checked against it, every inline script is allowed. */
+const NO_CSP: InlineScriptPolicy = { allowsAll: true, hashes: new Set(), allowsSpeculationRules: true };
+
+/**
+ * Reads the directive that governs `<script>` elements out of a CSP header value: `script-src-elem`,
+ * else `script-src`, else `default-src` (CSP3 §6.1.1's fallback list). `null` (no CSP) yields a
+ * policy that allows everything — `checkHeaders` already reports the missing policy, and the
+ * browser enforces nothing without one, so an inline script isn't broken there.
+ *
+ * `'unsafe-inline'` is ignored by the browser once the same directive has a hash, a nonce or
+ * `'strict-dynamic'` (CSP3 §6.7.3.3), so it only counts when none of those is present.
+ */
+export function inlineScriptPolicy(csp: string | null): InlineScriptPolicy {
+  if (csp === null) return NO_CSP;
+  const directives = new Map<string, string[]>();
+  for (const part of csp.split(";")) {
+    const [name, ...values] = part.trim().split(/\s+/);
+    if (name && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), values);
+  }
+  const sources = directives.get("script-src-elem") ?? directives.get("script-src") ?? directives.get("default-src");
+  // No directive governs scripts at all: CSP places no restriction on them.
+  if (sources === undefined) return NO_CSP;
+  const lower = sources.map((s) => s.toLowerCase());
+  const hashes = new Set<string>();
+  for (const source of sources) {
+    const m = /^'(sha(?:256|384|512))-([A-Za-z0-9+/_-]+={0,2})'$/i.exec(source);
+    if (m) hashes.add(`${m[1].toLowerCase()}-${m[2]}`);
+  }
+  const overridesUnsafeInline =
+    hashes.size > 0 || lower.some((s) => s.startsWith("'nonce-")) || lower.includes("'strict-dynamic'");
+  return {
+    allowsAll: lower.includes("'unsafe-inline'") && !overridesUnsafeInline,
+    hashes,
+    allowsSpeculationRules: lower.includes("'inline-speculation-rules'"),
+  };
+}
+
+/** `type` values the browser runs as script (HTML §4.12.1 — a JavaScript MIME type essence, or
+ * `module`) or treats as inline script for CSP (`importmap`, `speculationrules`). Any other type
+ * is a data block — JSON-LD, a template — which the browser never runs and CSP never checks. */
+const JS_MIME_ESSENCES = new Set([
+  "application/ecmascript", "application/javascript", "application/x-ecmascript",
+  "application/x-javascript", "text/ecmascript", "text/javascript", "text/javascript1.0",
+  "text/javascript1.1", "text/javascript1.2", "text/javascript1.3", "text/javascript1.4",
+  "text/javascript1.5", "text/jscript", "text/livescript", "text/x-ecmascript", "text/x-javascript",
+]);
+
+type ScriptKind = "script" | "speculationrules" | "data";
+
+function scriptKind(openTag: string): ScriptKind {
+  const typeAttr = /\stype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(openTag);
+  if (typeAttr === null) {
+    // Legacy `language` attribute with no `type`: anything but a JavaScript language is a data block.
+    const language = /\slanguage\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(openTag);
+    if (language === null) return "script";
+    const value = (language[1] ?? language[2] ?? language[3]).trim();
+    return value === "" || /^(?:java|ecma|j|live)script(?:1\.[0-5])?$/i.test(value) ? "script" : "data";
+  }
+  const type = (typeAttr[1] ?? typeAttr[2] ?? typeAttr[3]).trim().toLowerCase();
+  if (type === "" || type === "module" || type === "importmap") return "script";
+  if (type === "speculationrules") return "speculationrules";
+  return JS_MIME_ESSENCES.has(type.split(";")[0].trim()) ? "script" : "data";
+}
+
+/**
+ * Inline `<script>` bodies in built HTML that the site's own CSP would block (#2228). The
+ * template's policy is `script-src 'self'` with no `'unsafe-inline'`, so all of a site's
+ * JavaScript has to ship as files (`public/scripts/*.js`, or Astro's bundled `<script>`s). An
+ * inline body that reaches `dist/` some other way — an integration, an imported page, an `is:inline`
+ * in a component — would deploy and then silently not run in visitors' browsers (#1527, #1528).
+ *
+ * Skips scripts with a `src` (the body is ignored), data blocks (JSON-LD and other non-script
+ * types), empty bodies, and anything `policy` allows. A script is allowed by hash when `hash`
+ * is given and its digest of the exact body text is in `policy.hashes`; `hash` is injected so this
+ * module stays import-free (pass Node's `createHash`, or Web Crypto's result, from the caller).
+ * Nonces are not honored: a nonce baked into static HTML is the same for every visitor, which
+ * defeats it.
+ *
+ * One error per file, naming how many scripts are affected and quoting the first, so a layout
+ * that inlines a script on every page doesn't bury the rest of the report.
+ */
+export function checkInlineScripts(
+  content: string,
+  file: string,
+  policy: InlineScriptPolicy,
+  hash?: (algorithm: "sha256" | "sha384" | "sha512", body: string) => string,
+): Issue[] {
+  if (policy.allowsAll) return [];
+  const blocked: string[] = [];
+  const opener = /<script\b/gi;
+  const closer = /<\/script\s*>/gi;
+  for (let m = opener.exec(content); m !== null; m = opener.exec(content)) {
+    const tagEnd = content.indexOf(">", m.index);
+    if (tagEnd === -1) break;
+    const openTag = content.slice(m.index, tagEnd + 1);
+    closer.lastIndex = tagEnd + 1;
+    const close = closer.exec(content);
+    const body = content.slice(tagEnd + 1, close === null ? content.length : close.index);
+    // Resume after this element, so a "<script" inside a script's own string literal isn't
+    // mistaken for a second element.
+    opener.lastIndex = close === null ? content.length : close.index + close[0].length;
+
+    if (/\ssrc\s*=/i.test(openTag) || body.trim() === "") continue;
+    const kind = scriptKind(openTag);
+    if (kind === "data") continue;
+    if (kind === "speculationrules" && policy.allowsSpeculationRules) continue;
+    if (hash !== undefined && policy.hashes.size > 0) {
+      const algorithms = new Set([...policy.hashes].map((h) => h.slice(0, h.indexOf("-")) as "sha256" | "sha384" | "sha512"));
+      if ([...algorithms].some((alg) => policy.hashes.has(`${alg}-${hash(alg, body)}`))) continue;
+    }
+    blocked.push(body);
+  }
+  if (blocked.length === 0) return [];
+  const first = blocked[0].replace(/\s+/g, " ").trim();
+  const snippet = first.length > 80 ? `${first.slice(0, 80)}…` : first;
+  const count = blocked.length === 1 ? "A script" : `${blocked.length} scripts`;
+  return [{
+    severity: "error",
+    category: "csp-misconfigured",
+    message: `${count} on this page won't run once published — the site's security policy only runs scripts loaded from files. First one: "${snippet}"`,
+    file,
+    remediation:
+      "Move the script into its own file (e.g. public/scripts/) and load it with <script src=\"…\">, passing any settings through data-* attributes.",
+  }];
+}

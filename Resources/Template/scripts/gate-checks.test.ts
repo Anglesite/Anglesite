@@ -35,6 +35,8 @@ test("pre-deploy-check re-exports the gate module's checks, not copies", () => {
     "checkMixedContent",
     "checkSRI",
     "checkExternalLinkRel",
+    "checkInlineScripts",
+    "inlineScriptPolicy",
     "checkNoRestrictedContentInSource",
     "checkNoRestrictedContentInDist",
   ] as const) {
@@ -210,12 +212,16 @@ test("embed-media detection matches the original regex on random inputs", () => 
   });
 });
 
+const strictPolicy = gate.inlineScriptPolicy("default-src 'self'; script-src 'self' 'sha256-AAAA'");
+
 test("every content check stays fast on adversarial input", () => {
   const size = 200_000;
   const shapes: Record<string, string> = {
     "url( + url(! repeated": "url(" + "url(!".repeat(size / 5),
     "<script with no >": "<script".repeat(size / 7),
     "<link with no >": "<link".repeat(size / 5),
+    "<script> with no closing tag": "<script>x".repeat(size / 9),
+    "<script type= with no value end": "<script" + " type=".repeat(size / 6) + ">x",
     "<a with no >": "<a ".repeat(size / 3),
     "address characters, no @": "a".repeat(size),
     "a@ repeated": "a@".repeat(size / 2),
@@ -231,8 +237,132 @@ test("every content check stays fast on adversarial input", () => {
     const started = performance.now();
     for (const check of checks) check(input, "f");
     gate.checkNoRestrictedContentInDist("f", input);
+    gate.checkInlineScripts(input, "f", strictPolicy, () => "");
     const elapsed = performance.now() - started;
     // The quadratic originals took 2–30 s on inputs this size; linear scans take milliseconds.
     assert.ok(elapsed < 1000, `${name}: ${elapsed.toFixed(0)} ms`);
   }
+});
+
+// --- Inline scripts the site's own CSP would block (#2228) ------------------------------------
+
+const TEMPLATE_CSP =
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; object-src 'none'";
+
+test("inlineScriptPolicy: reads script-src-elem, then script-src, then default-src", () => {
+  assert.equal(gate.inlineScriptPolicy(TEMPLATE_CSP).allowsAll, false);
+  assert.equal(gate.inlineScriptPolicy("default-src 'self' 'unsafe-inline'").allowsAll, true);
+  assert.equal(gate.inlineScriptPolicy("default-src 'unsafe-inline'; script-src 'self'").allowsAll, false);
+  assert.equal(gate.inlineScriptPolicy("script-src 'unsafe-inline'; script-src-elem 'self'").allowsAll, false);
+  // style-src 'unsafe-inline' says nothing about scripts.
+  assert.equal(gate.inlineScriptPolicy("script-src 'self'; style-src 'unsafe-inline'").allowsAll, false);
+});
+
+test("inlineScriptPolicy: no CSP, or no directive covering scripts, allows everything", () => {
+  assert.equal(gate.inlineScriptPolicy(null).allowsAll, true);
+  assert.equal(gate.inlineScriptPolicy("frame-ancestors 'none'").allowsAll, true);
+});
+
+test("inlineScriptPolicy: a hash, nonce or 'strict-dynamic' switches 'unsafe-inline' off", () => {
+  for (const extra of ["'sha256-abc='", "'nonce-xyz'", "'strict-dynamic'"]) {
+    assert.equal(gate.inlineScriptPolicy(`script-src 'self' 'unsafe-inline' ${extra}`).allowsAll, false, extra);
+  }
+  const policy = gate.inlineScriptPolicy("script-src 'self' 'SHA256-abc=' 'sha384-def'");
+  assert.deepEqual([...policy.hashes].sort(), ["sha256-abc=", "sha384-def"]);
+  assert.equal(gate.inlineScriptPolicy("script-src 'self' 'inline-speculation-rules'").allowsSpeculationRules, true);
+});
+
+test("checkInlineScripts: an inline script body is one error naming the page and the script", () => {
+  const html = '<head><script>document.documentElement.dataset.theme = "dark";</script></head>';
+  const issues = gate.checkInlineScripts(html, "dist/index.html", gate.inlineScriptPolicy(TEMPLATE_CSP));
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.equal(issues[0].category, "csp-misconfigured");
+  assert.equal(issues[0].file, "dist/index.html");
+  assert.match(issues[0].message, /^A script on this page won't run/);
+  assert.match(issues[0].message, /dataset\.theme/);
+  assert.ok(issues[0].remediation);
+});
+
+test("checkInlineScripts: every executable type is checked, case-insensitively", () => {
+  const policy = gate.inlineScriptPolicy(TEMPLATE_CSP);
+  for (const open of [
+    "<script>", "<SCRIPT>", '<script type="">', '<script type="module">', "<script type=module>",
+    '<script type="text/javascript">', "<script type='application/javascript; charset=utf-8'>",
+    '<script type="importmap">', '<script type="speculationrules">', '<script language="JavaScript">',
+  ]) {
+    assert.equal(gate.checkInlineScripts(`${open}x()</script>`, "f", policy).length, 1, open);
+  }
+});
+
+test("checkInlineScripts: external scripts, data blocks and empty bodies pass", () => {
+  const policy = gate.inlineScriptPolicy(TEMPLATE_CSP);
+  for (const html of [
+    '<script type="module" src="/pagefind/pagefind-component-ui.js"></script>',
+    "<script src=/a.js>ignored()</script>",
+    '<script type="application/ld+json">{"@context":"https://schema.org"}</script>',
+    '<script type="application/json" id="data">{"a":1}</script>',
+    '<script type="text/template"><p>{{x}}</p></script>',
+    '<script language="vbscript">x</script>',
+    "<script>   \n  </script>",
+  ]) {
+    assert.deepEqual(gate.checkInlineScripts(html, "f", policy), [], html);
+  }
+});
+
+test("checkInlineScripts: counts every blocked script on a page in its one error", () => {
+  const html = "<script>a()</script><p>text</p><script>b()</script><script src=/c.js></script>";
+  const [issue] = gate.checkInlineScripts(html, "f", gate.inlineScriptPolicy(TEMPLATE_CSP));
+  assert.match(issue.message, /^2 scripts on this page/);
+  assert.match(issue.message, /"a\(\)"/);
+});
+
+test("checkInlineScripts: a <script inside a script's own string isn't a second element", () => {
+  const html = '<script>document.write("<script src=x></" + "script>")</script>';
+  const [issue] = gate.checkInlineScripts(html, "f", gate.inlineScriptPolicy(TEMPLATE_CSP));
+  assert.match(issue.message, /^A script on this page/);
+});
+
+test("checkInlineScripts: 'unsafe-inline' or allowed speculation rules pass", () => {
+  const html = "<script>a()</script>";
+  assert.deepEqual(gate.checkInlineScripts(html, "f", gate.inlineScriptPolicy("script-src 'self' 'unsafe-inline'")), []);
+
+
+  const speculation = '<script type="speculationrules">{"prerender":[{"where":{"href_matches":"/*"}}]}</script>';
+  assert.equal(gate.checkInlineScripts(speculation, "f", gate.inlineScriptPolicy(TEMPLATE_CSP)).length, 1);
+  assert.deepEqual(
+    gate.checkInlineScripts(speculation, "f", gate.inlineScriptPolicy("script-src 'self' 'inline-speculation-rules'")),
+    [],
+  );
+});
+
+test("checkInlineScripts: a real sha256 hash in the CSP allows exactly that script", () => {
+  const body = "a()";
+  const digest = preDeploy.cspScriptHash("sha256", body);
+  const policy = gate.inlineScriptPolicy(`script-src 'self' 'sha256-${digest}'`);
+  assert.deepEqual(gate.checkInlineScripts(`<script>${body}</script>`, "f", policy, preDeploy.cspScriptHash), []);
+  assert.equal(gate.checkInlineScripts("<script>a() </script>", "f", policy, preDeploy.cspScriptHash).length, 1);
+  // Without a hasher the hash can't be verified, so the script is reported.
+  assert.equal(gate.checkInlineScripts(`<script>${body}</script>`, "f", policy).length, 1);
+});
+
+test("the deploy scan blocks an inline script against the served CSP, and passes 'unsafe-inline'", async () => {
+  const run = promisify(execFile);
+  const scan = async (csp: string) => {
+    const site = await mkdtemp(join(tmpdir(), "gate-inline-"));
+    try {
+      await mkdir(join(site, "dist"), { recursive: true });
+      await writeFile(join(site, "dist", "_headers"), `/*\n  Content-Security-Policy: ${csp}\n`);
+      await writeFile(join(site, "dist", "index.html"), "<!doctype html><script>a()</script>");
+      const result = await run(process.execPath, [tsxCli, join(here, "pre-deploy-check.ts"), "--json"], { cwd: site })
+        .catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "" }));
+      return JSON.parse(result.stdout) as { failures: Array<{ category: string; file?: string; message: string }> };
+    } finally {
+      await rm(site, { recursive: true, force: true });
+    }
+  };
+  const strict = await scan(TEMPLATE_CSP);
+  assert.ok(strict.failures.some((i) => i.file === "dist/index.html" && /won't run once published/.test(i.message)));
+  const lax = await scan("default-src 'self'; script-src 'self' 'unsafe-inline'");
+  assert.ok(!lax.failures.some((i) => /won't run once published/.test(i.message)));
 });

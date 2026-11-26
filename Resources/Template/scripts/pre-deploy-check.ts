@@ -7,6 +7,7 @@
  * - No exposed API tokens or secrets
  * - No third-party tracking scripts
  * - No Keystatic admin routes in production output
+ * - No inline <script> bodies the site's own CSP would block (#2228)
  * - `anglesite.json` (if present) parses, is a JSON object, and declares a recognized schema
  *   version (#1173) — structural only; stays network-free, no declared-vs-live comparison here
  *
@@ -30,6 +31,7 @@
  * site's pinned publish gate (`checkServerBuild`). See `anglesite-build-manifest.ts`.
  */
 
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +52,8 @@ import {
   checkMixedContent,
   checkSRI,
   checkExternalLinkRel,
+  checkInlineScripts,
+  inlineScriptPolicy,
   checkNoRestrictedContentInSource,
   checkNoRestrictedContentInDist,
 } from "./gate-checks";
@@ -64,6 +68,8 @@ export {
   checkMixedContent,
   checkSRI,
   checkExternalLinkRel,
+  checkInlineScripts,
+  inlineScriptPolicy,
   checkNoRestrictedContentInSource,
   checkNoRestrictedContentInDist,
 };
@@ -172,6 +178,26 @@ export async function scanSourceTree(root: string, options: { contentDir?: strin
   return issues;
 }
 
+/** The first `Content-Security-Policy:` line in a `_headers` file, trimmed, or `undefined`. */
+function cspHeaderLine(headersContent: string): string | undefined {
+  return headersContent
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.startsWith("Content-Security-Policy:"));
+}
+
+/** The CSP value `_headers` serves (the first policy line, without its name), or `null` when there
+ * is no `_headers` or no policy in it — the input `inlineScriptPolicy` takes. */
+export function cspFromHeaders(headersContent: string | null): string | null {
+  const line = headersContent === null ? undefined : cspHeaderLine(headersContent);
+  return line === undefined ? null : line.replace(/^Content-Security-Policy:/, "").trim();
+}
+
+/** Base64 digest of an inline script's exact text, the form a CSP hash source carries. */
+export function cspScriptHash(algorithm: "sha256" | "sha384" | "sha512", body: string): string {
+  return createHash(algorithm).update(body, "utf8").digest("base64");
+}
+
 /**
  * Validate the generated CSP. Returns one error Issue per problem:
  * missing _headers, no CSP directive, or a configured SCRIPT_ALLOW domain
@@ -183,10 +209,7 @@ export function checkHeaders(headersContent: string | null, configContent: strin
     issues.push({ severity: "error", category: "csp-misconfigured", message: "No dist/_headers — CSP is not enforced.", file: "_headers" });
     return issues;
   }
-  const cspLine = headersContent
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.startsWith("Content-Security-Policy:"));
+  const cspLine = cspHeaderLine(headersContent);
   if (!cspLine) {
     issues.push({ severity: "error", category: "csp-misconfigured", message: "dist/_headers has no Content-Security-Policy.", file: "_headers" });
     return issues;
@@ -1324,6 +1347,7 @@ async function scan(): Promise<Issue[]> {
     e.code === "ENOENT" ? "" : Promise.reject(e),
   );
   issues.push(...checkHeaders(headersContent, configContent));
+  const scriptPolicy = inlineScriptPolicy(cspFromHeaders(headersContent));
 
   const securityTxtContent = await readFile(join(publicDir, ".well-known", "security.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
@@ -1399,6 +1423,7 @@ async function scan(): Promise<Issue[]> {
 
       issues.push(...checkSRI(content, rel));
       issues.push(...checkExternalLinkRel(content, rel));
+      issues.push(...checkInlineScripts(content, rel, scriptPolicy, cspScriptHash));
     }
   }
 
