@@ -91,14 +91,16 @@ struct FormatCommands: Commands {
 
             Button("Add Link…") {
                 if let wysiwygController {
-                    wysiwygController.applyFormat("link", href: "")
+                    wysiwygController.presentLinkEditor()
                 } else {
                     markdownController?.perform(.link)
                 }
             }
             .keyboardShortcut("k")
             .disabled(markdownController == nil && wysiwygController == nil)
-            PlannedItem("Remove Link")
+            // Canvas only: the Markdown editor's links are plain `[text](url)` source to delete.
+            Button("Remove Link") { wysiwygController?.removeLink() }
+                .disabled(wysiwygController == nil)
         }
     }
 }

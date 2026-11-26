@@ -344,10 +344,10 @@ final class WYSIWYGCanvasController {
         webView?.evaluateJavaScript("window.__anglesiteWysiwygEngine?.selection.select(\(Self.jsStringLiteral(blockId)))")
     }
 
-    /// The Format menu's Strong/Emphasis/Add Link entry point (#1225 Task 10) — posts into the
+    /// The Format menu's Strong/Emphasis/Remove Link entry point (#1225 Task 10, #2216) — posts into the
     /// mounted `RichTextEditor` (`JS/wysiwyg-engine/src/rich-text.ts`) via the same global the
-    /// build's `mount.ts` exposes it under. `command` is `"strong"`/`"em"`/`"link"`; `⌘K` (inline
-    /// `code`) is out of scope for this task. Fire-and-forget, same as
+    /// build's `mount.ts` exposes it under. `command` is `"strong"`/`"em"`/`"link"`/`"unlink"`.
+    /// Add Link… goes through `presentLinkEditor()` instead, which asks for the address first. Fire-and-forget, same as
     /// `ComponentStyleInspectorPane`'s canvas-command calls: the JS side no-ops silently if there's
     /// no active editing session (`RichTextEditor`'s own `#activeElement` guard) or the script
     /// hasn't mounted yet (`?.`), so there is nothing meaningful to await here.
@@ -358,6 +358,22 @@ final class WYSIWYGCanvasController {
         }
         script += ")"
         webView?.evaluateJavaScript(script)
+    }
+
+    /// Presents Format ▸ Add Link…'s address popover (#2216). See `WYSIWYGLinkPopoverPresenter`.
+    @ObservationIgnored
+    private lazy var linkPopover = WYSIWYGLinkPopoverPresenter()
+
+    /// Format ▸ Add Link… (⌘K) — opens the address popover over the selected text, or beeps when
+    /// there's no text selected in a block being edited (#2216).
+    func presentLinkEditor() {
+        guard let webView else { return }
+        Task { await linkPopover.present(in: webView) }
+    }
+
+    /// Format ▸ Remove Link — unwraps the link under the caret or selection (#2216).
+    func removeLink() {
+        applyFormat("unlink")
     }
 
     /// Mounts the JS engine (`JS/wysiwyg-engine/src/host/mount.ts`) against this controller's

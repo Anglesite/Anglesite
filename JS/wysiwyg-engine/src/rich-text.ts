@@ -181,7 +181,15 @@ export function setLinkFormat(root: HTMLElement, href: string, doc: Document = d
   if (!root.contains(range.commonAncestorContainer)) return;
 
   const existing = findAncestorTag(range.commonAncestorContainer, "a", root);
-  if (existing) unwrapElement(existing);
+  if (existing) {
+    // Unwrapping moves the link's children, and moving a node collapses any live Range boundary
+    // inside it — so re-linking text that's already a link used to wrap nothing. The boundary
+    // nodes themselves survive the move; re-anchor the range on them afterwards.
+    const { startContainer, startOffset, endContainer, endOffset } = range;
+    unwrapElement(existing);
+    range.setStart(startContainer, startOffset);
+    range.setEnd(endContainer, endOffset);
+  }
   const anchor = wrapRange(range, "a", doc);
   anchor.setAttribute("href", href);
 }
@@ -194,11 +202,89 @@ export function unsetLinkFormat(root: HTMLElement, doc: Document = document): vo
   if (existing) unwrapElement(existing);
 }
 
+/** Schemes a link the owner types may never carry: each runs script or smuggles content
+ *  instead of navigating. Rejected outright rather than escaped — there's no safe spelling. */
+const UNSAFE_LINK_SCHEMES = new Set(["javascript", "vbscript", "data"]);
+
+/**
+ * Turns what an owner types into a link field into an `href` (#2216), or `null` when it can't be
+ * one. Whitespace-only input normalizes to `""`, which `commitLinkEdit` treats as Remove Link —
+ * same as clearing the URL field in Pages or Mail. An explicit scheme (`https:`, `mailto:`, `tel:`)
+ * and a site-relative reference (`/about`, `#top`, `?q`, `./x`, `../x`) pass through untouched.
+ * A bare address gets the scheme people leave off: `name@example.com` → `mailto:`, anything else
+ * (`example.com/path`) → `https://`.
+ */
+export function normalizeHref(input: string): string | null {
+  const value = input.trim();
+  if (value.length === 0) return "";
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(value)?.[1]?.toLowerCase();
+  if (scheme !== undefined) {
+    // `localhost:4321` parses as a scheme too; treat a scheme followed by digits as a host:port.
+    if (/^[a-z][a-z0-9+.-]*:\d/i.test(value) && !value.includes("://")) return `https://${value}`;
+    return UNSAFE_LINK_SCHEMES.has(scheme) ? null : value;
+  }
+  if (/^[/#?]/.test(value) || value.startsWith("./") || value.startsWith("../")) return value;
+  if (/\s/.test(value)) return null;
+  if (/^[^@/]+@[^@/]+\.[^@/]+$/.test(value)) return `mailto:${value}`;
+  return `https://${value}`;
+}
+
+/** A selection rect in the top-level page's viewport coordinates (CSS px). */
+export interface ViewportRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What `beginLinkEdit` hands the native host to anchor and pre-fill its URL popover. */
+export interface LinkEditContext {
+  /** The existing link's `href` when the selection is inside one, else `null`. */
+  href: string | null;
+  /** The selected text, for the popover's accessibility label. */
+  text: string;
+  /** Where to anchor the popover. */
+  rect: ViewportRect;
+}
+
+/** Why `commitLinkEdit` didn't change the page. `invalid`: the address can't be a link (keep the
+ *  popover open). `stale`: no held session, or the held text was replaced underneath it. */
+export type LinkCommitResult = "applied" | "removed" | "invalid" | "stale";
+
+/**
+ * Translates `rect` from `doc`'s own viewport into the top-level viewport by adding each
+ * enclosing iframe's offset — BreakpointCanvas renders blocks into same-origin frames, and the
+ * native host only knows the top-level web view's coordinate space.
+ */
+function toTopLevelViewport(rect: DOMRect, doc: Document): ViewportRect {
+  let x = rect.left;
+  let y = rect.top;
+  let view: Window | null = doc.defaultView;
+  while (view && view !== view.parent) {
+    let frame: Element | null = null;
+    try {
+      frame = view.frameElement;
+    } catch {
+      break; // Cross-origin parent: nothing further to translate through.
+    }
+    if (!frame) break;
+    const frameRect = frame.getBoundingClientRect();
+    x += frameRect.left + (frame as HTMLElement).clientLeft;
+    y += frameRect.top + (frame as HTMLElement).clientTop;
+    view = view.parent;
+  }
+  return { x, y, width: rect.width, height: rect.height };
+}
+
 export interface RichTextEditorOptions {
   debounceMs?: number;
+  /** How long a blur waits before ending the session, so focus churn around native UI or a
+   *  breakpoint frame doesn't end an edit that never really lost focus (#2216). */
+  blurExitDelayMs?: number;
 }
 
 const DEFAULT_DEBOUNCE_MS = 400;
+const DEFAULT_BLUR_EXIT_DELAY_MS = 200;
 
 /**
  * Contenteditable lifecycle for one text block at a time (design doc §4). `enter()` activates
@@ -215,8 +301,28 @@ export class RichTextEditor {
   #activeElement: HTMLElement | null = null;
   #baselineRuns: RichTextRun[] = [];
   #unsubscribeEngine: (() => void) | null = null;
+  #blurExitDelayMs: number;
+  #blurTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The selection saved by `beginLinkEdit`, while the native link popover holds the session. */
+  #heldRange: Range | null = null;
   #onInput = () => this.#committer.notifyChange();
-  #onBlur = () => this.exit();
+  /**
+   * Blur no longer ends the session on the spot (#2216). While a link edit holds the session,
+   * blur is expected — focus is in the native URL field — and is ignored. Otherwise the exit waits
+   * `blurExitDelayMs`, then happens only if focus really left: the element isn't the active
+   * element, or the document itself lost focus (the owner clicked native app chrome).
+   */
+  #onBlur = () => {
+    if (this.#heldRange) return;
+    this.#cancelBlurTimer();
+    this.#blurTimer = setTimeout(() => {
+      this.#blurTimer = null;
+      const el = this.#activeElement;
+      if (!el || this.#heldRange) return;
+      const doc = el.ownerDocument;
+      if (doc.activeElement !== el || !doc.hasFocus()) this.exit();
+    }, this.#blurExitDelayMs);
+  };
   #onKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       this.exit();
@@ -227,6 +333,12 @@ export class RichTextEditor {
   constructor(engine: WysiwygEngine, options: RichTextEditorOptions = {}) {
     this.#engine = engine;
     this.#committer = new DebouncedCommitter(() => this.#commit(), options.debounceMs ?? DEFAULT_DEBOUNCE_MS);
+    this.#blurExitDelayMs = options.blurExitDelayMs ?? DEFAULT_BLUR_EXIT_DELAY_MS;
+  }
+
+  /** Whether a link edit currently holds the session open (`beginLinkEdit` → commit/cancel). */
+  get isHoldingForLinkEdit(): boolean {
+    return this.#heldRange !== null;
   }
 
   get activeBlockId(): BlockId | null {
@@ -320,6 +432,8 @@ export class RichTextEditor {
   /** Flushes any pending debounced commit and deactivates — called explicitly, or automatically on
    *  blur/Escape (design doc §4: both commit immediately, alongside a format command). */
   exit(): void {
+    this.#cancelBlurTimer();
+    this.#heldRange = null;
     this.#unsubscribeEngine?.();
     this.#unsubscribeEngine = null;
     this.#committer.flush();
@@ -361,6 +475,73 @@ export class RichTextEditor {
   }
 
   /**
+   * Format ▸ Add Link… (#2216), step 1: saves the selection and holds the session open so moving
+   * focus into the native URL popover doesn't end it. With a caret inside an existing link, the
+   * whole link is selected so the edit replaces its address. Returns `null` — and holds nothing —
+   * when there's no active session, or no text selected and no link under the caret.
+   */
+  beginLinkEdit(): LinkEditContext | null {
+    const el = this.#activeElement;
+    if (!el) return null;
+    const doc = el.ownerDocument;
+    const selection = doc.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0).cloneRange();
+    if (!el.contains(range.commonAncestorContainer)) return null;
+
+    const link = findAncestorTag(range.commonAncestorContainer, "a", el);
+    if (range.collapsed) {
+      if (!link) return null;
+      range.selectNodeContents(link);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    const text = range.toString();
+    if (text.length === 0) return null;
+
+    this.#cancelBlurTimer();
+    this.#heldRange = range;
+    return { href: link?.getAttribute("href") ?? null, text, rect: toTopLevelViewport(range.getBoundingClientRect(), doc) };
+  }
+
+  /**
+   * Step 2, on Return: restores the held selection, then links it to `input` (normalized by
+   * `normalizeHref`) or, for an empty address, removes the link — one commit, one undo step.
+   * An `invalid` address keeps the hold so the owner can fix it in the still-open popover.
+   */
+  commitLinkEdit(input: string): LinkCommitResult {
+    const range = this.#heldRange;
+    const el = this.#activeElement;
+    if (!range || !el) return "stale";
+    const href = normalizeHref(input);
+    if (href === null) return "invalid";
+    this.#heldRange = null;
+    // A re-render while the popover was open (some other op applied) can replace the nodes the
+    // saved range points into; linking a detached range would silently do nothing.
+    // Removing the range's text collapses it onto the element, hence the `collapsed` check.
+    if (range.collapsed || !el.contains(range.commonAncestorContainer)) {
+      el.focus();
+      return "stale";
+    }
+    this.#restoreSelection(el, range);
+    if (href === "") {
+      this.unsetLink();
+      return "removed";
+    }
+    this.setLink(href);
+    return "applied";
+  }
+
+  /** Step 2, on Escape or a popover dismissed without Return: releases the hold and puts the
+   *  selection and focus back where they were, changing nothing. */
+  cancelLinkEdit(): void {
+    const range = this.#heldRange;
+    const el = this.#activeElement;
+    this.#heldRange = null;
+    if (range && el && el.contains(range.commonAncestorContainer)) this.#restoreSelection(el, range);
+  }
+
+  /**
    * Unified entry point the native host's Format menu calls (#1225 Task 10) — a thin dispatcher
    * onto `toggleFormat`/`setLink` above, so the Swift bridge (`WYSIWYGCanvasController.applyFormat`)
    * can post one JS method name regardless of which command was requested instead of needing a
@@ -371,9 +552,12 @@ export class RichTextEditor {
    * in an empty-href link for the user to fill in, rather than being treated as "clear".
    * `⌘K` (inline `code`) is explicitly out of scope for this task.
    */
-  applyFormat(command: "strong" | "em" | "link", href?: string): void {
+  applyFormat(command: "strong" | "em" | "link" | "unlink", href?: string): void {
     if (command === "link") {
       this.setLink(href ?? "");
+    } else if (command === "unlink") {
+      // Format ▸ Remove Link (#2216).
+      this.unsetLink();
     } else {
       this.toggleFormat(command);
     }
@@ -381,6 +565,21 @@ export class RichTextEditor {
 
   dispose(): void {
     this.exit();
+  }
+
+  #cancelBlurTimer(): void {
+    if (this.#blurTimer !== null) {
+      clearTimeout(this.#blurTimer);
+      this.#blurTimer = null;
+    }
+  }
+
+  /** Focus first, then the range: focusing a contenteditable element can move the caret. */
+  #restoreSelection(el: HTMLElement, range: Range): void {
+    el.focus();
+    const selection = el.ownerDocument.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
   }
 
   /** Wires the three listeners `enter()`'s initial attach and the reattach path below both need —
@@ -412,7 +611,9 @@ export class RichTextEditor {
       // editable and doesn't hold focus, so the next keystroke goes nowhere (#1225 final-review fix
       // wave, Finding 4).
       current.contentEditable = "true";
-      current.focus();
+      // While a link edit holds the session, focus belongs to the native URL popover;
+      // `commitLinkEdit`/`cancelLinkEdit` refocus once it closes.
+      if (!this.#heldRange) current.focus();
       // `#baselineRuns` is deliberately NOT re-resolved from `current`'s content here: the whole
       // point of a fixed enter()-time baseline (see this class's header comment) is that a
       // version-mismatch rejection mid-edit can discard the whole in-progress edit in one step. The
