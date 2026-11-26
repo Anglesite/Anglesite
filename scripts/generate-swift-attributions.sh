@@ -95,21 +95,32 @@ NESTED_COMPONENTS = {
 }
 
 
-def nested_entries(parent, parent_dir, failures):
+def nested_entries(parent, parent_dir, nested_failures):
+    # Failures go to their own list: overrides don't apply here, so the pin loop's "add an
+    # override" advice would be wrong. Fail rather than drop the entry, since an empty submodule
+    # checkout would otherwise silently remove a statically linked library from the notices.
     entries = []
     for component in NESTED_COMPONENTS.get(parent, []):
         directory = os.path.join(parent_dir, component["path"])
         label = f"{parent}/{component['path']}"
+        if not os.path.isdir(directory) or not os.listdir(directory):
+            nested_failures.append(f"{label}: checkout missing or empty (submodule not checked out?)")
+            continue
+        license_text = find_license_text(directory)
+        if not license_text:
+            nested_failures.append(f"{label}: no license file found")
+            continue
+        version_path = os.path.join(directory, component["versionFile"])
         try:
-            with open(os.path.join(directory, component["versionFile"]), encoding="utf-8") as f:
+            with open(version_path, encoding="utf-8") as f:
                 match = re.search(component["versionPattern"], f.read())
         except FileNotFoundError:
             match = None
-        license_text = find_license_text(directory)
-        if not match or not license_text:
-            # Fail rather than drop it: an empty submodule checkout would otherwise silently
-            # remove a statically linked library from the notices.
-            failures.append(label)
+        if not match:
+            nested_failures.append(
+                f"{label}: version not found in {component['versionFile']} (file missing, or its "
+                "format changed; update versionPattern in NESTED_COMPONENTS)"
+            )
             continue
         entries.append({
             "name": component["name"],
@@ -137,6 +148,7 @@ with open(overrides_path, encoding="utf-8") as f:
 checkouts_root = os.path.join(repo_root, ".build", "checkouts")
 entries = []
 failures = []
+nested_failures = []
 
 for pin in resolved["pins"]:
     name = checkout_dir_name(pin["location"])
@@ -159,13 +171,16 @@ for pin in resolved["pins"]:
         "licenseText": license_text,
         "homepage": homepage,
     })
-    entries.extend(nested_entries(name, os.path.join(checkouts_root, name), failures))
+    entries.extend(nested_entries(name, os.path.join(checkouts_root, name), nested_failures))
 
 if failures:
     sys.stderr.write(
         "error: no license file found and no override for: " + ", ".join(sorted(failures)) + "\n"
         "       Add an entry to " + overrides_path + " once a human confirms the license.\n"
     )
+for failure in nested_failures:
+    sys.stderr.write("error: nested component " + failure + "\n")
+if failures or nested_failures:
     sys.exit(1)
 
 entries.sort(key=lambda e: e["name"].lower())
