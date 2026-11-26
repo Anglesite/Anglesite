@@ -47,12 +47,24 @@ public struct TemplateScriptsSyncPlan: Sendable, Equatable {
     /// as "restored" (not merely "updated") when the owner is told.
     public let divergences: [TemplateScriptsDivergence]
 
+    /// Files a later template no longer has, whose site copy is still the one the app wrote:
+    /// removed (#2179), so a dropped or renamed route can't linger beside its replacement.
+    public let toRemove: [String]
+    /// Files a later template no longer has, whose site copy had been changed: left in place and
+    /// no longer kept by the app, since what's there is the owner's work now.
+    public let releasedCustomized: [String]
+
     /// Creates a plan; the all-empty default is the nothing-to-do result.
-    public init(toApply: [TemplateScriptsSyncAction] = [], divergences: [TemplateScriptsDivergence] = []) {
+    public init(
+        toApply: [TemplateScriptsSyncAction] = [], divergences: [TemplateScriptsDivergence] = [],
+        toRemove: [String] = [], releasedCustomized: [String] = []
+    ) {
         self.toApply = toApply
         self.divergences = divergences
+        self.toRemove = toRemove
+        self.releasedCustomized = releasedCustomized
     }
 
-    /// True when the pass found nothing to write.
-    public var isEmpty: Bool { toApply.isEmpty && divergences.isEmpty }
+    /// True when the pass found nothing to write or remove.
+    public var isEmpty: Bool { toApply.isEmpty && divergences.isEmpty && toRemove.isEmpty }
 }

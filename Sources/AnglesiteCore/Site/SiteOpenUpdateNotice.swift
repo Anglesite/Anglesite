@@ -76,6 +76,14 @@ public struct SiteOpenUpdateNotice: Sendable, Equatable {
             details.append("Updated: "
                 + AppOwnedFileDescription.summary(for: migration.refreshedPaths).joined(separator: ", ") + ".")
         }
+        if !migration.removedPaths.isEmpty {
+            details.append("Removed, because Anglesite no longer uses them: "
+                + AppOwnedFileDescription.summary(for: migration.removedPaths).joined(separator: ", ") + ".")
+        }
+        if !migration.releasedPaths.isEmpty {
+            details.append("Kept as yours, because you had changed them and Anglesite no longer uses them: "
+                + AppOwnedFileDescription.summary(for: migration.releasedPaths).joined(separator: ", ") + ".")
+        }
         if !migration.failedPaths.isEmpty {
             let count = migration.failedPaths.count
             details.append(count == 1
@@ -113,7 +121,10 @@ public struct SiteOpenUpdateNotice: Sendable, Equatable {
         }
 
         let wroteSomething = !migration.isEmpty || dependenciesApplied > 0
-        let heldOnly = !wroteSomething && !(dependencyOffers?.heldUpdates.isEmpty ?? true)
+        // A released file (#2179) is kept as it is, like a held-back bump: worth a notice even
+        // when nothing was written.
+        let heldOnly = !wroteSomething
+            && (!(dependencyOffers?.heldUpdates.isEmpty ?? true) || !migration.releasedPaths.isEmpty)
         guard wroteSomething || heldOnly || !migration.failedPaths.isEmpty else { return nil }
 
         let message: String
