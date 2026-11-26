@@ -222,6 +222,10 @@ test("every content check stays fast on adversarial input", () => {
     "<link with no >": "<link".repeat(size / 5),
     "<script> with no closing tag": "<script>x".repeat(size / 9),
     "<script type= with no value end": "<script" + " type=".repeat(size / 6) + ">x",
+    "<!-- before every <script": "<!--<script>".repeat(size / 12),
+    "many scripts, one late comment": "<script src=/a.js></script>".repeat(size / 27) + "<!-- -->",
+    "<script with quoted > in attributes": '<script a=">"'.repeat(size / 13) + ">",
+    "<script with an unterminated quote": '<script a="' + "x".repeat(size),
     "<a with no >": "<a ".repeat(size / 3),
     "address characters, no @": "a".repeat(size),
     "a@ repeated": "a@".repeat(size / 2),
@@ -288,7 +292,7 @@ test("checkInlineScripts: every executable type is checked, case-insensitively",
   const policy = gate.inlineScriptPolicy(TEMPLATE_CSP);
   for (const open of [
     "<script>", "<SCRIPT>", '<script type="">', '<script type="module">', "<script type=module>",
-    '<script type="text/javascript">', "<script type='application/javascript; charset=utf-8'>",
+    '<script type="text/javascript">', "<script type=' Text/JavaScript '>",
     '<script type="importmap">', '<script type="speculationrules">', '<script language="JavaScript">',
   ]) {
     assert.equal(gate.checkInlineScripts(`${open}x()</script>`, "f", policy).length, 1, open);
@@ -305,6 +309,10 @@ test("checkInlineScripts: external scripts, data blocks and empty bodies pass", 
     '<script type="text/template"><p>{{x}}</p></script>',
     '<script language="vbscript">x</script>',
     "<script>   \n  </script>",
+    // A MIME type with parameters isn't a JavaScript MIME type essence match (HTML §4.12.1).
+    '<script type="text/javascript; charset=utf-8">x()</script>',
+    // A `>` inside a quoted attribute value doesn't end the tag, so `src` is still seen.
+    '<script data-cfg="a>b" src="/x.js"></script>',
   ]) {
     assert.deepEqual(gate.checkInlineScripts(html, "f", policy), [], html);
   }
@@ -365,4 +373,36 @@ test("the deploy scan blocks an inline script against the served CSP, and passes
   assert.ok(strict.failures.some((i) => i.file === "dist/index.html" && /won't run once published/.test(i.message)));
   const lax = await scan("default-src 'self'; script-src 'self' 'unsafe-inline'");
   assert.ok(!lax.failures.some((i) => /won't run once published/.test(i.message)));
+});
+
+test("checkInlineScripts: an src= inside another attribute's value isn't an src attribute", () => {
+  const html = '<script data-note="src=/x.js">a()</script>';
+  assert.equal(gate.checkInlineScripts(html, "f", gate.inlineScriptPolicy(TEMPLATE_CSP)).length, 1);
+});
+
+test("checkInlineScripts: custom elements named script-* are not scripts", () => {
+  // Review repro on #2229: the opener used to match <script-loader> and run on to the next
+  // real </script>, taking the markup in between as an inline body.
+  const html = '<script-loader>hello</script-loader><script src="/a.js"></script>';
+  assert.deepEqual(gate.checkInlineScripts(html, "f", gate.inlineScriptPolicy("script-src 'self'")), []);
+  // A real inline script after one is still found, and closing tags with attributes or spaces end it.
+  const both = "<script-x>y</script-x><script>a()</script ><script\tsrc=/b.js></script>";
+  assert.equal(gate.checkInlineScripts(both, "f", gate.inlineScriptPolicy("script-src 'self'")).length, 1);
+});
+
+test("checkInlineScripts: commented-out scripts are skipped, live ones after them are not", () => {
+  const policy = gate.inlineScriptPolicy("script-src 'self'");
+  assert.deepEqual(gate.checkInlineScripts("<!-- <script>alert(1)</script> -->", "f", policy), []);
+  assert.deepEqual(gate.checkInlineScripts("<!-- unterminated <script>alert(1)</script>", "f", policy), []);
+  const [issue] = gate.checkInlineScripts("<!-- <script>old()</script> --><script>live()</script>", "f", policy);
+  assert.match(issue.message, /"live\(\)"/);
+});
+
+test("checkInlineScripts: a CRLF script matches the hash of its LF-normalized text", () => {
+  // Review repro on #2229: the browser hashes the tokenizer's LF-normalized text, not raw bytes.
+  const digest = preDeploy.cspScriptHash("sha256", "a();\nb();");
+  const policy = gate.inlineScriptPolicy(`script-src 'self' 'sha256-${digest}'`);
+  for (const body of ["a();\r\nb();", "a();\rb();", "a();\nb();"]) {
+    assert.deepEqual(gate.checkInlineScripts(`<script>${body}</script>`, "f", policy, preDeploy.cspScriptHash), [], JSON.stringify(body));
+  }
 });
