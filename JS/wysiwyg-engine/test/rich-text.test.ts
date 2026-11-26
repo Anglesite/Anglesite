@@ -7,6 +7,7 @@ import {
   wrapRange,
   unwrapElement,
   RichTextEditor,
+  normalizeHref,
 } from "../src/rich-text.js";
 import { WysiwygEngine } from "../src/engine.js";
 import { FixtureHost } from "../src/testing/fixture-host.js";
@@ -435,6 +436,7 @@ describe("RichTextEditor", () => {
   });
 
   it("blur exits editing and flushes a pending commit (design doc §4: commit immediately on blur)", async () => {
+    vi.useFakeTimers();
     document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
     const model = makeTextModel();
     const engine = new WysiwygEngine(model, new FixtureHost(model));
@@ -455,12 +457,59 @@ describe("RichTextEditor", () => {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new FocusEvent("blur"));
 
-    // Synchronous: exit()'s state cleanup happens before the flushed commit's async submit resolves.
+    // #2216: the exit waits out the blur delay, so focus churn doesn't end the edit.
+    expect(editor.activeBlockId).toBe("t1");
+    vi.advanceTimersByTime(200);
+    vi.useRealTimers();
+
     expect(editor.activeBlockId).toBeNull();
     expect(el.contentEditable).toBe("false");
 
     await applied;
     expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "Hello world" }]);
+  });
+
+  it("a blur whose focus comes straight back doesn't end the session (#2216)", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const editor = new RichTextEditor(new WysiwygEngine(model, new FixtureHost(model)));
+
+    editor.enter("t1");
+    const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+    // jsdom can't focus a contenteditable div, so stand in for "focus is back on the block".
+    const active = vi.spyOn(document, "activeElement", "get").mockReturnValue(el);
+    el.dispatchEvent(new FocusEvent("blur"));
+    vi.advanceTimersByTime(200);
+
+    expect(editor.activeBlockId).toBe("t1");
+    active.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("exit() cancels a pending blur exit, so it can't end a later session", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div><div ${BLOCK_ID_ATTR}="t2">There</div>`;
+    const base = makeTextModel();
+    const model: BlockModel = {
+      ...base,
+      rootIds: ["t1", "t2"],
+      blocks: {
+        ...base.blocks,
+        t2: { id: "t2", kind: "text", componentName: "paragraph", props: {}, slots: {}, sourceSpan: [6, 11], richText: [{ kind: "text", text: "There" }] },
+      },
+    };
+    const editor = new RichTextEditor(new WysiwygEngine(model, new FixtureHost(model)));
+
+    editor.enter("t1");
+    document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`)?.dispatchEvent(new FocusEvent("blur"));
+    editor.enter("t2"); // exits t1 first
+    vi.spyOn(document, "activeElement", "get").mockReturnValue(document.querySelector(`[${BLOCK_ID_ATTR}="t2"]`));
+    vi.advanceTimersByTime(200);
+
+    expect(editor.activeBlockId).toBe("t2");
+    vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("applyFormat delegates 'strong'/'em' to toggleFormat and 'link' to setLink (#1225 Task 10)", () => {
@@ -483,6 +532,18 @@ describe("RichTextEditor", () => {
 
     expect(toggleSpy.mock.calls).toEqual([["strong"], ["em"]]);
     expect(setLinkSpy.mock.calls).toEqual([["/about"], [""]]);
+  });
+
+  it("applyFormat('unlink') removes the link under the caret — Format ▸ Remove Link (#2216)", () => {
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const editor = new RichTextEditor(new WysiwygEngine(model, new FixtureHost(model)));
+    const unsetSpy = vi.spyOn(editor, "unsetLink");
+
+    editor.enter("t1");
+    editor.applyFormat("unlink");
+
+    expect(unsetSpy).toHaveBeenCalledTimes(1);
   });
 
   it("reattaches to the replaced DOM node after an applied op re-renders the block (#1225 Task 14)", async () => {
@@ -642,5 +703,226 @@ describe("RichTextEditor", () => {
       ]);
       expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "replaced text" }]);
     });
+  });
+});
+
+describe("normalizeHref (#2216)", () => {
+  it.each([
+    ["  https://example.com/a  ", "https://example.com/a"],
+    ["mailto:me@example.com", "mailto:me@example.com"],
+    ["tel:+14085551212", "tel:+14085551212"],
+    ["tel:5551212", "tel:5551212"],
+    ["sms:5551212", "sms:5551212"],
+    ["mailto:123@example.com", "mailto:123@example.com"],
+    ["example.com:8080/x", "https://example.com:8080/x"],
+    ["/about", "/about"],
+    ["#contact", "#contact"],
+    ["?page=2", "?page=2"],
+    ["./notes", "./notes"],
+    ["../up", "../up"],
+    ["example.com/menu", "https://example.com/menu"],
+    ["localhost:4321/x", "https://localhost:4321/x"],
+    ["chef@example.com", "mailto:chef@example.com"],
+    ["a@b@example.com", "https://a@b@example.com"],
+    ["@example.com", "https://@example.com"],
+    ["chef@localhost", "https://chef@localhost"],
+    ["", ""],
+    ["   ", ""],
+  ])("%j → %j", (input, expected) => {
+    expect(normalizeHref(input)).toBe(expected);
+  });
+
+  it("classifies a long dotted input in linear time (CodeQL js/polynomial-redos)", () => {
+    const start = performance.now();
+    normalizeHref(`.@${"..".repeat(50_000)}`);
+    expect(performance.now() - start).toBeLessThan(50);
+  });
+
+  it.each(["javascript:alert(1)", " JavaScript:alert(1)", "data:text/html,<p>x", "vbscript:x", "two words"])(
+    "rejects %j",
+    (input) => {
+      expect(normalizeHref(input)).toBeNull();
+    },
+  );
+});
+
+describe("RichTextEditor link edit hold (#2216)", () => {
+  const rect = { left: 10, top: 20, width: 30, height: 12, right: 40, bottom: 32, x: 10, y: 20 };
+
+  function setup(html = "Hello world") {
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">${html}</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const editor = new RichTextEditor(engine);
+    editor.enter("t1");
+    const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+    // jsdom has no layout; Range#getBoundingClientRect doesn't exist there.
+    (Range.prototype as unknown as { getBoundingClientRect: () => unknown }).getBoundingClientRect = () => rect;
+    return { engine, editor, el };
+  }
+
+  function select(node: Node, start: number, end: number) {
+    const range = document.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, end);
+    const selection = document.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  it("returns null and holds nothing without a selection or a link under the caret", () => {
+    const { editor, el } = setup();
+    const text = el.firstChild as Text;
+    select(text, 2, 2);
+    expect(editor.beginLinkEdit()).toBeNull();
+    expect(editor.isHoldingForLinkEdit).toBe(false);
+  });
+
+  it("holds the session through a blur, and reports the selection's text and rect", () => {
+    vi.useFakeTimers();
+    const { editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+
+    expect(editor.beginLinkEdit()).toEqual({ href: null, text: "world", rect: { x: 10, y: 20, width: 30, height: 12 } });
+    el.dispatchEvent(new FocusEvent("blur")); // focus moved to the native URL field
+    vi.advanceTimersByTime(1_000);
+
+    expect(editor.activeBlockId).toBe("t1");
+    expect(editor.isHoldingForLinkEdit).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("commit restores the held selection and links it, even after the live selection moved", () => {
+    const { editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+    document.getSelection()?.removeAllRanges(); // what focusing native UI does to the page selection
+
+    expect(editor.commitLinkEdit("example.com")).toBe("applied");
+    expect(el.innerHTML).toBe('Hello <a href="https://example.com">world</a>');
+    expect(editor.isHoldingForLinkEdit).toBe(false);
+  });
+
+  it("an invalid address keeps the hold and changes nothing", () => {
+    const { editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+
+    expect(editor.commitLinkEdit("javascript:alert(1)")).toBe("invalid");
+    expect(el.innerHTML).toBe("Hello world");
+    expect(editor.isHoldingForLinkEdit).toBe(true);
+  });
+
+  it("a caret inside a link selects the whole link and pre-fills its href; an empty address removes it", () => {
+    const { editor, el } = setup('Hello <a href="/old">world</a>');
+    select(el.querySelector("a")?.firstChild as Text, 2, 2);
+
+    expect(editor.beginLinkEdit()).toMatchObject({ href: "/old", text: "world" });
+    expect(editor.commitLinkEdit("  ")).toBe("removed");
+    expect(el.innerHTML).toBe("Hello world");
+  });
+
+  it("re-linking an existing link replaces its address instead of nesting", () => {
+    const { editor, el } = setup('Hello <a href="/old">world</a>');
+    select(el.querySelector("a")?.firstChild as Text, 0, 5);
+    editor.beginLinkEdit();
+
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.innerHTML).toBe('Hello <a href="/new">world</a>');
+  });
+
+  it("commits one editText op for the link", async () => {
+    const { engine, editor, el } = setup();
+    const ops: string[] = [];
+    engine.onEvent((event) => {
+      if (event.type === "applied") ops.push(event.op.kind);
+    });
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+    editor.commitLinkEdit("/about");
+    await vi.waitFor(() => expect(ops).toEqual(["editText"]));
+    expect(engine.modelSync.getBlock("t1")?.richText).toEqual([
+      { kind: "text", text: "Hello " },
+      { kind: "link", text: "world", href: "/about" },
+    ]);
+  });
+
+  it("cancel releases the hold, restores the selection, and changes nothing", () => {
+    const { editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+    document.getSelection()?.removeAllRanges();
+
+    editor.cancelLinkEdit();
+    expect(editor.isHoldingForLinkEdit).toBe(false);
+    expect(document.getSelection()?.toString()).toBe("world");
+    expect(el.innerHTML).toBe("Hello world");
+  });
+
+  it("reports stale when the held text was re-rendered away while the popover was open", () => {
+    const { editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+    el.textContent = "Replaced"; // the held range's text node is gone
+
+    expect(editor.commitLinkEdit("/about")).toBe("stale");
+    expect(el.innerHTML).toBe("Replaced");
+    expect(editor.commitLinkEdit("/about")).toBe("stale"); // and the hold is released
+  });
+
+  it("updates an existing link's address from a caret inside it, keeping its text (#2223 review)", () => {
+    const { editor, el } = setup('Hello <a href="/old">world</a>');
+    select(el.querySelector("a")?.firstChild as Text, 2, 2);
+    editor.beginLinkEdit();
+
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.innerHTML).toBe('Hello <a href="/new">world</a>');
+  });
+
+  it("a partial selection inside a link edits the whole link, not just the selected letters", () => {
+    const { editor, el } = setup('Hello <a href="/old">world</a>');
+    select(el.querySelector("a")?.firstChild as Text, 1, 3); // "or"
+
+    expect(editor.beginLinkEdit()).toMatchObject({ href: "/old", text: "world" });
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.innerHTML).toBe('Hello <a href="/new">world</a>');
+  });
+
+  it("linking a span that contains a whole link doesn't nest links", () => {
+    const { editor, el } = setup('Say <a href="/old">hi</a> now');
+    const range = document.createRange();
+    range.setStart(el.firstChild as Text, 0);
+    range.setEnd(el.lastChild as Text, 4); // "Say hi now"
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+    editor.beginLinkEdit();
+
+    expect(editor.commitLinkEdit("/new")).toBe("applied");
+    expect(el.querySelectorAll("a")).toHaveLength(1);
+    expect(el.textContent).toBe("Say hi now");
+  });
+
+  it("the hold survives a re-render of the block while the popover is open (#2223 review)", async () => {
+    const { engine, editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+
+    // What a debounced commit or another op landing does: the block is re-rendered as new nodes.
+    const replacement = document.createElement("div");
+    replacement.setAttribute(BLOCK_ID_ATTR, "t1");
+    replacement.textContent = "Hello world";
+    el.replaceWith(replacement);
+    await engine.submit({ kind: "setProp", blockId: "t1", propName: "x", value: "y", previousValue: "z" });
+
+    expect(editor.commitLinkEdit("/about")).toBe("applied");
+    expect(replacement.innerHTML).toBe('Hello <a href="/about">world</a>');
+  });
+
+  it("exit() releases a hold", () => {
+    const { editor, el } = setup();
+    select(el.firstChild as Text, 6, 11);
+    editor.beginLinkEdit();
+    editor.exit();
+    expect(editor.isHoldingForLinkEdit).toBe(false);
   });
 });
