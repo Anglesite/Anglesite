@@ -893,6 +893,18 @@ jobs:
             swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-
             swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-
 
+      # A fallback restore (the last line of restore-keys, i.e. a cache saved under a different
+      # Package.resolved) can carry Clang explicit-module .pcm files built against an older
+      # binary dependency's headers. This lane's build backend skips input validation for those
+      # ("earlier input file validation was disabled for this kind of precompiled file") and
+      # fails instead of rebuilding them, e.g. on the stasel/WebRTC 150 -> 158 bump (#2220).
+      # Drop them so they are rebuilt from the current headers; everything else stays warm.
+      - name: Drop stale precompiled modules after a fallback cache restore
+        if: >-
+          steps.cache.outputs.cache-matched-key != '' &&
+          !startsWith(steps.cache.outputs.cache-matched-key, format('swiftpm-xcode27-v1-{0}-{1}-', steps.xcode.outputs.version, hashFiles('Package.resolved')))
+        run: rm -rf .build/out/Intermediates.noindex/SwiftExplicitPrecompiledModules
+
       # tee + pipefail + annotate step: same compile-error-burying fix as build-test's Test
       # step (#1335). `swift build --build-tests`, NOT `swift test` — see the job comment:
       # the built bundles cannot be dlopen'd on this image's macOS 26.x host, so compiling
