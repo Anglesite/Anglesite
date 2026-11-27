@@ -1,0 +1,69 @@
+---
+/**
+ * Content block (#2219): numbered steps for a how-to — "1. Preheat the oven, 2. …". A plain
+ * ordered list, so the numbers are real list numbers that screen readers count and that survive
+ * copying; the styling only draws them in circles along a connecting line. No JavaScript.
+ *
+ * Each step is one `<li>` in the default slot; a step can hold more than one paragraph, an image
+ * or a code sample.
+ */
+interface Props {
+  /** The number of the first step, for a list that continues an earlier one. */
+  start?: number;
+}
+
+const { start } = Astro.props;
+const first = Number.isInteger(start) && start! > 1 ? start : undefined;
+---
+<!-- `role="list"` because Safari stops announcing a list as one once its markers are hidden. -->
+<ol class="steps" role="list" start={first}>
+  <slot />
+</ol>
+
+<style>
+  .steps {
+    margin-block: calc(var(--spacing-unit) * 6);
+    padding: 0;
+    list-style: none;
+  }
+
+  .steps > :global(li) {
+    position: relative;
+    padding-inline-start: calc(var(--spacing-unit) * 12);
+    padding-block-end: calc(var(--spacing-unit) * 6);
+  }
+
+  .steps > :global(li) > :global(* + *) {
+    margin-block-start: calc(var(--spacing-unit) * 3);
+  }
+
+  /* The number, in a circle drawn with the theme's primary colour; the digit itself stays in the
+     text colour, so it keeps the theme's contrast whatever the primary colour is. `list-item` is
+     the list's own counter, so it follows `start` with no counter of ours to keep in step. */
+  .steps > :global(li)::before {
+    content: counter(list-item);
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 0;
+    display: grid;
+    place-items: center;
+    inline-size: calc(var(--spacing-unit) * 8);
+    block-size: calc(var(--spacing-unit) * 8);
+    border: 2px solid var(--color-primary);
+    border-radius: 50%;
+    background: var(--color-background);
+    color: var(--color-text);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  /* The line joining one step's circle to the next. */
+  .steps > :global(li:not(:last-child))::after {
+    content: "";
+    position: absolute;
+    inset-inline-start: calc(var(--spacing-unit) * 4 - 1px);
+    inset-block: calc(var(--spacing-unit) * 8) 0;
+    border-inline-start: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+  }
+</style>

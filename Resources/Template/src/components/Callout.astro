@@ -1,0 +1,81 @@
+---
+/**
+ * Content block (#2219): a highlighted note set apart from the surrounding text — a tip, a
+ * caution, a "before you start". Static HTML, no JavaScript.
+ *
+ * The variant is said in words (the label) as well as shown by the border colour, so it never
+ * relies on colour alone. Text stays in the theme's text colour on its surface colour, so it keeps
+ * the theme's contrast in light and dark; only the border takes the variant's colour.
+ *
+ * `role="note"` rather than `<aside>`: an aside is a complementary landmark, which belongs at the
+ * top level of a page, not in the middle of an article.
+ */
+export type CalloutVariant = "note" | "tip" | "warning" | "danger";
+
+interface Props {
+  /** How it is marked: note (default), tip, warning or danger. */
+  variant?: CalloutVariant;
+  /** The heading shown above the text. Defaults to the variant's own name ("Note", "Tip", …). */
+  title?: string;
+}
+
+const LABELS: Record<CalloutVariant, string> = {
+  note: "Note",
+  tip: "Tip",
+  warning: "Warning",
+  danger: "Danger",
+};
+
+const { variant: requested = "note", title } = Astro.props;
+// An unknown value (a typo in the source) falls back to a plain note rather than an unstyled box.
+const variant: CalloutVariant = requested in LABELS ? requested : "note";
+const label = title?.trim() || LABELS[variant];
+---
+<div class={`callout callout--${variant}`} role="note">
+  <p class="callout-title">{label}</p>
+  <div class="callout-body"><slot /></div>
+</div>
+
+<style>
+  .callout {
+    --callout-color: var(--color-primary);
+    margin-block: calc(var(--spacing-unit) * 6);
+    padding: calc(var(--spacing-unit) * 4) calc(var(--spacing-unit) * 5);
+    border-inline-start: calc(var(--spacing-unit) * 1) solid var(--callout-color);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .callout--tip {
+    --callout-color: #15803d;
+  }
+
+  .callout--warning {
+    --callout-color: var(--color-accent);
+  }
+
+  .callout--danger {
+    --callout-color: #b91c1c;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .callout--tip {
+      --callout-color: #4ade80;
+    }
+
+    .callout--danger {
+      --callout-color: #f87171;
+    }
+  }
+
+  .callout-title {
+    margin-block-end: calc(var(--spacing-unit) * 2);
+    font-family: var(--font-heading);
+    font-weight: 700;
+  }
+
+  .callout-body > :global(* + *) {
+    margin-block-start: calc(var(--spacing-unit) * 3);
+  }
+</style>

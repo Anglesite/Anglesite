@@ -156,6 +156,84 @@
       "placement": {
         "allowedParents": null
       }
+    },
+    {
+      "path": "src/components/Callout.astro",
+      "export": "Callout",
+      "kind": "astro",
+      "name": "Callout",
+      "description": "A highlighted note set apart from the text: a note, tip, warning or danger.",
+      "icon": null,
+      "propEditors": [
+        {
+          "prop": "variant",
+          "editor": "select",
+          "options": [
+            "note",
+            "tip",
+            "warning",
+            "danger"
+          ]
+        },
+        {
+          "prop": "title",
+          "editor": "text"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/Accordion.astro",
+      "export": "Accordion",
+      "kind": "astro",
+      "name": "Accordion",
+      "description": "A section that opens and closes, for FAQs and fine print.",
+      "icon": null,
+      "propEditors": [
+        {
+          "prop": "summary",
+          "editor": "text"
+        },
+        {
+          "prop": "open",
+          "editor": "boolean"
+        },
+        {
+          "prop": "group",
+          "editor": "text"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/Steps.astro",
+      "export": "Steps",
+      "kind": "astro",
+      "name": "Steps",
+      "description": "Numbered steps for a how-to, one list item per step.",
+      "icon": null,
+      "propEditors": [
+        {
+          "prop": "start",
+          "editor": "number"
+        }
+      ],
+      "slots": [
+        "default"
+      ],
+      "placement": {
+        "allowedParents": null
+      }
     }
   ]
 }
