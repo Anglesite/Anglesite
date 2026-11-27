@@ -85,9 +85,12 @@ describe("Callout", () => {
   it("uses a given title, and treats an unknown variant as a note", async () => {
     const titled = await render("Callout", { variant: "tip", title: "Before you start" }, "x");
     expect(titled).toMatch(/class="callout-title"[^>]*>Before you start<\/p>/);
-    const unknown = await render("Callout", { variant: "warn" }, "x");
-    expect(unknown).toContain("callout--note");
-    expect(unknown).toMatch(/class="callout-title"[^>]*>Note<\/p>/);
+    // "constructor" is inherited by every object, so an `in` check would let it through.
+    for (const variant of ["warn", "constructor", "toString", "__proto__"]) {
+      const unknown = await render("Callout", { variant }, "x");
+      expect(unknown, variant).toContain("callout--note");
+      expect(unknown, variant).toMatch(/class="callout-title"[^>]*>Note<\/p>/);
+    }
   });
 });
 
@@ -99,6 +102,14 @@ describe("Accordion", () => {
     expect(html).not.toMatch(/<details[^>]*\sname=/);
     expect(html).toContain("<p>Within 5 miles.</p>");
     expect(findings(html)).toEqual([]);
+  });
+
+  it("has an accessible name before its summary is typed", async () => {
+    for (const props of [{}, { summary: "" }, { summary: "   " }]) {
+      const html = await render("Accordion", props, "<p>x</p>");
+      expect(html, JSON.stringify(props)).toMatch(/<summary[^>]*>Details<\/summary>/);
+      expect(findings(html)).toEqual([]);
+    }
   });
 
   it("starts open, and joins a group through the name attribute", async () => {

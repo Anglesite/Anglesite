@@ -28,7 +28,8 @@ const LABELS: Record<CalloutVariant, string> = {
 
 const { variant: requested = "note", title } = Astro.props;
 // An unknown value (a typo in the source) falls back to a plain note rather than an unstyled box.
-const variant: CalloutVariant = requested in LABELS ? requested : "note";
+// `Object.hasOwn`, not `in`: `in` also accepts inherited keys such as "constructor".
+const variant: CalloutVariant = Object.hasOwn(LABELS, requested) ? requested : "note";
 const label = title?.trim() || LABELS[variant];
 ---
 <div class={`callout callout--${variant}`} role="note">
@@ -59,14 +60,26 @@ const label = title?.trim() || LABELS[variant];
     --callout-color: #b91c1c;
   }
 
+  /* The dark-scheme borders follow the same two selectors a theme pack with a light/dark toggle
+     uses (packs/cactus/src/styles/global.css): the system's dark scheme unless the visitor picked
+     light, and an explicit dark pick whatever the system says. So a forced scheme never puts a
+     dark-scheme border on a light surface, or the other way round. */
   @media (prefers-color-scheme: dark) {
-    .callout--tip {
+    :global(:root:not([data-theme="light"])) .callout--tip {
       --callout-color: #4ade80;
     }
 
-    .callout--danger {
+    :global(:root:not([data-theme="light"])) .callout--danger {
       --callout-color: #f87171;
     }
+  }
+
+  :global(:root[data-theme="dark"]) .callout--tip {
+    --callout-color: #4ade80;
+  }
+
+  :global(:root[data-theme="dark"]) .callout--danger {
+    --callout-color: #f87171;
   }
 
   .callout-title {

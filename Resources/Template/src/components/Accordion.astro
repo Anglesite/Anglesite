@@ -9,8 +9,9 @@
  * open on its own.
  */
 interface Props {
-  /** The always-visible line that opens and closes the section. */
-  summary: string;
+  /** The always-visible line that opens and closes the section. Defaults to "Details", so a
+   *  block inserted before its summary is typed still has an accessible name. */
+  summary?: string;
   /** Start open. */
   open?: boolean;
   /** Accordions sharing a group open one at a time. */
@@ -18,9 +19,10 @@ interface Props {
 }
 
 const { summary, open = false, group } = Astro.props;
+const label = summary?.trim() || "Details";
 ---
 <details class="accordion" open={open} name={group || undefined}>
-  <summary class="accordion-summary">{summary}</summary>
+  <summary class="accordion-summary">{label}</summary>
   <div class="accordion-body"><slot /></div>
 </details>
 
