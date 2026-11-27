@@ -12,7 +12,12 @@
  *    `scripts/emdash-gate/policy.ts` computes for that draft; it stays a draft and its page is
  *    not served.
  * 2. A clean draft (one the same policy allows) publishes and its page renders.
- * 3. When the build was given Anglesite's composed Worker config (check-emdash-overlay.sh stages
+ * 3. An article whose body carries a pasted `<script>`, inline event handlers and `javascript:`
+ *    links renders with none of them left (#2233): EmDash's renderer strips them, so the publish
+ *    gate and render backstop don't run the deploy scan's inline checks (#2228, #2232). The
+ *    page is run through those same pinned checks, so an EmDash upgrade that loosens its
+ *    sanitizer, or a template block that renders raw markup, fails here.
+ * 4. When the build was given Anglesite's composed Worker config (check-emdash-overlay.sh stages
  *    one), the site's social endpoints run in the same Worker (#2162): a social route answers
  *    from the template Worker's handler, and the pages advertise it.
  *
@@ -70,6 +75,8 @@ const astroBin = join(site, "node_modules", "astro", "bin", "astro.mjs");
 const wranglerBin = join(site, "node_modules", "wrangler", "bin", "wrangler.js");
 const tsxBin = join(site, "node_modules", "tsx", "dist", "cli.mjs");
 const policyModule = join(site, "scripts", "emdash-gate", "policy.ts");
+const preDeployModule = join(site, "scripts", "pre-deploy-check.ts");
+const clientHeadersPath = join(site, "dist", "client", "_headers");
 // The value check-emdash-overlay.sh writes into the site's .site-config before building (#2133).
 const siteConfigPath = join(site, ".site-config");
 const SITE_CONFIG_THEME_COLOR = existsSync(siteConfigPath)
@@ -154,7 +161,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 process.on("exit", killServer);
 
 if (!process.argv[2]) fail("usage: check-emdash-gate-runtime.mjs <site-dir>");
-for (const required of [join(site, "dist", "server", "entry.mjs"), wranglerConfigPath, policyModule, astroBin, wranglerBin, tsxBin]) {
+for (const required of [join(site, "dist", "server", "entry.mjs"), wranglerConfigPath, policyModule, preDeployModule, clientHeadersPath, astroBin, wranglerBin, tsxBin]) {
   if (!existsSync(required)) fail(`not a built EmDash site: missing ${required}`);
 }
 originalWranglerConfig = readFileSync(wranglerConfigPath, "utf8");
@@ -247,7 +254,13 @@ async function request(base, path, { method = "GET", token, body } = {}) {
   } catch {
     json = undefined;
   }
-  return { status: response.status, text, json, contentType: response.headers.get("content-type") };
+  return {
+    status: response.status,
+    text,
+    json,
+    contentType: response.headers.get("content-type"),
+    csp: response.headers.get("content-security-policy"),
+  };
 }
 
 /** A Portable Text body the way EmDash stores one. */
@@ -276,6 +289,39 @@ function pinnedPolicyDecision(slug, data) {
   if (result.status !== 0) {
     serverLog += `\n--- tsx policy evaluation ---\n${result.stdout}\n${result.stderr}\n`;
     fail(`could not evaluate the site's pinned policy (status ${result.status})`);
+  }
+  return JSON.parse(result.stdout.trim().split("\n").at(-1));
+}
+
+/**
+ * The site's own pinned inline checks (`checkInlineScripts`, `checkInlineHandlers` from
+ * `scripts/pre-deploy-check.ts`, #2228/#2232) run on a rendered page: the policy it was served
+ * with (`csp`, the response's header), else the one `dist/client/_headers` serves, as the deploy
+ * scan reads it. Returns that policy and the issues' messages. The page goes over stdin, since it
+ * can outgrow an environment variable.
+ */
+function pinnedInlineIssues(html, csp) {
+  const script = [
+    `import { readFileSync } from "node:fs";`,
+    `import * as gate from ${JSON.stringify(pathToFileURL(preDeployModule).href)};`,
+    "const html = readFileSync(0, 'utf8');",
+    `const csp = process.env.ANGLESITE_GATE_CSP || gate.cspFromHeaders(readFileSync(${JSON.stringify(clientHeadersPath)}, "utf8"));`,
+    "const issues = [",
+    "  ...gate.checkInlineScripts(html, 'page', gate.inlineScriptPolicy(csp), gate.cspScriptHash),",
+    "  ...gate.checkInlineHandlers(html, 'page', gate.inlineAttributePolicy(csp), gate.cspScriptHash),",
+    "];",
+    "console.log(JSON.stringify({ csp, issues: issues.map((issue) => issue.message) }));",
+  ].join("\n");
+  const result = spawnSync(process.execPath, [tsxBin, "--eval", script], {
+    cwd: site,
+    input: html,
+    encoding: "utf8",
+    timeout: 60_000,
+    env: { ...process.env, ANGLESITE_GATE_CSP: csp ?? "", FORCE_COLOR: "0", NO_COLOR: "1" },
+  });
+  if (result.status !== 0) {
+    serverLog += `\n--- tsx inline-check evaluation ---\n${result.stdout}\n${result.stderr}\n`;
+    fail(`could not run the site's pinned inline checks (status ${result.status})`);
   }
   return JSON.parse(result.stdout.trim().split("\n").at(-1));
 }
@@ -457,6 +503,62 @@ async function main() {
   check(tagPage.status === 200 && tagPage.text.includes(`href="${articlePath}"`) && tagPage.text.includes("Council approves budget"), "/tags/local-politics/ lists the tagged article");
   const unknownTag = await request(base, "/tags/no-such-tag/");
   check(unknownTag.status === 404, "a tag no published article carries is a 404");
+
+  // 3b. Pasted markup that the site's CSP would block never reaches the page (#2233). A link mark
+  //     with a `javascript:` target, and a raw-HTML block — what EmDash's editor makes of pasted
+  //     markup — holding an inline script, event handlers (one inside an `<iframe srcdoc>`, one on
+  //     inline SVG) and `javascript:` links (one entity-encoded).
+  const pastedHtml = '<p>html-block-marker</p><script>alert(2)</script><button onclick="alert(3)">Tap</button>'
+    + '<a href="javascript:alert(4)">js-link</a><img src="/favicon.svg" alt="" onerror="alert(5)">'
+    + '<iframe srcdoc="&lt;button onclick=&quot;alert(6)&quot;&gt;x&lt;/button&gt;"></iframe>'
+    + '<svg onload="alert(7)"></svg><a href="javascript&#58;alert(8)">encoded-link</a>';
+  const pastedData = {
+    title: "Pasted widget",
+    summary: "Markup pasted from another site",
+    content: [
+      {
+        _type: "block",
+        _key: "p1",
+        style: "normal",
+        markDefs: [{ _type: "link", _key: "js", href: "javascript:alert(1)" }],
+        children: [{ _type: "span", _key: "p1s", text: "inline-link-marker", marks: ["js"] }],
+      },
+      {
+        _type: "htmlBlock",
+        _key: "h1",
+        html: pastedHtml,
+      },
+    ],
+  };
+  check(pinnedPolicyDecision("pasted-widget", pastedData).decision === null, "the site's pinned policy allows the draft with pasted markup");
+  const pasted = await request(base, "/_emdash/api/content/articles", {
+    method: "POST",
+    token,
+    body: { slug: "pasted-widget", status: "draft", data: pastedData },
+  });
+  check(pasted.status === 201 && typeof pasted.json?.data?.item?.id === "string", `the draft with pasted markup is saved (HTTP ${pasted.status})`);
+  const pastedPublish = await request(base, `/_emdash/api/content/articles/${pasted.json.data.item.id}/publish`, { method: "POST", token, body: {} });
+  check(pastedPublish.status === 200, `publishing it succeeds (HTTP ${pastedPublish.status})`);
+  const pastedPage = await request(base, "/articles/pasted-widget/");
+  // The markers prove both blocks rendered, so an empty result below isn't just a missing body.
+  check(
+    pastedPage.status === 200 && pastedPage.text.includes("inline-link-marker") && pastedPage.text.includes("html-block-marker"),
+    `the article with pasted markup renders both its blocks (HTTP ${pastedPage.status})`,
+  );
+  // Control: the same pinned checks, under the same policy, must flag the markup as pasted
+  // (the raw block plus the `javascript:` link), or an empty result on the page proves nothing.
+  // This fails if the policy allows inline script (`'unsafe-inline'`), if there is no policy,
+  // or if the checks stop scanning.
+  const control = pinnedInlineIssues(`${pastedHtml}<a href="javascript:alert(1)">inline-link-marker</a>`, pastedPage.csp);
+  check(
+    control.issues.length === 2,
+    `under the page's Content-Security-Policy (${control.csp}), the site's pinned inline checks flag the unsanitized markup (${control.issues.length} issue(s))`,
+  );
+  const { issues: inlineIssues } = pinnedInlineIssues(pastedPage.text, pastedPage.csp);
+  check(
+    inlineIssues.length === 0,
+    `EmDash renders the pasted markup with nothing the site's CSP would block${inlineIssues.length ? `: ${inlineIssues.join(" | ")}` : ""}`,
+  );
 
   // 4. Followers keep up with the article (#2174): an edit published again reaches them as an
   //    `Update` of the post they have, and unpublishing it as a `Delete`. Last, since the checks
