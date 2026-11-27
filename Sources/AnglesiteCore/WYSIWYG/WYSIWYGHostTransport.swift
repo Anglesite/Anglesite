@@ -16,6 +16,17 @@ public protocol WYSIWYGHostTransport: Sendable {
     func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void
 }
 
+/// Optional transport capability (#2215): re-reads the page's model from its current source, so a
+/// change made outside the canvas (a sidecar tool, a chat edit, anything else that writes the page
+/// inside the site runtime) reaches an already-mounted editor. Only `SidecarWYSIWYGHostTransport`
+/// conforms; a transport without a real backing store has nothing to re-read.
+public protocol WYSIWYGRefreshableTransport: WYSIWYGHostTransport {
+    /// Re-fetches the page's model. When its version differs from `knownVersion` — the source
+    /// changed since the caller's model was built — notifies every ``WYSIWYGHostTransport/onModelUpdate(_:)`` listener
+    /// and returns it. Returns `nil` when nothing changed or the fetch failed.
+    func refreshModel(knownVersion: String) async -> BlockModel?
+}
+
 /// The server's own computed reversal for one applied WYSIWYG edit (`anglesite-skills#435`) —
 /// the wire op name + payload to send back through `EditRouter.apply(_:)` verbatim, bypassing
 /// `WYSIWYGOpTranslator`/`ComponentStructureEditBuilder` entirely. Computed by the sidecar

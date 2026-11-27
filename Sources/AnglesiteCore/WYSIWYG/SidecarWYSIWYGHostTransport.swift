@@ -199,10 +199,9 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGServerInvertibleTransport {
         return nil
     }
 
+    /// Listeners hear about a model ``refreshModel(knownVersion:)`` found changed (#2215) — not
+    /// about the transport's own applied ops, whose result already carries the fresh model.
     public func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void {
-        // No live external-edit push exists yet — mirrors StubWYSIWYGHostTransport's own
-        // not-yet-wired listener registry (same TODO, same reasoning: keeps protocol parity for
-        // when a real push mechanism lands, without inventing one here).
         let token = UUID()
         listeners[token] = listener
         return { [weak self] in
@@ -213,5 +212,30 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGServerInvertibleTransport {
 
     private func removeListener(_ token: UUID) {
         listeners.removeValue(forKey: token)
+    }
+
+    /// Test-only: how many `onModelUpdate` listeners are registered.
+    var listenerCountForTesting: Int { listeners.count }
+}
+
+extension SidecarWYSIWYGHostTransport: WYSIWYGRefreshableTransport {
+    /// One `get_page_model` round trip (#2215). Also refreshes `rootId`, same as the op paths' own
+    /// re-fetches. A failed fetch is logged and reported as "nothing changed": the canvas keeps the
+    /// model it has, and the next op's version check still catches a real divergence.
+    public func refreshModel(knownVersion: String) async -> BlockModel? {
+        let fresh: PageModel
+        do {
+            fresh = try await pageModelClient.fetch(path: path)
+        } catch {
+            await LogCenter.shared.append(
+                source: "wysiwyg", stream: .stderr,
+                text: "refresh: get_page_model failed for \(path): \(error)")
+            return nil
+        }
+        rootId = fresh.tree.id
+        guard fresh.version != knownVersion else { return nil }
+        let model = PageModelBlockAdapter.adapt(fresh)
+        for listener in listeners.values { listener(model) }
+        return model
     }
 }

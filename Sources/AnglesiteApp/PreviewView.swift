@@ -308,6 +308,11 @@ struct PreviewView: NSViewRepresentable {
         /// repeat calls idempotent rather than stacking two live engine instances on one page.
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             wysiwygController?.mountEngine()
+            // A reload can be the dev server answering a change made outside the canvas, which
+            // leaves `mountEngine()`'s model stale (#2215). Usually a no-op.
+            if let controller = wysiwygController {
+                Task { await controller.refreshFromSource() }
+            }
             onNavigated?(webView.url)
         }
 

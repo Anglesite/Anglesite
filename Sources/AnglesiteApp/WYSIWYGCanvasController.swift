@@ -200,6 +200,8 @@ final class WYSIWYGCanvasController {
     /// applied op (#1602 item 2) instead of leaving the caller to fall back to
     /// `WYSIWYGOpInverter.invert` unconditionally.
     private func sendAndApply(_ envelope: OpEnvelope) async -> (result: OpResult, freshInverse: WYSIWYGReversal?) {
+        inFlightOps += 1
+        defer { inFlightOps -= 1 }
         if let invertible = transport as? any WYSIWYGServerInvertibleTransport {
             let (result, serverInverse) = await invertible.sendOpReportingServerInverse(envelope)
             return (await absorb(result), serverInverse.map(WYSIWYGReversal.wire))
@@ -217,6 +219,8 @@ final class WYSIWYGCanvasController {
         guard let invertible = transport as? any WYSIWYGServerInvertibleTransport else {
             return (.rejected(reason: .hostError, message: "transport cannot replay a server-computed inverse", freshModel: nil), nil)
         }
+        inFlightOps += 1
+        defer { inFlightOps -= 1 }
         let (result, serverInverse) = await invertible.applyServerInverse(inverse, requestId: UUID().uuidString)
         if case .rejected(let reason, let message, _) = result {
             await LogCenter.shared.append(
@@ -244,6 +248,55 @@ final class WYSIWYGCanvasController {
             }
         }
         return result
+    }
+
+    /// Ops sent to the transport whose result hasn't come back yet. While any is in flight,
+    /// `refreshFromSource()` stands down: the op's own result carries the newest model, and a
+    /// refresh fetched mid-write could be either side of it.
+    @ObservationIgnored
+    private var inFlightOps = 0
+
+    /// Brings the canvas up to date with the page's source after a change made outside it (#2215)
+    /// — a sidecar tool or a chat edit that wrote the page inside the site runtime. Called after
+    /// every page load while edit mode is on (`PreviewView`'s `didFinish`): any such write makes
+    /// the dev server reload the page, and the reload re-mounts the engine from this controller's
+    /// `model`, which is the pre-change one. A no-op when the source is still `model.version`, which
+    /// is the usual case (the reload followed one of this canvas's own ops, whose result already
+    /// updated `model`).
+    ///
+    /// Selection survives when its block still exists in the new model; otherwise it clears, on
+    /// both sides. Undo steps registered against the old version stay registered and are rejected
+    /// safely if replayed (`UndoBridge`'s version check), same as for any other conflict.
+    func refreshFromSource() async {
+        guard inFlightOps == 0, let refreshable = transport as? any WYSIWYGRefreshableTransport else { return }
+        let before = model.version
+        guard let fresh = await refreshable.refreshModel(knownVersion: before) else { return }
+        // An op landed while the fetch was out: its result is at least as new, so keep it.
+        guard inFlightOps == 0, model.version == before else { return }
+        await adoptOutsideModel(fresh, replacing: before)
+    }
+
+    private func adoptOutsideModel(_ fresh: BlockModel, replacing previousVersion: String) async {
+        model = fresh
+        if let selectedBlockId, fresh.blocks[selectedBlockId] == nil {
+            self.selectedBlockId = nil
+        }
+        // The engine applies it in place (`WysiwygEngine`'s `onModelUpdate` → `ModelSync.applyModel`)
+        // and drops its own selection the same way if the block is gone.
+        webView?.evaluateJavaScript(Self.modelUpdateScript(for: fresh))
+        await LogCenter.shared.append(
+            source: "wysiwyg", stream: .stdout,
+            text: "page changed outside the editor (\(previousVersion) → \(fresh.version)); canvas updated")
+        await runQualityGates(model: fresh)
+    }
+
+    /// The `evaluateJavaScript` string that pushes `model` into the mounted engine through
+    /// `NativeHostTransport`'s `_handleModelUpdate` (`JS/wysiwyg-engine/src/host/native-host-transport.ts`).
+    /// Static and pure so it's testable without a `WKWebView`, like `mountScript(for:displayNames:selectedBlockId:)`.
+    /// A no-op script if the model fails to encode, or if no engine is mounted (`?.`).
+    static func modelUpdateScript(for model: BlockModel) -> String {
+        guard let data = try? JSONEncoder().encode(model), let json = String(data: data, encoding: .utf8) else { return "" }
+        return "window.__anglesiteWysiwygHost?._handleModelUpdate?.(\(json))"
     }
 
     /// The Edit-menu Duplicate button's canvas-focused target (#1225 Task 11, generalized #1588
@@ -594,9 +647,9 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
         return result
     }
 
-    /// No-op for now: PR1 has no host-initiated push into an already-mounted controller (no
-    /// external-edit trigger exists yet — see `StubWYSIWYGHostTransport.onModelUpdate`). `async`
-    /// to match `WYSIWYGHostTransport`'s protocol requirement.
+    /// No-op: nothing subscribes to the controller itself. Outside changes reach the page engine
+    /// through `refreshFromSource()`, which pushes into JS directly. `async` to match
+    /// `WYSIWYGHostTransport`'s protocol requirement.
     func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> @Sendable () -> Void {
         {}
     }
