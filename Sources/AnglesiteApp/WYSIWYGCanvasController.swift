@@ -287,8 +287,10 @@ final class WYSIWYGCanvasController {
             self.selectedBlockId = nil
         }
         // The engine applies it in place (`WysiwygEngine`'s `onModelUpdate` → `ModelSync.applyModel`)
-        // and drops its own selection the same way if the block is gone.
-        webView?.evaluateJavaScript(Self.modelUpdateScript(for: fresh))
+        // and drops its own selection the same way if the block is gone. The explicit
+        // `completionHandler:` picks the fire-and-forget overload; in an `async` function the bare
+        // call resolves to WebKit's `async throws` one instead.
+        webView?.evaluateJavaScript(Self.modelUpdateScript(for: fresh), completionHandler: nil)
         await LogCenter.shared.append(
             source: "wysiwyg", stream: .stdout,
             text: "page changed outside the editor (\(previousVersion) → \(fresh.version)); canvas updated")
