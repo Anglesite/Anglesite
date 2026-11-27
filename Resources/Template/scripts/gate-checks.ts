@@ -410,14 +410,41 @@ const NO_CSP: InlineScriptPolicy = { allowsAll: true, hashes: new Set(), allowsS
  */
 export function inlineScriptPolicy(csp: string | null): InlineScriptPolicy {
   if (csp === null) return NO_CSP;
+  const sources = effectiveSources(cspDirectives(csp), "script-src-elem");
+  // No directive governs scripts at all: CSP places no restriction on them.
+  if (sources === undefined) return NO_CSP;
+  const { allowsAll, hashes } = sourceList(sources);
+  return {
+    allowsAll,
+    hashes,
+    allowsSpeculationRules: sources.some((s) => s.toLowerCase() === "'inline-speculation-rules'"),
+  };
+}
+
+/** A CSP header value's directives by lower-cased name, each with its source list (the first
+ * occurrence of a directive wins, as in CSP3 §2.2.1's parser). */
+function cspDirectives(csp: string): Map<string, string[]> {
   const directives = new Map<string, string[]>();
   for (const part of csp.split(";")) {
     const [name, ...values] = part.trim().split(/\s+/);
     if (name && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), values);
   }
-  const sources = directives.get("script-src-elem") ?? directives.get("script-src") ?? directives.get("default-src");
-  // No directive governs scripts at all: CSP places no restriction on them.
-  if (sources === undefined) return NO_CSP;
+  return directives;
+}
+
+/** The source list CSP3 consults for an inline check (its effective-directive fallback): `specific` (`script-src-elem` or
+ * `script-src-attr`), else `script-src`, else `default-src`; `undefined` when none is present. */
+function effectiveSources(directives: Map<string, string[]>, specific: string): string[] | undefined {
+  return directives.get(specific) ?? directives.get("script-src") ?? directives.get("default-src");
+}
+
+/**
+ * The inline-relevant parts of one source list: its hash sources, whether it has
+ * `'unsafe-hashes'`, and whether it allows all inline behavior. `'unsafe-inline'` is ignored by
+ * the browser once the same list has a hash, a nonce or `'strict-dynamic'` (CSP3 §6.7.3.3), so it
+ * only counts when none of those is present.
+ */
+function sourceList(sources: string[]): { allowsAll: boolean; hashes: Set<string>; unsafeHashes: boolean } {
   const lower = sources.map((s) => s.toLowerCase());
   const hashes = new Set<string>();
   for (const source of sources) {
@@ -429,7 +456,7 @@ export function inlineScriptPolicy(csp: string | null): InlineScriptPolicy {
   return {
     allowsAll: lower.includes("'unsafe-inline'") && !overridesUnsafeInline,
     hashes,
-    allowsSpeculationRules: lower.includes("'inline-speculation-rules'"),
+    unsafeHashes: lower.includes("'unsafe-hashes'"),
   };
 }
 
@@ -482,6 +509,22 @@ function scriptKind(attributes: Map<string, string>): ScriptKind {
   if (type === "" || type === "module" || type === "importmap") return "script";
   if (type === "speculationrules") return "speculationrules";
   return JS_MIME_ESSENCES.has(type) ? "script" : "data";
+}
+
+/**
+ * Index just past the end of the HTML comment whose `<!--` starts at `start`, or -1 when it never
+ * ends (the comment then runs to the end of the content). Follows the tokenizer: `<!-->` and
+ * `<!--->` end right there as empty comments ("abrupt-closing-of-empty-comment"), and `--!>` ends
+ * one as well as `-->` ("incorrectly-closed-comment").
+ */
+function commentEnd(content: string, start: number): number {
+  const after = start + 4;
+  if (content.startsWith(">", after)) return after + 1;
+  if (content.startsWith("->", after)) return after + 2;
+  const close = /--!?>/g;
+  close.lastIndex = after;
+  const m = close.exec(content);
+  return m === null ? -1 : m.index + m[0].length;
 }
 
 /**
@@ -549,9 +592,9 @@ export function checkInlineScripts(
     // An HTML comment that starts before this `<script` hides everything up to its `-->`,
     // including any commented-out script; jump past it and look again.
     if (nextComment !== -1 && nextComment < m.index) {
-      const commentEnd = content.indexOf("-->", nextComment + 4);
-      if (commentEnd === -1) break;
-      position = commentEnd + 3;
+      const end = commentEnd(content, nextComment);
+      if (end === -1) break;
+      position = end;
       continue;
     }
     const openEnd = tagEnd(content, m.index);
@@ -595,4 +638,211 @@ export function checkInlineScripts(
     remediation:
       "Move the script into its own file (e.g. public/scripts/) and load it with <script src=\"…\">, passing any settings through data-* attributes.",
   }];
+}
+
+/**
+ * What a Content-Security-Policy lets through as JavaScript written into HTML attributes — the
+ * part of the policy `checkInlineHandlers` needs. Built by `inlineAttributePolicy`.
+ */
+export interface InlineAttributePolicy {
+  /** Event-handler attributes (`onclick="…"`) all run: `'unsafe-inline'` is in effect for them. */
+  handlersAllowAll: boolean;
+  /** Hashes a handler's value may match. Empty unless the list also has `'unsafe-hashes'`, which
+   * CSP requires before a hash can allow an attribute (CSP3 "does element match source list"). */
+  handlerHashes: ReadonlySet<string>;
+  /** `javascript:` URLs run: `'unsafe-inline'` is in effect for navigations. */
+  javascriptURLsAllowAll: boolean;
+}
+
+const NO_ATTRIBUTE_CSP: InlineAttributePolicy = { handlersAllowAll: true, handlerHashes: new Set(), javascriptURLsAllowAll: true };
+
+/**
+ * Reads the inline-attribute policy out of a CSP header value. Handlers are governed by
+ * `script-src-attr`, `javascript:` navigations by `script-src-elem`, each falling back to
+ * `script-src` and then `default-src`. `null`, or no directive covering scripts, allows
+ * everything (see `inlineScriptPolicy`). A hash never allows a `javascript:` URL here: browsers
+ * disagree on what text they hash for one, so the gate doesn't guess.
+ */
+export function inlineAttributePolicy(csp: string | null): InlineAttributePolicy {
+  if (csp === null) return NO_ATTRIBUTE_CSP;
+  const directives = cspDirectives(csp);
+  const attr = effectiveSources(directives, "script-src-attr");
+  const elem = effectiveSources(directives, "script-src-elem");
+  const handlers = attr === undefined ? undefined : sourceList(attr);
+  return {
+    handlersAllowAll: handlers === undefined || handlers.allowsAll,
+    handlerHashes: handlers !== undefined && handlers.unsafeHashes ? handlers.hashes : new Set(),
+    javascriptURLsAllowAll: elem === undefined || sourceList(elem).allowsAll,
+  };
+}
+
+/** Elements whose content the tokenizer reads as text, not markup — so a `<button onclick>` written
+ * inside one is never an element. `noscript` is included because its content only becomes markup
+ * when scripting is off, and then no handler runs anyway. `plaintext` runs to the end of the page. */
+const RAW_TEXT_ELEMENTS = new Set([
+  "script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext",
+]);
+
+/** URL-valued attributes a `javascript:` URL runs from when followed, submitted or loaded. */
+const NAVIGATION_URL_ATTRIBUTES = ["href", "xlink:href", "src", "action", "formaction"];
+
+/** How deep `checkInlineHandlers` follows `<iframe srcdoc>` documents nested in one another. */
+const MAX_SRCDOC_DEPTH = 4;
+
+/** Decodes the character references that matter for reading an attribute value as a URL or as
+ * handler text: numeric ones and a few named ones. Others are left as written. */
+function decodeCharacterReferences(value: string): string {
+  if (!value.includes("&")) return value;
+  const named: Record<string, string> = {
+    amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", colon: ":", tab: "\t", newline: "\n", nbsp: " ",
+  };
+  return value.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([A-Za-z]{2,8}));?/g, (whole, dec, hex, name) => {
+    if (dec !== undefined || hex !== undefined) {
+      const code = dec !== undefined ? Number(dec) : parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    }
+    return named[name.toLowerCase()] ?? whole;
+  });
+}
+
+/**
+ * A `javascript:` URL that does something, or `null`. Reads the value the way the URL parser does
+ * (leading C0 controls and spaces stripped, tabs and newlines removed anywhere, scheme
+ * case-insensitive), then percent-decodes the body as the browser does before running it. The
+ * common no-op placeholders are not reported — `javascript:`, `javascript:;`, `javascript:void(0)`
+ * (or `void 0`, `void(1)`), `javascript:undefined`, and a body that is only a `//` comment
+ * (`javascript://`) — since CSP blocking them changes nothing a visitor sees. A `//` body with a
+ * line break in it (`javascript://%0Aalert(1)`) is live code, and is reported.
+ */
+function liveJavascriptURL(raw: string): string | null {
+  const url = decodeCharacterReferences(raw).replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+/, "");
+  if (!/^javascript:/i.test(url)) return null;
+  let body = url.slice("javascript:".length);
+  try {
+    body = decodeURIComponent(body);
+  } catch {
+    // A malformed escape: the browser leaves it as written, and so does the check.
+  }
+  if (/^\s*\/\//.test(body) && !/[\n\r\u2028\u2029]/.test(body)) return null;
+  const compact = body.replace(/\s+/g, "");
+  return /^(?:void(?:\(\d+\)|\d+)|undefined|)?;?$/i.test(compact) ? null : url;
+}
+
+/**
+ * JavaScript written into HTML attributes of built pages that the site's own CSP would block
+ * (#2232): inline event handlers (`<button onclick="…">`) and `javascript:` URLs
+ * (`<a href="javascript:…">`). Both deploy fine and then silently do nothing for visitors, like
+ * the inline `<script>` bodies `checkInlineScripts` reports (#2228).
+ *
+ * Only HTML (and inline SVG/MathML) elements are read. A tag name with a `:` is skipped: it is
+ * not an element the page's DOM runs handlers for — the template's own
+ * `<esi:include … onerror="continue">` is an edge directive, not an event handler. Custom elements
+ * (`<my-widget onclick>`) are checked, since the browser does run handlers on them. Comments and
+ * raw-text element bodies (`<script>`, `<style>`, `<textarea>`, …) are skipped, attributes are
+ * read quote-aware (so `data-onclick` and an `onclick=` inside another attribute's value don't
+ * count), and empty handlers are ignored. With `'unsafe-hashes'` and `hash`, a handler whose
+ * value's digest is in the policy passes.
+ *
+ * `<object data="javascript:…">` is checked, and an `<iframe srcdoc>` document — which inherits
+ * the page's CSP — is decoded and scanned the same way, up to `MAX_SRCDOC_DEPTH` levels deep.
+ *
+ * Known limit: inside `<svg>`/`<math>`, the tokenizer reads `title` and `style` children as markup,
+ * but this scan treats them as raw text everywhere, so a handler on an element nested inside an SVG
+ * `<title>` or `<style>` is missed. Rare in practice, and only ever a missed report, never a false
+ * one.
+ *
+ * One error per file, naming how many attributes are affected and quoting the first.
+ */
+export function checkInlineHandlers(
+  content: string,
+  file: string,
+  policy: InlineAttributePolicy,
+  hash?: (algorithm: "sha256" | "sha384" | "sha512", body: string) => string,
+): Issue[] {
+  if (policy.handlersAllowAll && policy.javascriptURLsAllowAll) return [];
+  const blocked: string[] = [];
+  collectInlineAttributeScripts(content, policy, hash, blocked, 0);
+  if (blocked.length === 0) return [];
+  const first = blocked[0].replace(/\s+/g, " ").trim();
+  const snippet = first.length > 80 ? `${first.slice(0, 80)}…` : first;
+  const count = blocked.length === 1 ? "A piece of JavaScript" : `${blocked.length} pieces of JavaScript`;
+  return [{
+    severity: "error",
+    category: "csp-misconfigured",
+    message: `${count} written into this page's HTML won't run once published — the site's security policy only runs scripts loaded from files. First one: ${snippet}`,
+    file,
+    remediation:
+      "Attach the behavior from a script file instead (e.g. public/scripts/, using addEventListener), and replace javascript: links with a real address or a <button>.",
+  }];
+}
+
+/** `checkInlineHandlers`' scan: appends a description of each blocked attribute to `blocked`,
+ * recursing into `<iframe srcdoc>` documents while `depth` is below `MAX_SRCDOC_DEPTH`. */
+function collectInlineAttributeScripts(
+  content: string,
+  policy: InlineAttributePolicy,
+  hash: ((algorithm: "sha256" | "sha384" | "sha512", body: string) => string) | undefined,
+  blocked: string[],
+  depth: number,
+): void {
+  const algorithms = new Set([...policy.handlerHashes].map((h) => h.slice(0, h.indexOf("-")) as "sha256" | "sha384" | "sha512"));
+  const tagName = /<([A-Za-z][^\s/>]*)/y;
+  let position = 0;
+  while (position < content.length) {
+    const lt = content.indexOf("<", position);
+    if (lt === -1) break;
+    if (content.startsWith("<!--", lt)) {
+      const end = commentEnd(content, lt);
+      if (end === -1) break;
+      position = end;
+      continue;
+    }
+    tagName.lastIndex = lt;
+    const m = tagName.exec(content);
+    if (m === null) {
+      // `</…>`, `<!doctype>`, or a bare `<` in text: not an opening tag.
+      position = lt + 1;
+      continue;
+    }
+    const openEnd = tagEnd(content, lt);
+    if (openEnd === -1) break;
+    position = openEnd + 1;
+    const name = m[1].toLowerCase();
+
+    if (!name.includes(":")) {
+      const attributes = tagAttributes(content.slice(lt, openEnd + 1));
+      for (const [attribute, value] of attributes) {
+        if (!/^on[a-z]+$/.test(attribute) || policy.handlersAllowAll) continue;
+        const text = decodeCharacterReferences(value);
+        if (text.trim() === "") continue;
+        if (hash !== undefined && [...algorithms].some((alg) => policy.handlerHashes.has(`${alg}-${hash(alg, text)}`))) continue;
+        blocked.push(`<${name} ${attribute}="${text}">`);
+      }
+      if (!policy.javascriptURLsAllowAll) {
+        for (const attribute of NAVIGATION_URL_ATTRIBUTES) {
+          const value = attributes.get(attribute);
+          const url = value === undefined ? null : liveJavascriptURL(value);
+          if (url !== null) blocked.push(`<${name} ${attribute}="${url}">`);
+        }
+        const data = name === "object" ? attributes.get("data") : undefined;
+        const dataURL = data === undefined ? null : liveJavascriptURL(data);
+        if (dataURL !== null) blocked.push(`<object data="${dataURL}">`);
+      }
+      const srcdoc = name === "iframe" ? attributes.get("srcdoc") : undefined;
+      if (srcdoc !== undefined && depth < MAX_SRCDOC_DEPTH) {
+        collectInlineAttributeScripts(decodeCharacterReferences(srcdoc), policy, hash, blocked, depth + 1);
+      }
+    }
+
+    // Skip a raw-text element's body, so markup written inside a script or textarea isn't read.
+    // (A trailing `/` doesn't close these in HTML: `<script/>` still opens a script.)
+    if (RAW_TEXT_ELEMENTS.has(name)) {
+      if (name === "plaintext") break;
+      const closer = new RegExp(`</${name}(?=[\\s/>])`, "gi");
+      closer.lastIndex = position;
+      const close = closer.exec(content);
+      if (close === null) break;
+      position = close.index + close[0].length;
+    }
+  }
 }

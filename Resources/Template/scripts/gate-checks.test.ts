@@ -37,6 +37,8 @@ test("pre-deploy-check re-exports the gate module's checks, not copies", () => {
     "checkExternalLinkRel",
     "checkInlineScripts",
     "inlineScriptPolicy",
+    "checkInlineHandlers",
+    "inlineAttributePolicy",
     "checkNoRestrictedContentInSource",
     "checkNoRestrictedContentInDist",
   ] as const) {
@@ -213,6 +215,7 @@ test("embed-media detection matches the original regex on random inputs", () => 
 });
 
 const strictPolicy = gate.inlineScriptPolicy("default-src 'self'; script-src 'self' 'sha256-AAAA'");
+const strictAttributePolicy = gate.inlineAttributePolicy("default-src 'self'; script-src 'self' 'unsafe-hashes' 'sha256-AAAA'");
 
 test("every content check stays fast on adversarial input", () => {
   const size = 200_000;
@@ -234,6 +237,17 @@ test("every content check stays fast on adversarial input", () => {
     "facebook.net repeated": "facebook.net".repeat(size / 12),
     "facebook.net per line, fbevents at the end": "facebook.net\n".repeat(size / 13) + "fbevents",
     "facebook.net on one line, fbevents on the next": "facebook.net".repeat(size / 6) + "\nfbevents",
+    "<a onclick= repeated, no >": "<a onclick=".repeat(size / 11),
+    "<b onclick=x> repeated": "<b onclick=x>".repeat(size / 13),
+    "<a href=javascript:x> repeated": "<a href=javascript:x>".repeat(size / 21),
+    "<textarea> with no closing tag": "<textarea>".repeat(size / 10),
+    "<style></style> repeated": "<style></style>".repeat(size / 15),
+    "bare < repeated": "<".repeat(size),
+    "<!-- with no end": "<!--" + "<a onclick=x>".repeat(size / 13),
+    "<!--> repeated": "<!-->".repeat(size / 5),
+    "<!-- --!> repeated, then a handler": "<!-- --!>".repeat(size / 9) + "<a onclick=x>",
+    "nested <iframe srcdoc=": '<iframe srcdoc="'.repeat(size / 16) + "<a onclick=x>",
+    "<iframe srcdoc> repeated": '<iframe srcdoc="&lt;a onclick=x&gt;">'.repeat(size / 38),
   };
   const checks = [gate.checkSecrets, gate.checkPII, gate.checkEmbedMedia, gate.checkMixedContent, gate.checkSRI,
     gate.checkExternalLinkRel, gate.checkBlockedScripts, gate.checkBlockedRoutes];
@@ -242,6 +256,7 @@ test("every content check stays fast on adversarial input", () => {
     for (const check of checks) check(input, "f");
     gate.checkNoRestrictedContentInDist("f", input);
     gate.checkInlineScripts(input, "f", strictPolicy, () => "");
+    gate.checkInlineHandlers(input, "f", strictAttributePolicy, () => "");
     const elapsed = performance.now() - started;
     // The quadratic originals took 2–30 s on inputs this size; linear scans take milliseconds.
     assert.ok(elapsed < 1000, `${name}: ${elapsed.toFixed(0)} ms`);
@@ -404,5 +419,173 @@ test("checkInlineScripts: a CRLF script matches the hash of its LF-normalized te
   const policy = gate.inlineScriptPolicy(`script-src 'self' 'sha256-${digest}'`);
   for (const body of ["a();\r\nb();", "a();\rb();", "a();\nb();"]) {
     assert.deepEqual(gate.checkInlineScripts(`<script>${body}</script>`, "f", policy, preDeploy.cspScriptHash), [], JSON.stringify(body));
+  }
+});
+
+// --- Inline event handlers and javascript: URLs the site's own CSP would block (#2232) --------
+
+test("inlineAttributePolicy: script-src-attr governs handlers, script-src-elem javascript: URLs", () => {
+  const template = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  assert.equal(template.handlersAllowAll, false);
+  assert.equal(template.javascriptURLsAllowAll, false);
+  const attrOnly = gate.inlineAttributePolicy("script-src 'self'; script-src-attr 'unsafe-inline'");
+  assert.equal(attrOnly.handlersAllowAll, true);
+  assert.equal(attrOnly.javascriptURLsAllowAll, false);
+  const elemOnly = gate.inlineAttributePolicy("script-src 'self'; script-src-elem 'unsafe-inline'");
+  assert.equal(elemOnly.handlersAllowAll, false);
+  assert.equal(elemOnly.javascriptURLsAllowAll, true);
+  assert.equal(gate.inlineAttributePolicy(null).handlersAllowAll, true);
+  assert.equal(gate.inlineAttributePolicy("frame-ancestors 'none'").javascriptURLsAllowAll, true);
+});
+
+test("inlineAttributePolicy: a hash allows a handler only alongside 'unsafe-hashes'", () => {
+  assert.equal(gate.inlineAttributePolicy("script-src 'self' 'sha256-abc='").handlerHashes.size, 0);
+  assert.deepEqual([...gate.inlineAttributePolicy("script-src 'self' 'unsafe-hashes' 'sha256-abc='").handlerHashes], ["sha256-abc="]);
+  // A hash still switches 'unsafe-inline' off.
+  assert.equal(gate.inlineAttributePolicy("script-src 'unsafe-inline' 'sha256-abc='").handlersAllowAll, false);
+});
+
+test("checkInlineHandlers: a real <button onclick> is one error naming the page and the handler", () => {
+  const html = '<button type="button" onclick="toggleMenu()">Menu</button>';
+  const issues = gate.checkInlineHandlers(html, "dist/index.html", gate.inlineAttributePolicy(TEMPLATE_CSP));
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.equal(issues[0].category, "csp-misconfigured");
+  assert.equal(issues[0].file, "dist/index.html");
+  assert.match(issues[0].message, /^A piece of JavaScript written into this page's HTML won't run/);
+  assert.match(issues[0].message, /<button onclick="toggleMenu\(\)">/);
+  assert.ok(issues[0].remediation);
+});
+
+test("checkInlineHandlers: javascript: URLs are reported however they're written", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  for (const html of [
+    '<a href="javascript:openChat()">Chat</a>',
+    "<a HREF='JavaScript:openChat()'>",
+    '<a href=" javascript:openChat()">',
+    '<a href="java\tscript:openChat()">',
+    '<a href="javascript&#58;openChat()">',
+    '<a href="javascript&colon;openChat()">',
+    '<form action="javascript:send()"></form>',
+    '<button formaction="javascript:send()">',
+    '<iframe src="javascript:draw()"></iframe>',
+    '<svg><a xlink:href="javascript:go()"><text>x</text></a></svg>',
+  ]) {
+    assert.equal(gate.checkInlineHandlers(html, "f", policy).length, 1, html);
+  }
+});
+
+test("checkInlineHandlers: ESI directives, data-on*, quoted values, comments and raw text pass", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  for (const html of [
+    // The template's own ESI component output: an edge directive, not a DOM event handler.
+    '<esi:include src="/fragments/count" onerror="continue"/>',
+    '<button data-onclick="toggleMenu">Menu</button>',
+    '<div title="onclick=alert(1)">x</div>',
+    '<div title=\'<a onclick="x()">\'>x</div>',
+    '<!-- <button onclick="old()">x</button> -->',
+    '<script>document.body.innerHTML = \'<b onclick="x()">\';</script>',
+    '<textarea><a href="javascript:x()">sample</a></textarea>',
+    '<style>/* <a onclick="x()"> */</style>',
+    '<noscript><a href="javascript:x()">x</a></noscript>',
+    '<button onclick="">x</button>',
+    // No-op placeholders: blocked or not, clicking them does nothing.
+    '<a href="javascript:void(0)">x</a>',
+    '<a href="javascript:void 0;">x</a>',
+    '<a href="javascript:;">x</a>',
+    '<a href="javascript:">x</a>',
+    '<a href="/javascript:x">x</a>',
+    "<p>Use onclick=\"x()\" sparingly &lt;a onclick=x&gt;</p>",
+  ]) {
+    assert.deepEqual(gate.checkInlineHandlers(html, "f", policy), [], html);
+  }
+});
+
+test("checkInlineHandlers: handlers on custom elements and SVG are checked; live ones after raw text are found", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  assert.equal(gate.checkInlineHandlers('<my-widget onclick="go()"></my-widget>', "f", policy).length, 1);
+  assert.equal(gate.checkInlineHandlers('<svg onload="draw()"></svg>', "f", policy).length, 1);
+  assert.equal(gate.checkInlineHandlers('<script onload="ready()" src="/a.js"></script>', "f", policy).length, 1);
+  const html = '<script>"<b onclick=x>"</script><textarea>t</textarea><img src=a.png onerror="fallback(this)">';
+  const [issue] = gate.checkInlineHandlers(html, "f", policy);
+  assert.match(issue.message, /<img onerror="fallback\(this\)">/);
+});
+
+test("checkInlineHandlers: counts every blocked attribute on a page in its one error", () => {
+  const html = '<body onload="init()"><a href="javascript:openChat()">x</a><button onclick="a()">y</button>';
+  const issues = gate.checkInlineHandlers(html, "f", gate.inlineAttributePolicy(TEMPLATE_CSP));
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /^3 pieces of JavaScript/);
+  assert.match(issues[0].message, /<body onload="init\(\)">/);
+});
+
+test("checkInlineHandlers: 'unsafe-inline' allows them; 'unsafe-hashes' + a matching hash allows that handler", () => {
+  const html = '<button onclick="a()">x</button>';
+  assert.deepEqual(gate.checkInlineHandlers(html, "f", gate.inlineAttributePolicy("script-src 'self' 'unsafe-inline'")), []);
+  const digest = preDeploy.cspScriptHash("sha256", "a()");
+  const hashed = gate.inlineAttributePolicy(`script-src 'self' 'unsafe-hashes' 'sha256-${digest}'`);
+  assert.deepEqual(gate.checkInlineHandlers(html, "f", hashed, preDeploy.cspScriptHash), []);
+  // Character references are decoded before hashing, as the browser does.
+  const quoted = preDeploy.cspScriptHash("sha256", 'a("x")');
+  const quotedPolicy = gate.inlineAttributePolicy(`script-src 'self' 'unsafe-hashes' 'sha256-${quoted}'`);
+  assert.deepEqual(gate.checkInlineHandlers('<b onclick="a(&quot;x&quot;)">', "f", quotedPolicy, preDeploy.cspScriptHash), []);
+  assert.equal(gate.checkInlineHandlers('<button onclick="b()">x</button>', "f", hashed, preDeploy.cspScriptHash).length, 1);
+  // Without 'unsafe-hashes' the same hash doesn't allow the handler.
+  const noUnsafeHashes = gate.inlineAttributePolicy(`script-src 'self' 'sha256-${digest}'`);
+  assert.equal(gate.checkInlineHandlers(html, "f", noUnsafeHashes, preDeploy.cspScriptHash).length, 1);
+  // A hash never allows a javascript: URL.
+  assert.equal(gate.checkInlineHandlers('<a href="javascript:a()">x</a>', "f", hashed, preDeploy.cspScriptHash).length, 1);
+});
+
+test("the deploy scan blocks an inline handler against the served CSP, and passes the ESI directive", async () => {
+  const run = promisify(execFile);
+  const site = await mkdtemp(join(tmpdir(), "gate-handler-"));
+  try {
+    await mkdir(join(site, "dist"), { recursive: true });
+    await writeFile(join(site, "dist", "_headers"), `/*\n  Content-Security-Policy: ${TEMPLATE_CSP}\n`);
+    await writeFile(join(site, "dist", "index.html"), '<!doctype html><button onclick="a()">x</button>');
+    await writeFile(join(site, "dist", "esi.html"), '<!doctype html><esi:include src="/f" onerror="continue"/>');
+    const result = await run(process.execPath, [tsxCli, join(here, "pre-deploy-check.ts"), "--json"], { cwd: site })
+      .catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "" }));
+    const { failures } = JSON.parse(result.stdout) as { failures: Array<{ file?: string; message: string }> };
+    const handlerFailures = failures.filter((i) => /written into this page's HTML/.test(i.message));
+    assert.deepEqual(handlerFailures.map((i) => i.file), ["dist/index.html"]);
+  } finally {
+    await rm(site, { recursive: true, force: true });
+  }
+});
+
+test("abruptly closed comments end where the browser ends them, in both inline checks (#2235 review)", () => {
+  const attributePolicy = gate.inlineAttributePolicy("script-src 'self'");
+  const scriptPolicy = gate.inlineScriptPolicy("script-src 'self'");
+  for (const comment of ["<!-->", "<!--->", "<!-- x --!>"]) {
+    const handler = `${comment}<button onclick="go()">x</button><p>--></p>`;
+    assert.equal(gate.checkInlineHandlers(handler, "f", attributePolicy).length, 1, handler);
+    const script = `${comment}<script>go()</script><p>--></p>`;
+    assert.equal(gate.checkInlineScripts(script, "f", scriptPolicy).length, 1, script);
+  }
+  // An ordinary comment still hides what's inside it, including the empty <!---->.
+  assert.deepEqual(gate.checkInlineHandlers('<!----><!-- <b onclick="x()"> -->', "f", attributePolicy), []);
+});
+
+test("checkInlineHandlers: <object data> and <iframe srcdoc> are checked (#2235 review)", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  assert.equal(gate.checkInlineHandlers('<object data="javascript:alert(1)"></object>', "f", policy).length, 1);
+  assert.deepEqual(gate.checkInlineHandlers('<object data="/movie.svg"></object>', "f", policy), []);
+  const [issue] = gate.checkInlineHandlers('<iframe srcdoc="&lt;button onclick=&quot;a()&quot;&gt;x"></iframe>', "f", policy);
+  assert.match(issue.message, /<button onclick="a\(\)">/);
+  // A srcdoc nested in a srcdoc is followed too.
+  const nested = '<iframe srcdoc="&lt;iframe srcdoc=&quot;&amp;lt;b onclick=a()&amp;gt;&quot;&gt;"></iframe>';
+  assert.equal(gate.checkInlineHandlers(nested, "f", policy).length, 1);
+  assert.deepEqual(gate.checkInlineHandlers('<iframe srcdoc="&lt;p&gt;hi"></iframe>', "f", policy), []);
+});
+
+test("checkInlineHandlers: comment-only and other no-op javascript: bodies pass; a line break makes one live (#2235 review)", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  for (const url of ["javascript://", "javascript:// placeholder", "javascript:void 0", "javascript:void(1);", "javascript:undefined", "javascript:%20"]) {
+    assert.deepEqual(gate.checkInlineHandlers(`<a href="${url}">x</a>`, "f", policy), [], url);
+  }
+  for (const url of ["javascript://%0Aalert(1)", "javascript://%E2%80%A8alert(1)", "javascript:void(go())", "javascript:%61lert(1)"]) {
+    assert.equal(gate.checkInlineHandlers(`<a href="${url}">x</a>`, "f", policy).length, 1, url);
   }
 });
