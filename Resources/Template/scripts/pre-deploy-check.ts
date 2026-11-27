@@ -8,6 +8,7 @@
  * - No third-party tracking scripts
  * - No Keystatic admin routes in production output
  * - No inline <script> bodies the site's own CSP would block (#2228)
+ * - No inline event handlers or javascript: URLs the site's own CSP would block (#2232)
  * - `anglesite.json` (if present) parses, is a JSON object, and declares a recognized schema
  *   version (#1173) — structural only; stays network-free, no declared-vs-live comparison here
  *
@@ -54,6 +55,8 @@ import {
   checkExternalLinkRel,
   checkInlineScripts,
   inlineScriptPolicy,
+  checkInlineHandlers,
+  inlineAttributePolicy,
   checkNoRestrictedContentInSource,
   checkNoRestrictedContentInDist,
 } from "./gate-checks";
@@ -70,6 +73,8 @@ export {
   checkExternalLinkRel,
   checkInlineScripts,
   inlineScriptPolicy,
+  checkInlineHandlers,
+  inlineAttributePolicy,
   checkNoRestrictedContentInSource,
   checkNoRestrictedContentInDist,
 };
@@ -1348,6 +1353,7 @@ async function scan(): Promise<Issue[]> {
   );
   issues.push(...checkHeaders(headersContent, configContent));
   const scriptPolicy = inlineScriptPolicy(cspFromHeaders(headersContent));
+  const attributePolicy = inlineAttributePolicy(cspFromHeaders(headersContent));
 
   const securityTxtContent = await readFile(join(publicDir, ".well-known", "security.txt"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
@@ -1424,6 +1430,7 @@ async function scan(): Promise<Issue[]> {
       issues.push(...checkSRI(content, rel));
       issues.push(...checkExternalLinkRel(content, rel));
       issues.push(...checkInlineScripts(content, rel, scriptPolicy, cspScriptHash));
+      issues.push(...checkInlineHandlers(content, rel, attributePolicy, cspScriptHash));
     }
   }
 
