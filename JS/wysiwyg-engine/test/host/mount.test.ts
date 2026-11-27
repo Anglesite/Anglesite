@@ -111,11 +111,33 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
 
     const engine = window.__anglesiteWysiwygMount!.mount(model, {});
     engine.selection.select(null); // no-op (already null) — proves the listener doesn't fire spuriously
-    expect(postMessage).not.toHaveBeenCalled();
+    // Only selection messages: mount also logs its block-marking pass (#2239).
+    const selectionPosts = () => postMessage.mock.calls.filter(([body]) => body?.type === "selection-changed");
+    expect(selectionPosts()).toEqual([]);
 
     document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
     engine.selection.select("b1");
     expect(postMessage).toHaveBeenCalledWith({ type: "selection-changed", blockId: "b1" });
+
+    delete (window as any).webkit;
+  });
+
+  it("mount() logs its block-marking pass to the debug pane, warning when nothing was marked (#2239)", () => {
+    const postMessage = vi.fn();
+    window.webkit = { messageHandlers: { wysiwyg: { postMessage } } };
+    const markable = {
+      ...model,
+      blocks: {
+        ...model.blocks,
+        h: { id: "h", kind: "element", componentName: "h1", props: {}, slots: {}, sourceSpan: [0, 1], sourceLoc: { line: 3, column: 1 } },
+      },
+    } as typeof model;
+
+    window.__anglesiteWysiwygMount!.mount(markable, {}); // no Astro annotations on this page
+    const logs = postMessage.mock.calls.map(([body]) => body).filter((body) => body?.type === "log");
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ level: "warning" });
+    expect(logs[0].message).toContain("marked 0 of 1 blocks");
 
     delete (window as any).webkit;
   });

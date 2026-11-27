@@ -22,21 +22,38 @@ import { BLOCK_ID_ATTR } from "../hit-test.js";
  * - **A manifest component** (`BlockNode.componentPath`) leaves no trace of where it was used,
  *   only its own file's elements. Its instances, in page order, pair with that file's top-level
  *   rendered elements, in DOM order — only when the counts match one-to-one. A component with
- *   several root elements, or one also rendered by a layout, is left unmarked.
+ *   several root elements, or one also rendered by a layout, is left unmarked. A component that
+ *   wraps its markup in another component (`<Section><div>…</div></Section>`) is marked on its
+ *   own outermost element (the `<div>`), not the wrapper's box around it, so the selection outline
+ *   and drag handle can be drawn smaller than the block looks.
  *
  * Builds only render none of these attributes, so this marks nothing outside `astro dev`.
  *
  * Astro's own dev toolbar (its Audit app) copies both attributes into a private map and removes
- * them from the DOM on `DOMContentLoaded`. {@link snapshotSourceAnnotations} runs first, from the
- * engine's injected script (a `WKUserScript` at `.atDocumentEnd`, which runs after parsing and
- * before `DOMContentLoaded`'s handlers), and keeps its own copy.
+ * them from the DOM on `DOMContentLoaded`, and Astro emits them only while the toolbar is on. The
+ * template's `SOURCE_ANNOTATION_CAPTURE` (`scripts/anglesite-harness.ts`, inline in `<head>`)
+ * copies them into `window.__anglesiteSourceAnnotations` first: its listener is registered before
+ * the toolbar's. {@link snapshotSourceAnnotations} adds to the same map from the engine's injected
+ * script, for anything still annotated by then. Neither depends on when WebKit runs the engine.
  */
 
 const SOURCE_FILE_ATTR = "data-astro-source-file";
 const SOURCE_LOC_ATTR = "data-astro-source-loc";
 
-/** Each annotated element's `data-astro-source-*` values, captured before anything removes them. */
-const snapshots = new WeakMap<Element, { file: string; loc: string }>();
+declare global {
+  interface Window {
+    /** Filled by the template's `SOURCE_ANNOTATION_CAPTURE` (`anglesite-harness.ts`), inline in
+     *  `<head>` on every dev page, before Astro's dev toolbar strips the attributes. */
+    __anglesiteSourceAnnotations?: WeakMap<Element, { file: string; loc: string }>;
+  }
+}
+
+/** Each annotated element's `data-astro-source-*` values, captured before anything removes them.
+ *  Shared with the template's head-inline capture, which runs before this script does. */
+function snapshotMap(): WeakMap<Element, { file: string; loc: string }> {
+  const host = globalThis as unknown as Window;
+  return (host.__anglesiteSourceAnnotations ??= new WeakMap());
+}
 
 /** Copies every element's `data-astro-source-file`/`-loc` aside. Call as early as possible on a
  *  freshly loaded page; calling again picks up elements added since. */
@@ -44,7 +61,7 @@ export function snapshotSourceAnnotations(root: ParentNode): void {
   for (const el of Array.from(root.querySelectorAll(`[${SOURCE_FILE_ATTR}][${SOURCE_LOC_ATTR}]`))) {
     const file = el.getAttribute(SOURCE_FILE_ATTR);
     const loc = el.getAttribute(SOURCE_LOC_ATTR);
-    if (file && loc) snapshots.set(el, { file, loc });
+    if (file && loc) snapshotMap().set(el, { file, loc });
   }
 }
 
@@ -52,7 +69,7 @@ export function snapshotSourceAnnotations(root: ParentNode): void {
 function annotationsOf(el: Element): { file: string; loc: string } | undefined {
   const file = el.getAttribute(SOURCE_FILE_ATTR);
   const loc = el.getAttribute(SOURCE_LOC_ATTR);
-  return file && loc ? { file, loc } : snapshots.get(el);
+  return file && loc ? { file, loc } : snapshotMap().get(el);
 }
 
 interface Located {
@@ -186,6 +203,13 @@ function nextStartOutside(block: BlockNode, model: BlockModel, blocks: BlockNode
     if (!next || compare(other.sourceLoc, next) < 0) next = other.sourceLoc;
   }
   return next;
+}
+
+/** How many of `model`'s blocks stamping could mark: page elements and manifest components with a
+ *  source position. Some legitimately don't render (an empty-state branch), so it's an upper
+ *  bound, used to tell "some unmarked" from "none marked at all". */
+export function countMarkable(model: BlockModel): number {
+  return Object.values(model.blocks).filter((b) => isPageElement(b) || (b.componentPath && b.sourceLoc)).length;
 }
 
 function isPageElement(block: BlockNode): boolean {

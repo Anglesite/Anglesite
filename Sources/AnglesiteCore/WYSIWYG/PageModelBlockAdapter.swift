@@ -35,7 +35,7 @@ public enum PageModelBlockAdapter {
             // any text edit restored to nothing rather than the original text (#1602 item 1).
             richText: node.text.map { [RichTextRun(kind: .text, text: $0)] },
             manifestName: node.block?.name,
-            sourceLoc: node.loc.map { SourceLoc(line: $0.line, column: $0.column) },
+            sourceLoc: node.loc,
             componentPath: node.block?.manifestPath)
         for child in node.children {
             walk(child, into: &blocks)

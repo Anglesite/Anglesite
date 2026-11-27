@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import anglesiteHarness from "./anglesite-harness";
+import anglesiteHarness, { SOURCE_ANNOTATION_CAPTURE } from "./anglesite-harness";
 import { namedSlotSamples, parseProps, resolveComponentKey } from "./component-harness";
 
 test("resolveComponentKey prefers components over layouts", () => {
@@ -70,10 +70,14 @@ test("anglesiteHarness injects the component route and the reload guard only in 
 
   const devRoutes: unknown[] = [];
   const devConfigs: { vite?: { plugins?: { name?: string }[] } }[] = [];
+  const devScripts: [string, string][] = [];
   await setup({
     command: "dev",
     injectRoute(route: unknown) {
       devRoutes.push(route);
+    },
+    injectScript(stage: string, content: string) {
+      devScripts.push([stage, content]);
     },
     updateConfig(config: (typeof devConfigs)[number]) {
       devConfigs.push(config);
@@ -89,13 +93,19 @@ test("anglesiteHarness injects the component route and the reload guard only in 
   assert.deepEqual(devConfigs.flatMap((config) => config.vite?.plugins ?? []).map((plugin) => plugin.name), [
     "anglesite-editor-write-reload",
   ]);
+  // #2239: the source-annotation capture, inline in <head> so it runs before the dev toolbar.
+  assert.deepEqual(devScripts, [["head-inline", SOURCE_ANNOTATION_CAPTURE]]);
 
   const buildRoutes: unknown[] = [];
   const buildConfigs: unknown[] = [];
+  const buildScripts: unknown[] = [];
   await setup({
     command: "build",
     injectRoute(route: unknown) {
       buildRoutes.push(route);
+    },
+    injectScript(stage: string, content: string) {
+      buildScripts.push([stage, content]);
     },
     updateConfig(config: unknown) {
       buildConfigs.push(config);
@@ -104,4 +114,5 @@ test("anglesiteHarness injects the component route and the reload guard only in 
 
   assert.deepEqual(buildRoutes, []);
   assert.deepEqual(buildConfigs, []);
+  assert.deepEqual(buildScripts, []);
 });

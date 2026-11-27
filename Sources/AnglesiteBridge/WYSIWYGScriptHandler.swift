@@ -66,6 +66,8 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
                 onSelectionChanged?(blockId)
             case .focusInspector(let direction, let blockId):
                 onFocusInspectorRequested?(direction, blockId)
+            case .log(let message, let isWarning):
+                await logCenter.append(source: "wysiwyg-engine", stream: isWarning ? .stderr : .stdout, text: message)
             case .opResult(let requestId, let result):
                 await Self.reply(
                     webView: webView, callback: "_handleOpResult", requestId: requestId, payload: result,

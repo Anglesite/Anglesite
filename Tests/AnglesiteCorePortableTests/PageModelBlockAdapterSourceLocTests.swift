@@ -25,7 +25,7 @@ struct PageModelBlockAdapterSourceLocTests {
     @Test("an element keeps its source position; a fragment without one gets nil")
     func sourceLoc() {
         let model = PageModelBlockAdapter.adapt(pageModel())
-        #expect(model.blocks["n1"]?.sourceLoc == SourceLoc(line: 11, column: 5))
+        #expect(model.blocks["n1"]?.sourceLoc == PageModel.Loc(line: 11, column: 5))
         #expect(model.blocks["n1"]?.componentPath == nil)
         #expect(model.blocks["n0"]?.sourceLoc == nil)
     }
@@ -34,7 +34,7 @@ struct PageModelBlockAdapterSourceLocTests {
     func componentPath() {
         let model = PageModelBlockAdapter.adapt(pageModel())
         #expect(model.blocks["n2"]?.componentPath == "src/components/effects/TiltCard.astro")
-        #expect(model.blocks["n2"]?.sourceLoc == SourceLoc(line: 12, column: 5))
+        #expect(model.blocks["n2"]?.sourceLoc == PageModel.Loc(line: 12, column: 5))
     }
 
     @Test("encodes the shape the engine reads (types.ts BlockNode), and omits absent fields")

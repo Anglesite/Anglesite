@@ -90,13 +90,13 @@ public struct BlockNode: Codable, Equatable, Sendable {
     /// Where the node starts in the page source, 1-based (`PageModel.Node.loc`). The engine pairs
     /// it with Astro's dev-only `data-astro-source-loc` to find the block's element on the live
     /// preview (#2239). `nil` when the page model didn't report one.
-    public var sourceLoc: SourceLoc?
+    public var sourceLoc: PageModel.Loc?
     /// The project-relative `.astro` file a manifest component is defined in
     /// (`PageModel.Node.block?.manifestPath`, e.g. `src/components/Hero.astro`) — the file its
     /// rendered elements name in `data-astro-source-file` (#2239). `nil` for anything else.
     public var componentPath: String?
 
-    public init(id: BlockId, kind: BlockKind, componentName: String, props: [String: PropValue], slots: [String: [BlockId]], sourceSpan: [Int], richText: [RichTextRun]? = nil, manifestName: String? = nil, sourceLoc: SourceLoc? = nil, componentPath: String? = nil) {
+    public init(id: BlockId, kind: BlockKind, componentName: String, props: [String: PropValue], slots: [String: [BlockId]], sourceSpan: [Int], richText: [RichTextRun]? = nil, manifestName: String? = nil, sourceLoc: PageModel.Loc? = nil, componentPath: String? = nil) {
         self.id = id
         self.kind = kind
         self.componentName = componentName
@@ -110,16 +110,6 @@ public struct BlockNode: Codable, Equatable, Sendable {
     }
 }
 
-/// A 1-based line/column position in a source file — mirrors TS's `SourceLoc` (`types.ts`).
-public struct SourceLoc: Codable, Equatable, Sendable {
-    public var line: Int
-    public var column: Int
-
-    public init(line: Int, column: Int) {
-        self.line = line
-        self.column = column
-    }
-}
 
 /// `BlockNode` without `id` — matches TS's `Omit<BlockNode, "id">`, used by `insertBlock`'s payload
 /// (the id travels separately as `newId`).
