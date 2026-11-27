@@ -512,6 +512,22 @@ function scriptKind(attributes: Map<string, string>): ScriptKind {
 }
 
 /**
+ * Index just past the end of the HTML comment whose `<!--` starts at `start`, or -1 when it never
+ * ends (the comment then runs to the end of the content). Follows the tokenizer: `<!-->` and
+ * `<!--->` end right there as empty comments ("abrupt-closing-of-empty-comment"), and `--!>` ends
+ * one as well as `-->` ("incorrectly-closed-comment").
+ */
+function commentEnd(content: string, start: number): number {
+  const after = start + 4;
+  if (content.startsWith(">", after)) return after + 1;
+  if (content.startsWith("->", after)) return after + 2;
+  const close = /--!?>/g;
+  close.lastIndex = after;
+  const m = close.exec(content);
+  return m === null ? -1 : m.index + m[0].length;
+}
+
+/**
  * Index of the `>` that ends the tag opened at `start`, skipping any `>` inside a quoted attribute
  * value, or -1 when the tag never ends. An unterminated quote runs to the end of the content, so
  * the caller stops scanning there and the overall scan stays linear.
@@ -576,9 +592,9 @@ export function checkInlineScripts(
     // An HTML comment that starts before this `<script` hides everything up to its `-->`,
     // including any commented-out script; jump past it and look again.
     if (nextComment !== -1 && nextComment < m.index) {
-      const commentEnd = content.indexOf("-->", nextComment + 4);
-      if (commentEnd === -1) break;
-      position = commentEnd + 3;
+      const end = commentEnd(content, nextComment);
+      if (end === -1) break;
+      position = end;
       continue;
     }
     const openEnd = tagEnd(content, m.index);
@@ -667,8 +683,11 @@ const RAW_TEXT_ELEMENTS = new Set([
   "script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext",
 ]);
 
-/** URL-valued attributes a `javascript:` URL runs from when followed or submitted. */
+/** URL-valued attributes a `javascript:` URL runs from when followed, submitted or loaded. */
 const NAVIGATION_URL_ATTRIBUTES = ["href", "xlink:href", "src", "action", "formaction"];
+
+/** How deep `checkInlineHandlers` follows `<iframe srcdoc>` documents nested in one another. */
+const MAX_SRCDOC_DEPTH = 4;
 
 /** Decodes the character references that matter for reading an attribute value as a URL or as
  * handler text: numeric ones and a few named ones. Others are left as written. */
@@ -689,15 +708,24 @@ function decodeCharacterReferences(value: string): string {
 /**
  * A `javascript:` URL that does something, or `null`. Reads the value the way the URL parser does
  * (leading C0 controls and spaces stripped, tabs and newlines removed anywhere, scheme
- * case-insensitive). The common no-op placeholders — `javascript:`, `javascript:;`,
- * `javascript:void(0)` — are not reported: CSP blocking them changes nothing a visitor sees, since
- * running them does nothing either.
+ * case-insensitive), then percent-decodes the body as the browser does before running it. The
+ * common no-op placeholders are not reported — `javascript:`, `javascript:;`, `javascript:void(0)`
+ * (or `void 0`, `void(1)`), `javascript:undefined`, and a body that is only a `//` comment
+ * (`javascript://`) — since CSP blocking them changes nothing a visitor sees. A `//` body with a
+ * line break in it (`javascript://%0Aalert(1)`) is live code, and is reported.
  */
 function liveJavascriptURL(raw: string): string | null {
-  const url = decodeCharacterReferences(raw).replace(/[\t\n\r]/g, "").replace(/^[\u0000- ]+/, "");
+  const url = decodeCharacterReferences(raw).replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+/, "");
   if (!/^javascript:/i.test(url)) return null;
-  const body = url.slice("javascript:".length).replace(/\s+/g, "");
-  return /^(?:void(?:\(0\)|0)|)?;?$/i.test(body) ? null : url;
+  let body = url.slice("javascript:".length);
+  try {
+    body = decodeURIComponent(body);
+  } catch {
+    // A malformed escape: the browser leaves it as written, and so does the check.
+  }
+  if (/^\s*\/\//.test(body) && !/[\n\r\u2028\u2029]/.test(body)) return null;
+  const compact = body.replace(/\s+/g, "");
+  return /^(?:void(?:\(\d+\)|\d+)|undefined|)?;?$/i.test(compact) ? null : url;
 }
 
 /**
@@ -715,6 +743,14 @@ function liveJavascriptURL(raw: string): string | null {
  * count), and empty handlers are ignored. With `'unsafe-hashes'` and `hash`, a handler whose
  * value's digest is in the policy passes.
  *
+ * `<object data="javascript:…">` is checked, and an `<iframe srcdoc>` document — which inherits
+ * the page's CSP — is decoded and scanned the same way, up to `MAX_SRCDOC_DEPTH` levels deep.
+ *
+ * Known limit: inside `<svg>`/`<math>`, the tokenizer reads `title` and `style` children as markup,
+ * but this scan treats them as raw text everywhere, so a handler on an element nested inside an SVG
+ * `<title>` or `<style>` is missed. Rare in practice, and only ever a missed report, never a false
+ * one.
+ *
  * One error per file, naming how many attributes are affected and quoting the first.
  */
 export function checkInlineHandlers(
@@ -724,17 +760,41 @@ export function checkInlineHandlers(
   hash?: (algorithm: "sha256" | "sha384" | "sha512", body: string) => string,
 ): Issue[] {
   if (policy.handlersAllowAll && policy.javascriptURLsAllowAll) return [];
-  const algorithms = new Set([...policy.handlerHashes].map((h) => h.slice(0, h.indexOf("-")) as "sha256" | "sha384" | "sha512"));
   const blocked: string[] = [];
+  collectInlineAttributeScripts(content, policy, hash, blocked, 0);
+  if (blocked.length === 0) return [];
+  const first = blocked[0].replace(/\s+/g, " ").trim();
+  const snippet = first.length > 80 ? `${first.slice(0, 80)}…` : first;
+  const count = blocked.length === 1 ? "A piece of JavaScript" : `${blocked.length} pieces of JavaScript`;
+  return [{
+    severity: "error",
+    category: "csp-misconfigured",
+    message: `${count} written into this page's HTML won't run once published — the site's security policy only runs scripts loaded from files. First one: ${snippet}`,
+    file,
+    remediation:
+      "Attach the behavior from a script file instead (e.g. public/scripts/, using addEventListener), and replace javascript: links with a real address or a <button>.",
+  }];
+}
+
+/** `checkInlineHandlers`' scan: appends a description of each blocked attribute to `blocked`,
+ * recursing into `<iframe srcdoc>` documents while `depth` is below `MAX_SRCDOC_DEPTH`. */
+function collectInlineAttributeScripts(
+  content: string,
+  policy: InlineAttributePolicy,
+  hash: ((algorithm: "sha256" | "sha384" | "sha512", body: string) => string) | undefined,
+  blocked: string[],
+  depth: number,
+): void {
+  const algorithms = new Set([...policy.handlerHashes].map((h) => h.slice(0, h.indexOf("-")) as "sha256" | "sha384" | "sha512"));
   const tagName = /<([A-Za-z][^\s/>]*)/y;
   let position = 0;
   while (position < content.length) {
     const lt = content.indexOf("<", position);
     if (lt === -1) break;
     if (content.startsWith("<!--", lt)) {
-      const commentEnd = content.indexOf("-->", lt + 4);
-      if (commentEnd === -1) break;
-      position = commentEnd + 3;
+      const end = commentEnd(content, lt);
+      if (end === -1) break;
+      position = end;
       continue;
     }
     tagName.lastIndex = lt;
@@ -764,6 +824,13 @@ export function checkInlineHandlers(
           const url = value === undefined ? null : liveJavascriptURL(value);
           if (url !== null) blocked.push(`<${name} ${attribute}="${url}">`);
         }
+        const data = name === "object" ? attributes.get("data") : undefined;
+        const dataURL = data === undefined ? null : liveJavascriptURL(data);
+        if (dataURL !== null) blocked.push(`<object data="${dataURL}">`);
+      }
+      const srcdoc = name === "iframe" ? attributes.get("srcdoc") : undefined;
+      if (srcdoc !== undefined && depth < MAX_SRCDOC_DEPTH) {
+        collectInlineAttributeScripts(decodeCharacterReferences(srcdoc), policy, hash, blocked, depth + 1);
       }
     }
 
@@ -778,16 +845,4 @@ export function checkInlineHandlers(
       position = close.index + close[0].length;
     }
   }
-  if (blocked.length === 0) return [];
-  const first = blocked[0].replace(/\s+/g, " ").trim();
-  const snippet = first.length > 80 ? `${first.slice(0, 80)}…` : first;
-  const count = blocked.length === 1 ? "A piece of JavaScript" : `${blocked.length} pieces of JavaScript`;
-  return [{
-    severity: "error",
-    category: "csp-misconfigured",
-    message: `${count} written into this page's HTML won't run once published — the site's security policy only runs scripts loaded from files. First one: ${snippet}`,
-    file,
-    remediation:
-      "Attach the behavior from a script file instead (e.g. public/scripts/, using addEventListener), and replace javascript: links with a real address or a <button>.",
-  }];
 }

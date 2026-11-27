@@ -244,6 +244,10 @@ test("every content check stays fast on adversarial input", () => {
     "<style></style> repeated": "<style></style>".repeat(size / 15),
     "bare < repeated": "<".repeat(size),
     "<!-- with no end": "<!--" + "<a onclick=x>".repeat(size / 13),
+    "<!--> repeated": "<!-->".repeat(size / 5),
+    "<!-- --!> repeated, then a handler": "<!-- --!>".repeat(size / 9) + "<a onclick=x>",
+    "nested <iframe srcdoc=": '<iframe srcdoc="'.repeat(size / 16) + "<a onclick=x>",
+    "<iframe srcdoc> repeated": '<iframe srcdoc="&lt;a onclick=x&gt;">'.repeat(size / 38),
   };
   const checks = [gate.checkSecrets, gate.checkPII, gate.checkEmbedMedia, gate.checkMixedContent, gate.checkSRI,
     gate.checkExternalLinkRel, gate.checkBlockedScripts, gate.checkBlockedRoutes];
@@ -548,5 +552,40 @@ test("the deploy scan blocks an inline handler against the served CSP, and passe
     assert.deepEqual(handlerFailures.map((i) => i.file), ["dist/index.html"]);
   } finally {
     await rm(site, { recursive: true, force: true });
+  }
+});
+
+test("abruptly closed comments end where the browser ends them, in both inline checks (#2235 review)", () => {
+  const attributePolicy = gate.inlineAttributePolicy("script-src 'self'");
+  const scriptPolicy = gate.inlineScriptPolicy("script-src 'self'");
+  for (const comment of ["<!-->", "<!--->", "<!-- x --!>"]) {
+    const handler = `${comment}<button onclick="go()">x</button><p>--></p>`;
+    assert.equal(gate.checkInlineHandlers(handler, "f", attributePolicy).length, 1, handler);
+    const script = `${comment}<script>go()</script><p>--></p>`;
+    assert.equal(gate.checkInlineScripts(script, "f", scriptPolicy).length, 1, script);
+  }
+  // An ordinary comment still hides what's inside it, including the empty <!---->.
+  assert.deepEqual(gate.checkInlineHandlers('<!----><!-- <b onclick="x()"> -->', "f", attributePolicy), []);
+});
+
+test("checkInlineHandlers: <object data> and <iframe srcdoc> are checked (#2235 review)", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  assert.equal(gate.checkInlineHandlers('<object data="javascript:alert(1)"></object>', "f", policy).length, 1);
+  assert.deepEqual(gate.checkInlineHandlers('<object data="/movie.svg"></object>', "f", policy), []);
+  const [issue] = gate.checkInlineHandlers('<iframe srcdoc="&lt;button onclick=&quot;a()&quot;&gt;x"></iframe>', "f", policy);
+  assert.match(issue.message, /<button onclick="a\(\)">/);
+  // A srcdoc nested in a srcdoc is followed too.
+  const nested = '<iframe srcdoc="&lt;iframe srcdoc=&quot;&amp;lt;b onclick=a()&amp;gt;&quot;&gt;"></iframe>';
+  assert.equal(gate.checkInlineHandlers(nested, "f", policy).length, 1);
+  assert.deepEqual(gate.checkInlineHandlers('<iframe srcdoc="&lt;p&gt;hi"></iframe>', "f", policy), []);
+});
+
+test("checkInlineHandlers: comment-only and other no-op javascript: bodies pass; a line break makes one live (#2235 review)", () => {
+  const policy = gate.inlineAttributePolicy(TEMPLATE_CSP);
+  for (const url of ["javascript://", "javascript:// placeholder", "javascript:void 0", "javascript:void(1);", "javascript:undefined", "javascript:%20"]) {
+    assert.deepEqual(gate.checkInlineHandlers(`<a href="${url}">x</a>`, "f", policy), [], url);
+  }
+  for (const url of ["javascript://%0Aalert(1)", "javascript://%E2%80%A8alert(1)", "javascript:void(go())", "javascript:%61lert(1)"]) {
+    assert.equal(gate.checkInlineHandlers(`<a href="${url}">x</a>`, "f", policy).length, 1, url);
   }
 });
