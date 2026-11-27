@@ -1,0 +1,52 @@
+---
+/**
+ * Content block (#2219): a section that opens and closes — an FAQ answer, the fine print, a
+ * long example. Built on the browser's own `<details>`/`<summary>`, so it needs no JavaScript,
+ * works from the keyboard, and screen readers announce it as expanded or collapsed.
+ *
+ * Give several accordions the same `group` to make them a set where opening one closes the
+ * others (the `name` attribute on `<details>`). Browsers without that support just let each one
+ * open on its own.
+ */
+interface Props {
+  /** The always-visible line that opens and closes the section. Defaults to "Details", so a
+   *  block inserted before its summary is typed still has an accessible name. */
+  summary?: string;
+  /** Start open. */
+  open?: boolean;
+  /** Accordions sharing a group open one at a time. */
+  group?: string;
+}
+
+const { summary, open = false, group } = Astro.props;
+const label = summary?.trim() || "Details";
+---
+<details class="accordion" open={open} name={group || undefined}>
+  <summary class="accordion-summary">{label}</summary>
+  <div class="accordion-body"><slot /></div>
+</details>
+
+<style>
+  .accordion {
+    margin-block: calc(var(--spacing-unit) * 2);
+    border: 1px solid color-mix(in srgb, var(--color-text) 20%, transparent);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .accordion-summary {
+    padding: calc(var(--spacing-unit) * 3) calc(var(--spacing-unit) * 4);
+    font-family: var(--font-heading);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .accordion-body {
+    padding: 0 calc(var(--spacing-unit) * 4) calc(var(--spacing-unit) * 4);
+  }
+
+  .accordion-body > :global(* + *) {
+    margin-block-start: calc(var(--spacing-unit) * 3);
+  }
+</style>
