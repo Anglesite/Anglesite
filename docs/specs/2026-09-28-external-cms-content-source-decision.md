@@ -293,6 +293,18 @@ Why three layers:
   its per-render cost, amortized by the cache, stays small.
 - **Deploy** still guards the code, the part of the site git holds.
 
+**The CSP inline checks stay deploy-only (#2233).** The deploy layer also reports inline
+`<script>` bodies, event-handler attributes and `javascript:` URLs that the site's CSP would block
+(`checkInlineScripts`, `checkInlineHandlers`; #2228, #2232). Layers 2 and 3 don't run these checks,
+because article content can't produce them. EmDash's `PortableText` escapes every span, keeps
+link targets to `http`, `https`, `mailto`, `tel` and on-site paths (`sanitizeHref`), and passes
+raw-HTML and embed blocks through `sanitize-html` (`sanitizeContent`). That strips scripts,
+`on*` attributes and `javascript:` URLs. A dead inline script is also inert, not a leak, so it
+would not justify withholding a page. `scripts/check-emdash-gate-runtime.mjs` keeps this true:
+it publishes an article carrying all three and runs the deploy layer's checks on the rendered
+page. An EmDash upgrade that loosens its sanitizer, or a template block that renders raw markup,
+fails CI there.
+
 **The plugin is not optional.** `anglesite-gate` is registered in the site's configuration (code),
 not installed through EmDash's admin, so an EmDash administrator can't remove it. Removing it is a
 code change, and layer 1 refuses to deploy one. Its manifest requests only
