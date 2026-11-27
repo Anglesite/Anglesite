@@ -108,14 +108,24 @@ private extension OpResult {
 actor FakeGetPageModelTransport: MCPTransport {
     private var continuation: AsyncStream<JSONValue>.Continuation?
     private let stream: AsyncStream<JSONValue>
-    private let pageModelJSON: String
+    private var pageModelJSON: String
 
     init(pageModel: PageModel) {
         var cont: AsyncStream<JSONValue>.Continuation!
         stream = AsyncStream { cont = $0 }
         continuation = cont
+        pageModelJSON = Self.encode(pageModel)
+    }
+
+    /// Changes what later `get_page_model` calls return — stands in for the page's source being
+    /// edited outside the canvas (#2215).
+    func setPageModel(_ pageModel: PageModel) {
+        pageModelJSON = Self.encode(pageModel)
+    }
+
+    private static func encode(_ pageModel: PageModel) -> String {
         let data = try! JSONEncoder().encode(pageModel) // fixed, always-encodable model — force_try is safe here
-        pageModelJSON = String(data: data, encoding: .utf8)!
+        return String(data: data, encoding: .utf8)!
     }
 
     func open() async throws {}
@@ -150,8 +160,16 @@ actor FakeGetPageModelTransport: MCPTransport {
 /// Builds a started `MCPClient` backed by ``FakeGetPageModelTransport``. `internal` for the same
 /// cross-file sharing reason as the transport above.
 func makeFakeGetPageModelClient(pageModel: PageModel) async throws -> MCPClient {
+    try await makeFakeGetPageModelClientAndTransport(pageModel: pageModel).client
+}
+
+/// ``makeFakeGetPageModelClient(pageModel:)``, also handing back the transport so a test can
+/// change the page model it serves (#2215).
+func makeFakeGetPageModelClientAndTransport(
+    pageModel: PageModel
+) async throws -> (client: MCPClient, transport: FakeGetPageModelTransport) {
+    let transport = FakeGetPageModelTransport(pageModel: pageModel)
     let client = MCPClient(supervisor: .shared)
-    try await client.startWithTransport(
-        FakeGetPageModelTransport(pageModel: pageModel), readyTimeout: 5, clientName: "test", clientVersion: "0")
-    return client
+    try await client.startWithTransport(transport, readyTimeout: 5, clientName: "test", clientVersion: "0")
+    return (client, transport)
 }
