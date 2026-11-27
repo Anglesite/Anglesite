@@ -34,7 +34,9 @@ public enum PageModelBlockAdapter {
             // made `RichTextEditor`'s undo baseline (`rich-text.ts:257`) always empty, so undoing
             // any text edit restored to nothing rather than the original text (#1602 item 1).
             richText: node.text.map { [RichTextRun(kind: .text, text: $0)] },
-            manifestName: node.block?.name)
+            manifestName: node.block?.name,
+            sourceLoc: node.loc.map { SourceLoc(line: $0.line, column: $0.column) },
+            componentPath: node.block?.manifestPath)
         for child in node.children {
             walk(child, into: &blocks)
         }
