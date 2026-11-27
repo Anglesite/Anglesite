@@ -216,6 +216,23 @@ struct PreviewModelDefaultEditModeTests {
         #expect(model.wysiwygCanvas === first)
     }
 
+    @Test("syncEditMode for the same page picks up a change made outside the canvas (#2215)")
+    func syncSamePageRefreshesModel() async throws {
+        let (client, transport) = try await makeFakeGetPageModelClientAndTransport(
+            pageModel: Self.cannedPageModel(version: "sha256:before000000"))
+        let model = PreviewModel(runtime: UnavailableSiteRuntime(reason: "no runtime needed", mcpClient: client))
+        await model.syncEditMode(toPath: "src/pages/index.astro")
+        let canvas = model.wysiwygCanvas
+        #expect(canvas?.model.version == "sha256:before000000")
+
+        // A chat edit or sidecar tool rewrote the page; the dev server reloads it.
+        await transport.setPageModel(Self.cannedPageModel(version: "sha256:outside00000"))
+        await model.syncEditMode(toPath: "src/pages/index.astro")
+
+        #expect(model.wysiwygCanvas === canvas)
+        #expect(canvas?.model.version == "sha256:outside00000")
+    }
+
     @Test("syncEditMode replaces the canvas when the preview lands on a different page")
     func syncDifferentPageReplacesCanvas() async throws {
         let model = try await makeModel()

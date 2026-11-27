@@ -301,8 +301,11 @@ final class PreviewModel {
     /// finished-navigation callback with the route's resolved `.astro` path:
     ///
     /// - canvas off by preference (``isEditModeDesired`` false) → nothing;
-    /// - a canvas already mounted for `path` → nothing (an HMR reload or ⌘R of the same page —
-    ///   `PreviewView.Coordinator.webView(_:didFinish:)` remounts the JS engine on its own);
+    /// - a canvas already mounted for `path` → keep it (an HMR reload or ⌘R of the same page —
+    ///   `PreviewView.Coordinator.webView(_:didFinish:)` remounts the JS engine on its own), and
+    ///   ``WYSIWYGCanvasController/refreshFromSource(stillCurrent:)`` it: the reload may be the dev
+    ///   server answering a change made outside the canvas, which leaves that remount's model stale
+    ///   (#2215);
     /// - otherwise → ``enterEditMode(path:undoManager:)`` with ``windowUndoManager``, which
     ///   replaces any canvas for a *different* page or builds the first one.
     ///
@@ -311,7 +314,12 @@ final class PreviewModel {
     /// next navigation tries again.
     func syncEditMode(toPath path: String) async {
         guard isEditModeDesired else { return }
-        guard editModePath != path || wysiwygCanvas == nil else { return }
+        if editModePath == path, let canvas = wysiwygCanvas {
+            // Only while this canvas is still the one on screen for `path`: a navigation that lands
+            // while the fetch is out replaces it, and its stale result must not reach the new page.
+            await canvas.refreshFromSource { wysiwygCanvas === canvas && editModePath == path }
+            return
+        }
         await enterEditMode(path: path, undoManager: windowUndoManager)
     }
 

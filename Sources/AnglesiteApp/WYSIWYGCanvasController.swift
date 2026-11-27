@@ -257,20 +257,25 @@ final class WYSIWYGCanvasController {
     private var inFlightOps = 0
 
     /// Brings the canvas up to date with the page's source after a change made outside it (#2215)
-    /// — a sidecar tool or a chat edit that wrote the page inside the site runtime. Called after
-    /// every page load while edit mode is on (`PreviewView`'s `didFinish`): any such write makes
-    /// the dev server reload the page, and the reload re-mounts the engine from this controller's
-    /// `model`, which is the pre-change one. A no-op when the source is still `model.version`, which
-    /// is the usual case (the reload followed one of this canvas's own ops, whose result already
-    /// updated `model`).
+    /// — a sidecar tool or a chat edit that wrote the page inside the site runtime. Called by
+    /// `PreviewModel.syncEditMode(toPath:)` when the preview reloads the page this canvas is for:
+    /// any such write makes the dev server reload the page, and the reload re-mounts the engine
+    /// from this controller's `model`, which is the pre-change one. A no-op when the source is
+    /// still `model.version`, which is the usual case (the reload followed one of this canvas's own
+    /// ops, whose result already updated `model`).
+    ///
+    /// `stillCurrent` is checked once the fetch returns: `false` (the owner navigated to another
+    /// page meanwhile) drops the result, so a model for this page never reaches another page's
+    /// engine through the shared web view.
     ///
     /// Selection survives when its block still exists in the new model; otherwise it clears, on
     /// both sides. Undo steps registered against the old version stay registered and are rejected
     /// safely if replayed (`UndoBridge`'s version check), same as for any other conflict.
-    func refreshFromSource() async {
+    func refreshFromSource(stillCurrent: () -> Bool = { true }) async {
         guard inFlightOps == 0, let refreshable = transport as? any WYSIWYGRefreshableTransport else { return }
         let before = model.version
         guard let fresh = await refreshable.refreshModel(knownVersion: before) else { return }
+        guard stillCurrent() else { return }
         // An op landed while the fetch was out: its result is at least as new, so keep it.
         guard inFlightOps == 0, model.version == before else { return }
         await adoptOutsideModel(fresh, replacing: before)

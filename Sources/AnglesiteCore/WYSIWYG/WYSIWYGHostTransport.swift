@@ -22,8 +22,14 @@ public protocol WYSIWYGHostTransport: Sendable {
 /// conforms; a transport without a real backing store has nothing to re-read.
 public protocol WYSIWYGRefreshableTransport: WYSIWYGHostTransport {
     /// Re-fetches the page's model. When its version differs from `knownVersion` — the source
-    /// changed since the caller's model was built — notifies every ``WYSIWYGHostTransport/onModelUpdate(_:)`` listener
-    /// and returns it. Returns `nil` when nothing changed or the fetch failed.
+    /// changed since the caller's model was built — notifies every
+    /// ``WYSIWYGHostTransport/onModelUpdate(_:)`` listener and returns it. Returns `nil` when
+    /// nothing changed or the fetch failed.
+    ///
+    /// The return value and the listeners carry the same model. Use one channel or the other, not
+    /// both: the caller that asked for the refresh acts on the return value (as
+    /// `WYSIWYGCanvasController.refreshFromSource` does), and a listener is for code that didn't ask
+    /// for it. A caller that also subscribes would otherwise apply the same change twice.
     func refreshModel(knownVersion: String) async -> BlockModel?
 }
 
