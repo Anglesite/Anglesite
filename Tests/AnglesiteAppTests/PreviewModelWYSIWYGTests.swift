@@ -178,9 +178,9 @@ struct PreviewModelWYSIWYGTests {
 @Suite("PreviewModel edit mode is the default state (#1957)")
 @MainActor
 struct PreviewModelDefaultEditModeTests {
-    private static func cannedPageModel() -> PageModel {
+    private static func cannedPageModel(version: String = "sha256:test00000000") -> PageModel {
         PageModel(
-            version: "sha256:test00000000", path: "src/pages/index.astro",
+            version: version, path: "src/pages/index.astro",
             tree: .init(
                 id: "root", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 0),
                 loc: nil, text: nil, children: [], block: nil))
