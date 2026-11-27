@@ -506,7 +506,12 @@ async function main() {
 
   // 3b. Pasted markup that the site's CSP would block never reaches the page (#2233). A link mark
   //     with a `javascript:` target, and a raw-HTML block — what EmDash's editor makes of pasted
-  //     markup — holding an inline script, event handlers and a `javascript:` link.
+  //     markup — holding an inline script, event handlers (one inside an `<iframe srcdoc>`, one on
+  //     inline SVG) and `javascript:` links (one entity-encoded).
+  const pastedHtml = '<p>html-block-marker</p><script>alert(2)</script><button onclick="alert(3)">Tap</button>'
+    + '<a href="javascript:alert(4)">js-link</a><img src="/favicon.svg" alt="" onerror="alert(5)">'
+    + '<iframe srcdoc="&lt;button onclick=&quot;alert(6)&quot;&gt;x&lt;/button&gt;"></iframe>'
+    + '<svg onload="alert(7)"></svg><a href="javascript&#58;alert(8)">encoded-link</a>';
   const pastedData = {
     title: "Pasted widget",
     summary: "Markup pasted from another site",
@@ -521,8 +526,7 @@ async function main() {
       {
         _type: "htmlBlock",
         _key: "h1",
-        html: '<p>html-block-marker</p><script>alert(2)</script><button onclick="alert(3)">Tap</button>'
-          + '<a href="javascript:alert(4)">js-link</a><img src="/favicon.svg" alt="" onerror="alert(5)">',
+        html: pastedHtml,
       },
     ],
   };
@@ -541,9 +545,16 @@ async function main() {
     pastedPage.status === 200 && pastedPage.text.includes("inline-link-marker") && pastedPage.text.includes("html-block-marker"),
     `the article with pasted markup renders both its blocks (HTTP ${pastedPage.status})`,
   );
-  const { csp: pageCSP, issues: inlineIssues } = pinnedInlineIssues(pastedPage.text, pastedPage.csp);
-  // Without a policy the checks allow everything, which would make the next check vacuous.
-  check(typeof pageCSP === "string" && /script-src|default-src/.test(pageCSP), `the page is checked against the site's Content-Security-Policy (${pageCSP})`);
+  // Control: the same pinned checks, under the same policy, must flag the markup as pasted
+  // (the raw block plus the `javascript:` link), or an empty result on the page proves nothing.
+  // This fails if the policy allows inline script (`'unsafe-inline'`), if there is no policy,
+  // or if the checks stop scanning.
+  const control = pinnedInlineIssues(`${pastedHtml}<a href="javascript:alert(1)">inline-link-marker</a>`, pastedPage.csp);
+  check(
+    control.issues.length === 2,
+    `under the page's Content-Security-Policy (${control.csp}), the site's pinned inline checks flag the unsanitized markup (${control.issues.length} issue(s))`,
+  );
+  const { issues: inlineIssues } = pinnedInlineIssues(pastedPage.text, pastedPage.csp);
   check(
     inlineIssues.length === 0,
     `EmDash renders the pasted markup with nothing the site's CSP would block${inlineIssues.length ? `: ${inlineIssues.join(" | ")}` : ""}`,
