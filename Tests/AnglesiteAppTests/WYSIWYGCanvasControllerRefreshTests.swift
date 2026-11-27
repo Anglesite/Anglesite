@@ -137,7 +137,10 @@ struct WYSIWYGCanvasControllerRefreshTests {
 
         // The op is submitted and applied while the refresh's fetch is still out.
         let result = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
-        #expect(result.isApplied)
+        guard case .applied = result else {
+            Issue.record("expected the op to apply, got \(result)")
+            return
+        }
         #expect(controller.model.version == "v-op")
 
         await transport.releaseRefresh()
