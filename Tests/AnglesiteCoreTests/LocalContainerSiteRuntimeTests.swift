@@ -309,7 +309,10 @@ struct LocalContainerSiteRuntimeTests {
         let calls = await fake.execCalls
         #expect(calls.count == 1)
         #expect(calls[0].siteID == "s1")
-        #expect(calls[0].argv == ["git", "-C", "/workspace/site", "pull", "--ff-only"])
+        // `git pull --ff-only`'s fetch + fast-forward, after restoring files `HostSourceSync`
+        // copied in (#2242) — none yet, on a fresh boot.
+        #expect(calls[0].argv == HostSourceSync.catchUpArgv(lastSynced: [:]))
+        #expect(calls[0].argv[2].contains("git fetch -q origin && git merge --ff-only -q '@{u}'"))
         #expect(calls[0].cwd == "/workspace/site")
     }
 
