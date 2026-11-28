@@ -10,18 +10,23 @@ import Foundation
 /// read-only share is just the git directory.
 ///
 /// One batch from the host watcher becomes:
-/// 1. a **probe** (one guest `exec`) reporting, per changed path, the guest file's hash and the
-///    hash of the guest's committed version, plus whether the guest has commits the host doesn't;
-/// 2. a **plan**: copy a host file into the guest only when the guest's copy is untouched, i.e. it
-///    still matches the guest's `HEAD`, or is exactly what this sync last wrote there. A guest
-///    copy changed some other way (an edit in progress inside the guest) is kept, and the batch
-///    reports a conflict. If the guest has commits the host lacks (editor work not yet saved back),
-///    nothing is copied at all;
-/// 3. **writes** (one `exec` per file, content as base64 in argv chunks, written to a temp file and
-///    renamed into place) and deletes.
+/// 1. a **probe** (one guest `exec`) reporting, per changed path, the guest file's hash, the hash
+///    of the guest's committed version and whether git ignores the path, plus how far the guest
+///    is ahead of / behind the host's branch;
+/// 2. a **catch-up** when the host has commits the guest lacks: files this sync copied are
+///    restored, the guest fast-forwards, and the restored paths are checked again;
+/// 3. a **plan**: copy a host file into the guest only when the guest's copy is untouched, i.e. it
+///    still matches the guest's `HEAD`, or is exactly what this sync last wrote (or removed). A
+///    guest copy changed some other way (an edit in progress inside the guest) is kept, and the
+///    batch reports a conflict. If the guest has commits the host lacks (editor work not yet saved
+///    back), nothing is copied; the caller keeps the paths and retries them later;
+/// 4. **writes** (content as base64 in argv chunks, staged under the guest's `.git/` and renamed
+///    into place with the host file's mode) and deletes.
 ///
-/// It never touches `.git` or generated/dependency directories (`SiteIndexPaths`), never merges,
-/// and never asks the owner about git: an unsafe copy is simply skipped and logged.
+/// What it never carries: `.git`, generated/dependency directories (`SiteIndexPaths`), anything
+/// the site's `.gitignore` excludes, secret files (`.env*`, `.dev.vars*`) whatever the ignore file
+/// says, symlinks, and any path that resolves outside `Source/`. It never merges, and never asks
+/// the owner about git: an unsafe copy is skipped and logged.
 public enum HostSourceSync {
     /// The probe's verdict for one path, as the guest sees it.
     public struct GuestFileState: Equatable, Sendable {
@@ -30,11 +35,32 @@ public enum HostSourceSync {
         public var current: String?
         /// SHA-256 (hex) of the file as committed at the guest's `HEAD`, or `nil` if not committed.
         public var committed: String?
+        /// The site's `.gitignore` excludes it.
+        public var ignored: Bool
 
-        public init(path: String, current: String?, committed: String?) {
+        public init(path: String, current: String?, committed: String?, ignored: Bool = false) {
             self.path = path
             self.current = current
             self.committed = committed
+            self.ignored = ignored
+        }
+    }
+
+    /// The host side of one path.
+    public enum HostFile: Equatable, Sendable {
+        /// A regular file inside `Source/`, with its permission bits (e.g. `"644"`).
+        case regular(path: String, contents: Data, mode: String)
+        /// Deleted on the host.
+        case missing(path: String)
+        /// A symlink, or a path whose real location is outside `Source/`. Never read.
+        case unsafe(path: String)
+        /// A directory or other non-file (a directory event). Nothing to carry.
+        case other(path: String)
+
+        public var path: String {
+            switch self {
+            case .regular(let path, _, _), .missing(let path), .unsafe(let path), .other(let path): path
+            }
         }
     }
 
@@ -44,12 +70,16 @@ public enum HostSourceSync {
         case write(path: String, sha256: String)
         /// Remove the guest's file; the host deleted it.
         case delete(path: String)
-        /// The guest already has exactly this.
+        /// The guest already has exactly this, or there's nothing to carry.
         case unchanged(path: String)
         /// The guest's copy changed since the last sync or commit, so it's kept.
         case conflict(path: String)
         /// Too large to carry this way.
         case tooLarge(path: String)
+        /// Ignored by the site's `.gitignore`, so never carried.
+        case ignored(path: String)
+        /// A symlink or a path resolving outside `Source/`, so never read.
+        case unsafe(path: String)
     }
 
     /// Files bigger than this aren't carried (base64 in argv chunks gets slow well before this).
@@ -60,6 +90,10 @@ public enum HostSourceSync {
 
     /// The guest working copy every script runs in.
     public static let guestWorkingDirectory = "/workspace/site"
+
+    /// `lastSynced` value for a path this sync deleted, so restoring it later isn't mistaken for a
+    /// guest-side edit.
+    public static let tombstone = "-"
 
     // MARK: - Paths
 
@@ -77,34 +111,71 @@ public enum HostSourceSync {
         return paths.sorted()
     }
 
-    /// Never `.git` (in any form) or a skipped generated/dependency directory, and never a path
-    /// that could escape the working copy.
+    /// Never `.git` (in any form), a skipped generated/dependency directory, a secret file, or a
+    /// path that could escape the working copy.
     static func isCarried(_ relative: String) -> Bool {
         let components = relative.split(separator: "/", omittingEmptySubsequences: false)
-        guard !components.isEmpty, !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return false }
+        guard !components.isEmpty,
+              !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." || $0.contains("\u{0}") })
+        else { return false }
         if components.contains(".git") { return false }
+        if let name = components.last, isSecretFile(String(name)) { return false }
         return !SiteIndexPaths.isSkipped(relativePath: relative)
+    }
+
+    /// `.env`, `.env.*`, `.dev.vars`, `.dev.vars.*` — kept out of the guest even if a site's
+    /// `.gitignore` forgot them.
+    static func isSecretFile(_ name: String) -> Bool {
+        name == ".env" || name.hasPrefix(".env.") || name == ".dev.vars" || name.hasPrefix(".dev.vars.")
+    }
+
+    // MARK: - Host
+
+    /// Reads one host path without following symlinks, refusing anything whose real location is
+    /// outside `sourceDirectory` (an intermediate directory symlink, say).
+    public static func readHostFile(_ path: String, sourceDirectory: URL, fileManager: FileManager = .default) -> HostFile {
+        let url = sourceDirectory.appendingPathComponent(path)
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
+            // Gone — unless a parent is a dangling or escaping symlink, which still counts as unsafe.
+            return isInside(url.deletingLastPathComponent(), sourceDirectory) ? .missing(path: path) : .unsafe(path: path)
+        }
+        let type = attributes[.type] as? FileAttributeType
+        if type == .typeSymbolicLink { return .unsafe(path: path) }
+        guard isInside(url, sourceDirectory) else { return .unsafe(path: path) }
+        guard type == .typeRegular else { return .other(path: path) }
+        guard let contents = try? Data(contentsOf: url) else { return .missing(path: path) }
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0o644
+        return .regular(path: path, contents: contents, mode: String(permissions & 0o777, radix: 8))
+    }
+
+    /// Whether `url`'s real location (symlinks resolved) is `root` or inside it.
+    static func isInside(_ url: URL, _ root: URL) -> Bool {
+        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return resolved == resolvedRoot || resolved.hasPrefix(resolvedRoot.hasSuffix("/") ? resolvedRoot : resolvedRoot + "/")
     }
 
     // MARK: - Probe
 
-    /// `argv` for the probe. Prints one header line, `ahead <n> behind <m>` — the guest's commits
-    /// not on the host's branch (`origin`, the read-only host share) and the host's commits not in
-    /// the guest — then one line per path: `<current sha|->\t<committed sha|->\t<path>`.
+    /// `argv` for the probe. Prints NUL-terminated records: first `ahead <n> behind <m>` — the
+    /// guest's commits not on the host's branch (`origin`, the read-only host share) and the host's
+    /// commits not in the guest — then one per path: `<current|->\t<committed|->\t<0|1 ignored>\t<path>`.
+    /// A failed `git fetch` still reports on stderr.
     public static func probeArgv(paths: [String]) -> [String] {
         let script = """
-        git fetch -q origin 2>/dev/null
+        git fetch -q origin || true
         upstream=$(git rev-parse -q --verify '@{u}' 2>/dev/null)
         ahead=0; behind=0
         if [ -n "$upstream" ]; then
           ahead=$(git rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)
           behind=$(git rev-list --count "HEAD..$upstream" 2>/dev/null || echo 0)
         fi
-        printf 'ahead %s behind %s\\n' "$ahead" "$behind"
+        printf 'ahead %s behind %s\\0' "$ahead" "$behind"
         for p in "$@"; do
-          if [ -f "$p" ]; then c=$(sha256sum < "$p" | cut -d' ' -f1); else c=-; fi
+          if [ -f "$p" ] && [ ! -L "$p" ]; then c=$(sha256sum < "$p" | cut -d' ' -f1); else c=-; fi
           if git cat-file -e "HEAD:$p" 2>/dev/null; then h=$(git show "HEAD:$p" | sha256sum | cut -d' ' -f1); else h=-; fi
-          printf '%s\\t%s\\t%s\\n' "$c" "$h" "$p"
+          if git check-ignore -q -- "$p" 2>/dev/null; then i=1; else i=0; fi
+          printf '%s\\t%s\\t%s\\t%s\\0' "$c" "$h" "$i" "$p"
         done
         """
         return ["sh", "-c", script, "anglesite-sync-probe"] + paths
@@ -112,38 +183,50 @@ public enum HostSourceSync {
 
     /// Parses the probe's stdout. `nil` if it isn't the probe's output at all.
     public static func parseProbe(_ stdout: String) -> (ahead: Int, behind: Int, files: [GuestFileState])? {
-        var lines = stdout.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-        guard let header = lines.first else { return nil }
+        var records = stdout.split(separator: "\u{0}", omittingEmptySubsequences: true).map(String.init)
+        guard let header = records.first else { return nil }
         let words = header.split(separator: " ")
         guard words.count == 4, words[0] == "ahead", words[2] == "behind",
               let ahead = Int(words[1]), let behind = Int(words[3])
         else { return nil }
-        lines.removeFirst()
+        records.removeFirst()
         var files: [GuestFileState] = []
-        for line in lines {
-            let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
-            guard fields.count == 3 else { return nil }
+        for record in records {
+            let fields = record.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 4 else { return nil }
             files.append(GuestFileState(
-                path: fields[2],
+                path: fields[3],
                 current: fields[0] == "-" ? nil : fields[0],
-                committed: fields[1] == "-" ? nil : fields[1]))
+                committed: fields[1] == "-" ? nil : fields[1],
+                ignored: fields[2] == "1"))
         }
         return (ahead, behind, files)
     }
 
-    /// `argv` that brings a guest that's behind the host up to the host's `HEAD`. First restores
-    /// each file whose content is exactly what this sync last wrote (`lastSynced`): those are
-    /// copies of host files, so the host still has them, and leaving them would make git refuse the
-    /// fast-forward as local changes. Then fetches the host's branch and fast-forwards, the same as
-    /// `git pull --ff-only`. Prints each restored path.
+    // MARK: - Catch-up
+
+    /// `argv` that brings a guest that's behind the host up to the host's `HEAD`. First puts back
+    /// each file this sync changed (`lastSynced`) — a copy whose content is still exactly what it
+    /// wrote, or a deletion that's still missing — since the host still has those, and git would
+    /// refuse the fast-forward over them as local changes. A tracked file is restored from `HEAD`;
+    /// one that can't be fails the whole step rather than being deleted. Then fetches the host's
+    /// branch and fast-forwards, the same as `git pull --ff-only`. Prints each restored path,
+    /// NUL-terminated, even when the fast-forward then fails.
     public static func catchUpArgv(lastSynced: [String: String]) -> [String] {
         let script = """
         while [ $# -gt 1 ]; do
           s=$1; p=$2; shift 2
-          if [ -f "$p" ] && [ "$(sha256sum < "$p" | cut -d' ' -f1)" = "$s" ]; then
-            git checkout -q -- "$p" 2>/dev/null || rm -f -- "$p"
-            printf '%s\\n' "$p"
+          if [ "$s" = "-" ]; then
+            [ -e "$p" ] && continue
+          else
+            [ -f "$p" ] && [ "$(sha256sum < "$p" | cut -d' ' -f1)" = "$s" ] || continue
           fi
+          if git cat-file -e "HEAD:$p" 2>/dev/null; then
+            git checkout -q -- "$p" || exit 3
+          else
+            rm -f -- "$p"
+          fi
+          printf '%s\\0' "$p"
         done
         git fetch -q origin && git merge --ff-only -q '@{u}'
         """
@@ -151,43 +234,49 @@ public enum HostSourceSync {
         return ["sh", "-c", script, "anglesite-sync-catch-up"] + pairs
     }
 
-    // MARK: - Plan
-
-    /// The host side of one path: its bytes, or `nil` if the host deleted it.
-    public struct HostFile: Equatable, Sendable {
-        public var path: String
-        public var contents: Data?
-
-        public init(path: String, contents: Data?) {
-            self.path = path
-            self.contents = contents
-        }
+    /// The restored paths a catch-up printed, whether or not it then succeeded.
+    public static func restoredPaths(fromCatchUp stdout: String) -> [String] {
+        stdout.split(separator: "\u{0}", omittingEmptySubsequences: true).map(String.init)
     }
 
-    /// Decides each path's action. `lastSynced` maps a path to the hash this sync last wrote there,
-    /// which is how a guest copy that differs from `HEAD` only because of an earlier sync still
-    /// counts as untouched.
+    // MARK: - Plan
+
+    /// Decides each path's action. `lastSynced` maps a path to the hash this sync last wrote there
+    /// (or ``tombstone`` for a deletion), which is how a guest copy that differs from `HEAD` only
+    /// because of an earlier sync still counts as untouched.
     public static func plan(host: [HostFile], guest: [GuestFileState], lastSynced: [String: String]) -> [Action] {
         let guestByPath = Dictionary(guest.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         return host.map { file in
-            let state = guestByPath[file.path] ?? GuestFileState(path: file.path, current: nil, committed: nil)
-            if let contents = file.contents, contents.count > maxFileBytes { return .tooLarge(path: file.path) }
-            let hostHash = file.contents.map(sha256)
-            if hostHash == state.current { return .unchanged(path: file.path) }
+            let path = file.path
+            let state = guestByPath[path] ?? GuestFileState(path: path, current: nil, committed: nil)
+            let contents: Data?
+            switch file {
+            case .unsafe: return .unsafe(path: path)
+            case .other: return .unchanged(path: path)
+            case .missing: contents = nil
+            case .regular(_, let data, _): contents = data
+            }
+            if state.ignored { return .ignored(path: path) }
+            if let contents, contents.count > maxFileBytes { return .tooLarge(path: path) }
+            let hostHash = contents.map(sha256)
+            if hostHash == state.current { return .unchanged(path: path) }
+            let synced = lastSynced[path]
             let untouched = state.current == state.committed
-                || (state.current != nil && state.current == lastSynced[file.path])
-            guard untouched else { return .conflict(path: file.path) }
-            if let hostHash { return .write(path: file.path, sha256: hostHash) }
-            return .delete(path: file.path)
+                || (state.current != nil && state.current == synced)
+                || (state.current == nil && synced == tombstone)
+            guard untouched else { return .conflict(path: path) }
+            if let hostHash { return .write(path: path, sha256: hostHash) }
+            return .delete(path: path)
         }
     }
 
     // MARK: - Writes
 
-    /// The `argv`s that write `contents` to `path` in the guest: the first creates the parent
-    /// directory and a temp file, middle ones append base64 chunks, the last decodes into place
-    /// with a rename, so the dev server never sees a half-written file.
-    public static func writeArgvs(path: String, contents: Data) -> [[String]] {
+    /// The `argv`s that write `contents` to `path` in the guest with permission bits `mode`. Chunks
+    /// are staged under the guest's `.git/anglesite-sync/` (invisible to git and the dev server, on
+    /// the same filesystem), then decoded and renamed into place, so the dev server never sees a
+    /// half-written file. The last step removes the staging files whether it succeeded or not.
+    public static func writeArgvs(path: String, contents: Data, mode: String = "644") -> [[String]] {
         let encoded = contents.base64EncodedString()
         var chunks: [Substring] = []
         var index = encoded.startIndex
@@ -197,15 +286,30 @@ public enum HostSourceSync {
             index = end
         }
         if chunks.isEmpty { chunks = [""] }
-        let temp = "$1.anglesite-sync"
+        let id = stagingID(path)
         var argvs: [[String]] = []
         for (offset, chunk) in chunks.enumerated() {
             let redirect = offset == 0 ? ">" : ">>"
-            let prefix = offset == 0 ? "mkdir -p \"$(dirname \"$1\")\" && " : ""
-            argvs.append(["sh", "-c", "\(prefix)printf '%s' \"$2\" \(redirect) \"\(temp).b64\"", "anglesite-sync-write", path, String(chunk)])
+            argvs.append(["sh", "-c",
+                "d=\"$(git rev-parse --git-dir)/anglesite-sync\" && mkdir -p \"$d\" && printf '%s' \"$2\" \(redirect) \"$d/$1.b64\"",
+                "anglesite-sync-write", id, String(chunk)])
         }
-        argvs.append(["sh", "-c", "base64 -d < \"\(temp).b64\" > \"\(temp)\" && rm -f \"\(temp).b64\" && mv -f \"\(temp)\" \"$1\"", "anglesite-sync-commit", path])
+        argvs.append(["sh", "-c", """
+            d="$(git rev-parse --git-dir)/anglesite-sync"; t="$d/$2"
+            mkdir -p "$(dirname "$1")" && base64 -d < "$t.b64" > "$t" && chmod "$3" "$t" && mv -f "$t" "$1"
+            rc=$?; rm -f "$t" "$t.b64"; exit $rc
+            """, "anglesite-sync-commit", path, id, mode])
         return argvs
+    }
+
+    /// Removes a write's staging files after a chunk failed.
+    public static func cleanupArgv(path: String) -> [String] {
+        ["sh", "-c", "d=\"$(git rev-parse --git-dir)/anglesite-sync\"; rm -f \"$d/$1\" \"$d/$1.b64\"", "anglesite-sync-cleanup", stagingID(path)]
+    }
+
+    /// A staging file name for `path`: its hash, so any path maps to a safe, flat name.
+    static func stagingID(_ path: String) -> String {
+        sha256(Data(path.utf8))
     }
 
     /// The `argv` that removes `path` in the guest.
@@ -221,12 +325,16 @@ public enum HostSourceSync {
         public var deleted: [String] = []
         public var conflicts: [String] = []
         public var tooLarge: [String] = []
+        public var ignored: [String] = []
+        public var unsafe: [String] = []
         public var failed: [String] = []
         /// The guest has commits the host doesn't (editor work not yet saved back), so nothing was
-        /// copied this time.
+        /// copied this time. The caller should retry these paths once that work is saved.
         public var skippedUnsavedGuestWork = false
         /// The guest was behind the host's commits and was fast-forwarded first.
         public var caughtUpWithHostCommits = false
+        /// The guest was behind, but fast-forwarding failed; what git said.
+        public var catchUpFailure: String?
         /// `lastSynced` after this run, for the caller to keep.
         public var lastSynced: [String: String] = [:]
 
@@ -254,27 +362,34 @@ public enum HostSourceSync {
         }
         if parsed.behind > 0 {
             // The host has commits the guest doesn't (a `git pull`, a commit made in VS Code).
-            let caughtUp = try? await exec(catchUpArgv(lastSynced: outcome.lastSynced))
-            if let caughtUp, caughtUp.exitCode == 0 {
-                outcome.caughtUpWithHostCommits = true
-                let restored = caughtUp.stdout.split(separator: "\n").map(String.init)
-                for path in restored { outcome.lastSynced[path] = nil }
-                // A restored path may still carry an uncommitted host edit: check it again.
-                paths = Array(Set(paths).union(restored)).sorted()
-                parsed = try await probe(paths, exec: exec)
+            let result: ContainerExecResult
+            do {
+                result = try await exec(catchUpArgv(lastSynced: outcome.lastSynced))
+            } catch {
+                result = ContainerExecResult(exitCode: -1, stdout: "", stderr: "\(error)")
             }
+            // Whatever happened next, these were put back: forget them and check them again, so an
+            // uncommitted host edit among them is copied back rather than left reverted.
+            let restored = restoredPaths(fromCatchUp: result.stdout)
+            for path in restored { outcome.lastSynced[path] = nil }
+            if result.exitCode == 0 {
+                outcome.caughtUpWithHostCommits = true
+            } else {
+                let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                outcome.catchUpFailure = detail.isEmpty ? "exit \(result.exitCode)" : detail
+            }
+            paths = Array(Set(paths).union(restored)).sorted()
+            parsed = try await probe(paths, exec: exec)
         }
 
-        let host = paths.map { path in
-            HostFile(path: path, contents: readRegularFile(sourceDirectory.appendingPathComponent(path)))
-        }
-        let contentsByPath = Dictionary(host.map { ($0.path, $0.contents) }, uniquingKeysWith: { first, _ in first })
+        let host = paths.map { readHostFile($0, sourceDirectory: sourceDirectory) }
+        let hostByPath = Dictionary(host.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         for action in plan(host: host, guest: parsed.files, lastSynced: outcome.lastSynced) {
             switch action {
             case .write(let path, let hash):
-                guard let contents = contentsByPath[path] ?? nil else { continue }
+                guard case .regular(_, let contents, let mode)? = hostByPath[path] else { continue }
                 var ok = true
-                for argv in writeArgvs(path: path, contents: contents) {
+                for argv in writeArgvs(path: path, contents: contents, mode: mode) {
                     let result = try? await exec(argv)
                     if result?.exitCode != 0 { ok = false; break }
                 }
@@ -282,13 +397,14 @@ public enum HostSourceSync {
                     outcome.written.append(path)
                     outcome.lastSynced[path] = hash
                 } else {
+                    _ = try? await exec(cleanupArgv(path: path))
                     outcome.failed.append(path)
                 }
             case .delete(let path):
                 let result = try? await exec(deleteArgv(path: path))
                 if result?.exitCode == 0 {
                     outcome.deleted.append(path)
-                    outcome.lastSynced[path] = nil
+                    outcome.lastSynced[path] = tombstone
                 } else {
                     outcome.failed.append(path)
                 }
@@ -298,6 +414,10 @@ public enum HostSourceSync {
                 outcome.conflicts.append(path)
             case .tooLarge(let path):
                 outcome.tooLarge.append(path)
+            case .ignored(let path):
+                outcome.ignored.append(path)
+            case .unsafe(let path):
+                outcome.unsafe.append(path)
             }
         }
         return outcome
@@ -317,13 +437,6 @@ public enum HostSourceSync {
     public struct ProbeError: Error, Equatable {
         public var exitCode: Int32
         public var detail: String
-    }
-
-    /// The file's bytes, or `nil` if it's missing or not a regular file (a directory event).
-    static func readRegularFile(_ url: URL) -> Data? {
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { return nil }
-        return try? Data(contentsOf: url)
     }
 
     static func sha256(_ data: Data) -> String {

@@ -34,6 +34,9 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
     /// differs from its `HEAD` only because of an earlier sync still counts as untouched. Reset on
     /// every boot, when the guest is cloned fresh.
     private var hostSyncHashes: [String: String] = [:]
+    /// Paths a host sync skipped because the guest had editor work not yet saved back (#2242).
+    /// Retried with every later batch, and after `persistEdit`/`syncFromHost` succeed.
+    private var pendingHostPaths: Set<String> = []
     private var containerTerminationLease: SuddenTerminationController.Lease?
 
     private let stateMachine = SiteRuntimeStateMachine()
@@ -286,6 +289,10 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
                 onLog: { line, stream in Task { await logCenter.append(source: source, stream: stream, text: line) } },
                 importBundle: importBundle
             )
+            // Outside edits held back while this editor work was unsaved can go through now.
+            if !pendingHostPaths.isEmpty {
+                await copyHostPaths(Array(pendingHostPaths), siteID: siteID, sourceDirectory: siteDirectory)
+            }
         } catch {
             await logCenter.append(source: source, stream: .stderr, text: "persist failed: \(error.localizedDescription)")
             guard stateMachine.isCurrent(expectedGeneration), activeSiteID == siteID else {
@@ -333,6 +340,8 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
                 environment: [:],
                 workingDirectory: HostSourceSync.guestWorkingDirectory,
                 onOutput: { line, stream in
+                    // stdout is the restored-path list (data); git's own messages are on stderr.
+                    guard stream == .stderr else { return }
                     Task { await logCenter.append(source: source, stream: stream, text: line) }
                 }
             )
@@ -342,27 +351,21 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             }
             throw SiteRuntimePersistenceError.syncFailed(error.localizedDescription)
         }
+        // Files the catch-up put back may still carry uncommitted host edits: copy them again,
+        // whether or not the fast-forward then succeeded, so the preview never ends up older than
+        // the host. Likewise anything held back earlier.
+        let restored = HostSourceSync.restoredPaths(fromCatchUp: result.stdout)
+        for path in restored { hostSyncHashes[path] = nil }
+        let toCopy = Set(restored).union(result.exitCode == 0 ? pendingHostPaths : [])
+        if !toCopy.isEmpty, let sourceDirectory = activeSiteDirectory {
+            await copyHostPaths(toCopy.sorted(), siteID: siteID, sourceDirectory: sourceDirectory)
+        }
         guard result.exitCode == 0 else {
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             throw SiteRuntimePersistenceError.syncFailed(
                 detail.isEmpty ? "git pull exited \(result.exitCode)" : detail)
         }
         await logCenter.append(source: source, stream: .stdout, text: "synced host Source/ changes into the guest")
-        // A restored file may still carry an uncommitted host edit: copy it again.
-        let restored = result.stdout.split(separator: "\n").map(String.init)
-        for path in restored { hostSyncHashes[path] = nil }
-        if !restored.isEmpty, let sourceDirectory = activeSiteDirectory {
-            let control = self.control
-            if let outcome = try? await HostSourceSync.run(
-                paths: restored, sourceDirectory: sourceDirectory, lastSynced: hostSyncHashes,
-                exec: { argv in
-                    try await control.exec(
-                        siteID: siteID, argv: argv, environment: [:],
-                        workingDirectory: HostSourceSync.guestWorkingDirectory, onOutput: { _, _ in })
-                }) {
-                hostSyncHashes = outcome.lastSynced
-            }
-        }
     }
 
     /// Streams every subsequent state transition (the `SiteRuntime.observe()` requirement),
@@ -586,6 +589,7 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
         // guest so the preview shows them (#2242).
         stopFileWatcher()  // defensive: never orphan a running watcher if called while one is active
         hostSyncHashes = [:]
+        pendingHostPaths = []
         let watcher = makeFileWatcher()
         do {
             try watcher.start(root: projectRoot) { [weak self] batch in
@@ -647,31 +651,36 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
     /// `syncFromHost`. Writes the app makes itself (a persisted editor edit landing on the host)
     /// come back through the watcher too, and are no-ops here: the guest already has those bytes.
     private func syncHostChanges(_ batch: FileChangeBatch, siteID: String, sourceDirectory: URL, generation gen: Int) async {
-        let source = "container:\(siteID):host-sync"
         guard let paths = HostSourceSync.relevantPaths(in: batch, sourceDirectory: sourceDirectory) else {
             await logCenter.append(
-                source: source, stream: .stderr,
+                source: "container:\(siteID):host-sync", stream: .stderr,
                 text: "many files changed outside Anglesite at once; the preview will show them after the site is reopened")
             return
         }
-        guard !paths.isEmpty else { return }
+        guard !paths.isEmpty || !pendingHostPaths.isEmpty else { return }
 
         await acquirePersistenceSlot()
         defer { releasePersistenceSlot() }
         guard stateMachine.isCurrent(gen), activeSiteID == siteID else { return }
+        await copyHostPaths(Array(Set(paths).union(pendingHostPaths)), siteID: siteID, sourceDirectory: sourceDirectory)
+    }
 
+    /// Runs one `HostSourceSync` for `paths` and logs what happened. The caller holds the
+    /// persistence slot. Keeps `hostSyncHashes` and `pendingHostPaths` current.
+    private func copyHostPaths(_ paths: [String], siteID: String, sourceDirectory: URL) async {
+        let source = "container:\(siteID):host-sync"
         let control = self.control
         let logCenter = self.logCenter
         let outcome: HostSourceSync.Outcome
         do {
             outcome = try await HostSourceSync.run(
-                paths: paths, sourceDirectory: sourceDirectory, lastSynced: hostSyncHashes
+                paths: paths.sorted(), sourceDirectory: sourceDirectory, lastSynced: hostSyncHashes
             ) { argv in
                 try await control.exec(
                     siteID: siteID, argv: argv, environment: [:],
                     workingDirectory: HostSourceSync.guestWorkingDirectory,
                     onOutput: { line, stream in
-                        // The probe's stdout is data, not log; only surface errors.
+                        // Script stdout is data, not log; git's own messages arrive on stderr.
                         guard stream == .stderr else { return }
                         Task { await logCenter.append(source: source, stream: .stderr, text: line) }
                     })
@@ -680,14 +689,20 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             await logCenter.append(source: source, stream: .stderr, text: "couldn't check the preview's copy: \(error)")
             return
         }
-        guard stateMachine.isCurrent(gen), activeSiteID == siteID else { return }
         hostSyncHashes = outcome.lastSynced
 
         if outcome.skippedUnsavedGuestWork {
+            pendingHostPaths.formUnion(paths)
             await logCenter.append(
                 source: source, stream: .stderr,
-                text: "files changed outside Anglesite (\(paths.joined(separator: ", "))), but the editor has changes not saved to your site yet; the preview keeps the editor's version for now")
+                text: "files changed outside Anglesite (\(paths.sorted().joined(separator: ", "))), but the editor has changes not saved to your site yet; the preview shows them once those are saved")
             return
+        }
+        pendingHostPaths.subtract(paths)
+        if let failure = outcome.catchUpFailure {
+            await logCenter.append(
+                source: source, stream: .stderr,
+                text: "couldn't bring the preview up to date with changes committed outside Anglesite: \(failure)")
         }
         if !outcome.written.isEmpty || !outcome.deleted.isEmpty {
             let changed = (outcome.written + outcome.deleted).joined(separator: ", ")
@@ -697,6 +712,11 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             await logCenter.append(
                 source: source, stream: .stderr,
                 text: "\(path) changed outside Anglesite while the editor was also changing it; the preview keeps the editor's version")
+        }
+        for path in outcome.unsafe {
+            await logCenter.append(
+                source: source, stream: .stderr,
+                text: "not showing \(path) in the preview: it's a link to somewhere else, and only files inside the site are copied")
         }
         for path in outcome.tooLarge {
             await logCenter.append(source: source, stream: .stderr, text: "\(path) is too large to show in the preview until the site is reopened")

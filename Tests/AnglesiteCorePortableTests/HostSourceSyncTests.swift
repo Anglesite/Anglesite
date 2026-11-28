@@ -9,7 +9,7 @@ import Foundation
 struct HostSourceSyncTests {
     // MARK: Pure
 
-    @Test("relevant paths skip .git, generated directories and anything outside the site")
+    @Test("relevant paths skip .git, generated directories, secret files and anything outside the site")
     func relevantPaths() {
         let root = URL(fileURLWithPath: "/sites/Foo.anglesite/Source")
         let batch = FileChangeBatch(paths: [
@@ -18,40 +18,43 @@ struct HostSourceSyncTests {
             root.appendingPathComponent(".git/index"),
             root.appendingPathComponent("node_modules/astro/x.js"),
             root.appendingPathComponent("dist/index.html"),
+            root.appendingPathComponent(".env"),
+            root.appendingPathComponent(".env.production"),
+            root.appendingPathComponent(".dev.vars"),
+            root.appendingPathComponent("worker/.dev.vars.staging"),
             URL(fileURLWithPath: "/elsewhere/file.txt"),
             root.appendingPathComponent("public/logo.png"),
+            root.appendingPathComponent(".environment.md"),
         ], needsFullRescan: false)
 
-        #expect(HostSourceSync.relevantPaths(in: batch, sourceDirectory: root) == ["public/logo.png", "src/pages/about.md"])
+        #expect(HostSourceSync.relevantPaths(in: batch, sourceDirectory: root) == [".environment.md", "public/logo.png", "src/pages/about.md"])
         #expect(HostSourceSync.relevantPaths(in: FileChangeBatch(paths: [], needsFullRescan: true), sourceDirectory: root) == nil)
     }
 
-    @Test("parses the probe's output, and rejects anything else")
+    @Test("parses the probe's NUL-separated output, newlines in names included, and rejects anything else")
     func parseProbe() throws {
-        let parsed = try #require(HostSourceSync.parseProbe("ahead 0 behind 2\nabc\tdef\tsrc/a b.md\n-\t-\tnew.md\n"))
+        let parsed = try #require(HostSourceSync.parseProbe("ahead 0 behind 2\0abc\tdef\t0\tsrc/a b.md\0-\t-\t1\tline\nbreak.md\0"))
         #expect(parsed.ahead == 0)
         #expect(parsed.behind == 2)
         #expect(parsed.files == [
-            .init(path: "src/a b.md", current: "abc", committed: "def"),
-            .init(path: "new.md", current: nil, committed: nil),
+            .init(path: "src/a b.md", current: "abc", committed: "def", ignored: false),
+            .init(path: "line\nbreak.md", current: nil, committed: nil, ignored: true),
         ])
         #expect(HostSourceSync.parseProbe("") == nil)
-        #expect(HostSourceSync.parseProbe("hello\n") == nil)
-        #expect(HostSourceSync.parseProbe("ahead 0\n") == nil)
+        #expect(HostSourceSync.parseProbe("hello\0") == nil)
+        #expect(HostSourceSync.parseProbe("ahead 0\0") == nil)
     }
 
     @Test("plans a copy only over an untouched guest file")
     func plan() {
         let new = Data("new".utf8)
         let newHash = HostSourceSync.sha256(new)
+        func file(_ path: String) -> HostSourceSync.HostFile { .regular(path: path, contents: new, mode: "644") }
         let actions = HostSourceSync.plan(
             host: [
-                .init(path: "clean.md", contents: new),
-                .init(path: "synced.md", contents: new),
-                .init(path: "edited-in-guest.md", contents: new),
-                .init(path: "same.md", contents: new),
-                .init(path: "created.md", contents: new),
-                .init(path: "removed.md", contents: nil),
+                file("clean.md"), file("synced.md"), file("edited-in-guest.md"), file("same.md"),
+                file("created.md"), .missing(path: "removed.md"), file("restored.md"),
+                file("ignored.log"), .unsafe(path: "link.md"), .other(path: "src"),
             ],
             guest: [
                 .init(path: "clean.md", current: "head1", committed: "head1"),
@@ -60,8 +63,10 @@ struct HostSourceSyncTests {
                 .init(path: "same.md", current: newHash, committed: "old"),
                 .init(path: "created.md", current: nil, committed: nil),
                 .init(path: "removed.md", current: "head4", committed: "head4"),
+                .init(path: "restored.md", current: nil, committed: "head5"),
+                .init(path: "ignored.log", current: nil, committed: nil, ignored: true),
             ],
-            lastSynced: ["synced.md": "fromLastSync"])
+            lastSynced: ["synced.md": "fromLastSync", "restored.md": HostSourceSync.tombstone])
 
         #expect(actions == [
             .write(path: "clean.md", sha256: newHash),
@@ -70,7 +75,34 @@ struct HostSourceSyncTests {
             .unchanged(path: "same.md"),
             .write(path: "created.md", sha256: newHash),
             .delete(path: "removed.md"),
+            .write(path: "restored.md", sha256: newHash),
+            .ignored(path: "ignored.log"),
+            .unsafe(path: "link.md"),
+            .unchanged(path: "src"),
         ])
+    }
+
+    @Test("host reads never follow a symlink or leave Source/")
+    func readHostFileRefusesSymlinks() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("host-read-\(UUID().uuidString)")
+        let source = base.appendingPathComponent("Source")
+        let secret = base.appendingPathComponent("secret.txt")
+        try FileManager.default.createDirectory(at: source.appendingPathComponent("public"), withIntermediateDirectories: true)
+        try Data("private key".utf8).write(to: secret)
+        try Data("ok".utf8).write(to: source.appendingPathComponent("public/ok.txt"))
+        try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("public/x.txt"), withDestinationURL: secret)
+        try FileManager.default.createSymbolicLink(at: source.appendingPathComponent("escape"), withDestinationURL: base)
+
+        #expect(HostSourceSync.readHostFile("public/x.txt", sourceDirectory: source) == .unsafe(path: "public/x.txt"))
+        #expect(HostSourceSync.readHostFile("escape/secret.txt", sourceDirectory: source) == .unsafe(path: "escape/secret.txt"))
+        #expect(HostSourceSync.readHostFile("escape/gone.txt", sourceDirectory: source) == .unsafe(path: "escape/gone.txt"))
+        #expect(HostSourceSync.readHostFile("public/gone.txt", sourceDirectory: source) == .missing(path: "public/gone.txt"))
+        #expect(HostSourceSync.readHostFile("public", sourceDirectory: source) == .other(path: "public"))
+        guard case .regular(_, let data, _) = HostSourceSync.readHostFile("public/ok.txt", sourceDirectory: source) else {
+            Issue.record("expected a regular file")
+            return
+        }
+        #expect(data == Data("ok".utf8))
     }
 
     // MARK: Real scripts
@@ -186,9 +218,13 @@ struct HostSourceSyncTests {
         #expect(fixture.guestText("src/pages/deep/new.md") == "# New\n")
         #expect(fixture.guestText("src/pages/old.md") == nil)
         #expect(try Data(contentsOf: fixture.guest.appendingPathComponent("public/photo.jpg")) == bytes)
-        // No temp files left behind.
+        // Staged under .git/, never beside the target, and nothing left behind.
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: fixture.guest.appendingPathComponent("public").path)
         #expect(leftovers == ["photo.jpg"])
+        let staging = fixture.guest.appendingPathComponent(".git/anglesite-sync")
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: staging.path)) ?? []).isEmpty)
+        #expect(try Fixture.git(["status", "--porcelain", "--untracked-files=all"], in: fixture.guest)
+            .split(separator: "\n").allSatisfy { !$0.contains("anglesite-sync") })
     }
 
     @Test("nothing is copied while the guest has commits the host doesn't")
@@ -237,9 +273,87 @@ struct HostSourceSyncTests {
 
         let result = try Fixture.run(HostSourceSync.catchUpArgv(lastSynced: synced.lastSynced), in: fixture.guest)
         #expect(result.exitCode == 0, "\(result.stderr)")
-        #expect(result.stdout == "src/pages/about.md\n")
+        #expect(HostSourceSync.restoredPaths(fromCatchUp: result.stdout) == ["src/pages/about.md"])
         #expect(try Fixture.git(["rev-parse", "HEAD"], in: fixture.guest) == Fixture.git(["rev-parse", "HEAD"], in: fixture.host))
         #expect(try Fixture.git(["status", "--porcelain"], in: fixture.guest).isEmpty)
+    }
+
+    @Test("files the site's .gitignore excludes stay out of the guest")
+    func skipsIgnoredFiles() async throws {
+        let fixture = try Fixture(files: [".gitignore": "*.log\n", "src/pages/about.md": "# About\n"])
+        try Fixture.write("debug output\n", to: fixture.host.appendingPathComponent("debug.log"))
+
+        let outcome = try await fixture.sync(["debug.log"])
+        #expect(outcome.ignored == ["debug.log"])
+        #expect(fixture.guestText("debug.log") == nil)
+    }
+
+    @Test("a copied file keeps the host file's permissions")
+    func keepsMode() async throws {
+        let fixture = try Fixture(files: ["scripts/build.sh": "echo one\n"])
+        let script = fixture.host.appendingPathComponent("scripts/build.sh")
+        try Fixture.write("echo two\n", to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let outcome = try await fixture.sync(["scripts/build.sh"])
+        #expect(outcome.written == ["scripts/build.sh"])
+        let mode = try FileManager.default.attributesOfItem(atPath: fixture.guest.appendingPathComponent("scripts/build.sh").path)[.posixPermissions] as? NSNumber
+        #expect(mode?.intValue == 0o755)
+    }
+
+    @Test("a file deleted and then restored on the host comes back in the guest")
+    func deleteThenRestore() async throws {
+        let fixture = try Fixture(files: ["src/pages/a.md": "# A\n"])
+        let file = fixture.host.appendingPathComponent("src/pages/a.md")
+        try FileManager.default.removeItem(at: file)
+        let deleted = try await fixture.sync(["src/pages/a.md"])
+        #expect(deleted.deleted == ["src/pages/a.md"])
+        #expect(fixture.guestText("src/pages/a.md") == nil)
+
+        try Fixture.git(["checkout", "--", "src/pages/a.md"], in: fixture.host)
+        let restored = try await fixture.sync(["src/pages/a.md"], lastSynced: deleted.lastSynced)
+        #expect(restored.conflicts.isEmpty)
+        #expect(restored.written == ["src/pages/a.md"])
+        #expect(fixture.guestText("src/pages/a.md") == "# A\n")
+    }
+
+    @Test("a fast-forward that fails doesn't leave the preview older than the host, and says why")
+    func failedCatchUpRecopies() async throws {
+        let fixture = try Fixture(files: ["src/pages/about.md": "# About\n", "src/pages/index.md": "# Home\n"])
+        // An uncommitted host edit is synced into the guest.
+        try Fixture.write("# About us\n", to: fixture.host.appendingPathComponent("src/pages/about.md"))
+        let first = try await fixture.sync(["src/pages/about.md"])
+        // The guest has its own uncommitted edit to index.md, and the host commits a change to it,
+        // so the fast-forward has to refuse.
+        try Fixture.write("# Home, guest\n", to: fixture.guest.appendingPathComponent("src/pages/index.md"))
+        try Fixture.write("# Home, host\n", to: fixture.host.appendingPathComponent("src/pages/index.md"))
+        try Fixture.git(["commit", "-q", "-m", "host", "--", "src/pages/index.md"], in: fixture.host)
+
+        let second = try await fixture.sync(["src/pages/index.md"], lastSynced: first.lastSynced)
+        #expect(second.catchUpFailure != nil)
+        #expect(!second.caughtUpWithHostCommits)
+        // about.md was restored for the attempt, then copied back.
+        #expect(fixture.guestText("src/pages/about.md") == "# About us\n")
+        #expect(second.written.contains("src/pages/about.md"))
+        #expect(second.conflicts == ["src/pages/index.md"])
+        #expect(fixture.guestText("src/pages/index.md") == "# Home, guest\n")
+    }
+
+    @Test("a restore that git can't do fails the catch-up instead of deleting the file")
+    func checkoutFailureDoesNotDelete() async throws {
+        let fixture = try Fixture(files: ["src/pages/about.md": "# About\n"])
+        try Fixture.write("# About us\n", to: fixture.host.appendingPathComponent("src/pages/about.md"))
+        let first = try await fixture.sync(["src/pages/about.md"])
+        try Fixture.write("x\n", to: fixture.host.appendingPathComponent("other.md"))
+        try Fixture.git(["add", "other.md"], in: fixture.host)
+        try Fixture.git(["commit", "-q", "-m", "other"], in: fixture.host)
+        // Someone else (the sidecar, say) is mid-commit in the guest.
+        try Data().write(to: fixture.guest.appendingPathComponent(".git/index.lock"))
+
+        let result = try Fixture.run(HostSourceSync.catchUpArgv(lastSynced: first.lastSynced), in: fixture.guest)
+        #expect(result.exitCode != 0)
+        #expect(HostSourceSync.restoredPaths(fromCatchUp: result.stdout).isEmpty)
+        #expect(fixture.guestText("src/pages/about.md") == "# About us\n")
     }
 
     @Test("a path with spaces and shell characters is carried literally")
