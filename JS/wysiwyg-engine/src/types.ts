@@ -50,6 +50,20 @@ export interface BlockNode {
    *  resolved to one. `undefined` for a plain element/component the manifest doesn't know about.
    *  Mirrors Swift's `BlockNode.manifestName` (WYSIWYGOps.swift, #1602 item 3). */
   manifestName?: string;
+  /** Where the node starts in the page source, 1-based. Paired with Astro's dev-only
+   *  `data-astro-source-loc` to find the block's element on the live preview (#2239).
+   *  Mirrors Swift's `BlockNode.sourceLoc`. */
+  sourceLoc?: SourceLoc;
+  /** Project-relative `.astro` file a manifest component is defined in (e.g.
+   *  `src/components/Hero.astro`) — what its rendered elements name in `data-astro-source-file`.
+   *  Mirrors Swift's `BlockNode.componentPath`. */
+  componentPath?: string;
+}
+
+/** A 1-based line/column position in a source file. */
+export interface SourceLoc {
+  line: number;
+  column: number;
 }
 
 /** Sentinel parent for blocks that live at the page root rather than inside another block's slot. */

@@ -35,21 +35,56 @@ export const postToDevServer: EditorWritePoster = async (message) => {
 };
 
 /**
+ * Whether `a` and `b` have the same blocks in the same places: the same ids, each with the same
+ * kind, tag and children. Only text and props may differ.
+ */
+export function sameBlockTree(a: BlockModel, b: BlockModel): boolean {
+  if (a.rootIds.join("\u0000") !== b.rootIds.join("\u0000")) return false;
+  const ids = Object.keys(a.blocks);
+  if (ids.length !== Object.keys(b.blocks).length) return false;
+  return ids.every((id) => {
+    const x = a.blocks[id];
+    const y = b.blocks[id];
+    return (
+      x !== undefined &&
+      y !== undefined &&
+      x.kind === y.kind &&
+      x.componentName === y.componentName &&
+      JSON.stringify(x.slots) === JSON.stringify(y.slots)
+    );
+  });
+}
+
+/**
  * Wraps the engine's transport so the dev server can tell the editor's own writes from every other
  * change and skip the reload for them (#2214). Before a reload-free op goes out it announces the
  * write ("expect", with the page's source path); once the op settles it reports the version the
  * write produced, or `null` if it didn't land. Every other op, and the model-update stream, pass
  * through untouched.
+ *
+ * A text edit that adds or removes markup (bold, a link) still reloads (#2243 review): the
+ * sidecar numbers nodes in tree order, so new nodes shift every later block's id, and the page's
+ * block marks (`block-stamping.ts`) would then name the wrong blocks. When `currentModel` is
+ * given and the applied model's block tree differs from the one before the op, the write settles
+ * as `null`, so the dev server reloads and the engine mounts afresh with matching marks.
  */
 export class SelfWriteAnnouncingTransport implements HostTransport {
   #inner: HostTransport;
   #pagePath: string;
   #post: EditorWritePoster;
 
-  constructor(inner: HostTransport, pagePath: string, post: EditorWritePoster = postToDevServer) {
+  #currentModel: (() => BlockModel) | undefined;
+
+  constructor(
+    inner: HostTransport,
+    pagePath: string,
+    post: EditorWritePoster = postToDevServer,
+    currentModel?: () => BlockModel,
+  ) {
     this.#inner = inner;
     this.#pagePath = pagePath;
     this.#post = post;
+    this.#currentModel = currentModel;
   }
 
   async sendOp(envelope: OpEnvelope): Promise<OpResult> {
@@ -57,10 +92,13 @@ export class SelfWriteAnnouncingTransport implements HostTransport {
       return this.#inner.sendOp(envelope);
     }
     await withTimeout(this.#post({ id: envelope.id, phase: "expect", path: this.#pagePath }), EXPECT_TIMEOUT_MS);
+    const before = this.#currentModel?.();
     let version: string | null = null;
     try {
       const result = await this.#inner.sendOp(envelope);
-      if (result.status === "applied") version = result.model.version;
+      if (result.status === "applied" && (!before || sameBlockTree(before, result.model))) {
+        version = result.model.version;
+      }
       return result;
     } finally {
       void this.#post({ id: envelope.id, phase: "settle", version });

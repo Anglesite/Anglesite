@@ -443,6 +443,29 @@ struct WYSIWYGOpsDispatcherPageBridgeTests {
         #expect(received.value?.path == "/about/")
     }
 
+    @Test("log carries the engine's line and level for the debug pane (#2239)") func logMessage() async {
+        let info = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "log", "message": "marked 6 of 6 blocks"], via: nil)
+        guard case .log(let message, let isWarning) = info else {
+            Issue.record("expected .log, got \(info)")
+            return
+        }
+        #expect(message == "marked 6 of 6 blocks")
+        #expect(isWarning == false)
+
+        let warning = await WYSIWYGOpsDispatcher.dispatch(
+            body: ["type": "log", "level": "warning", "message": "marked 0 of 6 blocks"], via: nil)
+        guard case .log(_, true) = warning else {
+            Issue.record("expected a warning .log, got \(warning)")
+            return
+        }
+
+        let missing = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "log"], via: nil)
+        guard case .rejected(.envelopeDecode) = missing else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(missing)")
+            return
+        }
+    }
+
     @Test("pick-goal-element without a handler is dropped, not rejected") func goalElementPickDropped() async {
         let body: [String: Any] = [
             "type": "anglesite:pick-goal-element", "path": "/",

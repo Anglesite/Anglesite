@@ -138,6 +138,10 @@ public enum WYSIWYGOpsDispatcher {
         /// adapter should reply with `reply` keyed by `requestId`, same reply shape as `opResult`.
         /// The page swaps to `reply.result`'s `src`/`srcset` on `.applied` and reverts otherwise.
         case imageReplaceReply(requestId: String, reply: EditReply)
+        /// `log` carried a line for the debug pane from the page's engine (#2239: e.g. how many
+        /// blocks it could mark on the live preview). `isWarning` lines go to stderr. "Logs are
+        /// sacred": the engine runs in the page, where `console` output reaches no one.
+        case log(message: String, isWarning: Bool)
         /// `anglesite:visible-elements` was forwarded to `Handlers.onVisibleElements`.
         case visibleElementsHandled
         /// `anglesite:visible-elements` arrived but no `onVisibleElements` handler is installed.
@@ -219,6 +223,11 @@ public enum WYSIWYGOpsDispatcher {
                 return .rejected(.envelopeDecode("could not decode context-menu fields"))
             }
             return .contextMenu(blockId: blockId, point: WYSIWYGPoint(x: x, y: y))
+        case "log":
+            guard let message = dict["message"] as? String else {
+                return .rejected(.envelopeDecode("could not decode log fields"))
+            }
+            return .log(message: message, isWarning: (dict["level"] as? String) == "warning")
         case "selection-changed":
             // `blockId` is legitimately absent/null (selection cleared) — unlike context-menu's
             // required blockId, this isn't a decode failure.

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   SelfWriteAnnouncingTransport,
+  sameBlockTree,
   type EditorWriteMessage,
 } from "../../src/host/self-write-transport.js";
-import type { BlockModel, HostTransport, OpEnvelope, OpResult } from "../../src/types.js";
+import type { BlockModel, BlockNode, HostTransport, OpEnvelope, OpResult } from "../../src/types.js";
 
 const model: BlockModel = { path: "src/pages/index.astro", version: "sha256:aaaaaaaaaaaa", rootIds: [], blocks: {} };
 
@@ -94,5 +95,50 @@ describe("SelfWriteAnnouncingTransport (#2214)", () => {
     const listener = () => {};
     transport.onModelUpdate(listener);
     expect(inner.onModelUpdate).toHaveBeenCalledWith(listener);
+  });
+});
+
+describe("formatting edits still reload (#2243 review)", () => {
+  const text = (id: string, value: string) => ({ id, kind: "text" as const, componentName: "", props: {}, slots: {}, sourceSpan: [0, 0] as [number, number], richText: [{ kind: "text" as const, text: value }] });
+  const el = (id: string, tag: string, children: string[]): BlockNode => ({ id, kind: "element", componentName: tag, props: {}, slots: children.length ? { default: children } : {}, sourceSpan: [0, 0] });
+
+  // The template's home page, roughly: <h1>Welcome</h1><p>Ready</p>.
+  const before: BlockModel = {
+    path: "src/pages/index.astro", version: "sha256:before000000", rootIds: ["n1", "n3"],
+    blocks: { n1: el("n1", "h1", ["n2"]), n2: text("n2", "Welcome"), n3: el("n3", "p", ["n4"]), n4: text("n4", "Ready") },
+  };
+  // Plain text edit: same tree, new text.
+  const retyped: BlockModel = { ...before, version: "sha256:retyped00000", blocks: { ...before.blocks, n2: text("n2", "Welcome home") } };
+  // Add Link on "Welcome": <h1><a>Welcome</a></h1>. The sidecar renumbers in tree order, so the
+  // <p> that was n3 is now n5, and n3 names the link's text.
+  const linked: BlockModel = {
+    path: "src/pages/index.astro", version: "sha256:linked000000", rootIds: ["n1", "n5"],
+    blocks: { n1: el("n1", "h1", ["n2"]), n2: el("n2", "a", ["n3"]), n3: text("n3", "Welcome"), n5: el("n5", "p", ["n6"]), n6: text("n6", "Ready") },
+  };
+
+  it("sameBlockTree is true for a text change and false once markup was added", () => {
+    expect(sameBlockTree(before, retyped)).toBe(true);
+    expect(sameBlockTree(before, linked)).toBe(false);
+  });
+
+  async function settleFor(applied: BlockModel): Promise<string | null | undefined> {
+    const messages: EditorWriteMessage[] = [];
+    const transport = new SelfWriteAnnouncingTransport(
+      fakeInner({ status: "applied", model: applied }),
+      before.path,
+      async (message) => void messages.push(message),
+      () => before,
+    );
+    await transport.sendOp(editText);
+    const settle = messages.find((m) => m.phase === "settle");
+    return settle?.phase === "settle" ? settle.version : undefined;
+  }
+
+  it("a plain text edit settles with its version, so the dev server keeps the page", async () => {
+    expect(await settleFor(retyped)).toBe("sha256:retyped00000");
+  });
+
+  it("an edit that added a link settles as null, so the page reloads and its block marks are rebuilt", async () => {
+    expect(await settleFor(linked)).toBeNull();
   });
 });

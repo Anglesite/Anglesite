@@ -5,7 +5,8 @@ import { KeyboardNavigation } from "../keyboard-nav.js";
 import { AccessibilityAnnotator } from "../accessibility.js";
 import { SelectionToolbar } from "./selection-toolbar.js";
 import { NativeHostTransport } from "./native-host-transport.js";
-import { SelfWriteAnnouncingTransport } from "./self-write-transport.js";
+import { SelfWriteAnnouncingTransport, postToDevServer } from "./self-write-transport.js";
+import { clearBlockIds, countMarkable, snapshotSourceAnnotations, stampBlockIds } from "./block-stamping.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
 import { renderHoverOutline } from "./hover-outline.js";
 import { wireImageDrop } from "./image-drop.js";
@@ -243,6 +244,7 @@ function renderDropIndicator(): { update: (target: DropTarget | null) => void; d
 // rather than exporting everything.
 export const __testables = { wireSelection, wireScrollIntoView, renderSelectionHandle, renderDropIndicator };
 
+let disposeStamping: (() => void) | null = null;
 let disposeSelection: (() => void) | null = null;
 let disposeScroll: (() => void) | null = null;
 let disposeHandle: (() => void) | null = null;
@@ -256,6 +258,8 @@ let dragReorder: DragReorderController | null = null;
 // Finding B) rather than only being reachable from the native `unmountEngine()` call. Safe to call
 // when nothing is mounted: all globals are `undefined` and the optional-chained calls no-op.
 function disposeMounted(): void {
+  disposeStamping?.();
+  disposeStamping = null;
   disposeSelection?.();
   disposeSelection = null;
   disposeScroll?.();
@@ -291,10 +295,46 @@ function disposeMounted(): void {
   window.__anglesiteWysiwygEngine = undefined;
 }
 
+/**
+ * Marks the page's elements with block ids now and after each host model push (`model-updated`,
+ * e.g. #2215's refresh after an outside edit). Not after `applied`: the only ops that skip the
+ * reload are text edits that keep the block tree's shape (`SelfWriteAnnouncingTransport` reloads
+ * any that don't), and the sidecar numbers nodes in tree order, so every id still names the same
+ * element. Anything else reloads the page and mounts afresh.
+ *
+ * Each pass is logged to the debug pane, as a warning when a page with blocks gets none marked,
+ * the failure mode #2239 was.
+ */
+/** Sends a line to the app's debug pane (`WYSIWYGOpsDispatcher`'s `log` message). */
+function postLog(message: string, isWarning = false): void {
+  window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "log", level: isWarning ? "warning" : "info", message });
+}
+
+function wireBlockStamping(engine: WysiwygEngine): () => void {
+  const stamp = (model: BlockModel) => {
+    const marked = stampBlockIds(model, document).length;
+    const markable = countMarkable(model);
+    const message = `marked ${marked} of ${markable} blocks on ${model.path}`;
+    postLog(markable > 0 && marked === 0 ? `${message} — the page has no Astro source annotations to match` : message,
+      markable > 0 && marked === 0);
+  };
+  stamp(engine.modelSync.current);
+  const unsubscribe = engine.onEvent((event) => {
+    if (event.type === "model-updated") stamp(event.model);
+  });
+  return () => {
+    unsubscribe();
+    clearBlockIds(document);
+  };
+}
+
 // The always-on page reporters — Siri's visible-elements feed, the Effects/experiment pick
 // modes, or the Component Editor's harness canvas — install at injection time, independent of
 // the block engine below (#1957; formerly the edit-overlay bundle's own entry point).
 bootPageBridge();
+// Adds whatever is still annotated to the template's head-inline capture (#2239). The capture is
+// what reliably beats Astro's dev toolbar to the attributes; this only fills in after it.
+snapshotSourceAnnotations(document);
 
 // Injected as a WKUserScript (Task 6); the engine can't self-construct at injection time because
 // WysiwygEngine needs an initialModel, which is only known once the native host has fetched one —
@@ -307,7 +347,18 @@ window.__anglesiteWysiwygMount = {
     const transport = new NativeHostTransport();
     // Only the ops path is wrapped: it tells the dev server which writes are the editor's own, so
     // a text edit no longer reloads the page and replaces this engine (#2214).
-    const engine = new WysiwygEngine(initialModel, new SelfWriteAnnouncingTransport(transport, initialModel.path));
+    // `currentModel` lets the wrapper see the tree an edit started from, so a formatting edit
+    // (which adds nodes and renumbers later blocks) still reloads.
+    let mounted: WysiwygEngine | null = null;
+    const engine = new WysiwygEngine(
+      initialModel,
+      new SelfWriteAnnouncingTransport(transport, initialModel.path, postToDevServer, () => mounted?.modelSync.current ?? initialModel),
+    );
+    mounted = engine;
+    // First, before anything below looks an element up by block id: on a real site nothing else
+    // puts those ids on the page (#2239). Subscribed first, too, so a host model push re-marks the
+    // page before the other listeners react to it.
+    disposeStamping = wireBlockStamping(engine);
     window.__anglesiteWysiwygEngine = engine;
     window.__anglesiteWysiwygRichTextEditor = new RichTextEditor(engine);
     // Same `transport` instance passed to both — `NativeHostTransport` implements both

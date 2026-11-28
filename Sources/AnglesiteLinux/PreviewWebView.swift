@@ -142,6 +142,8 @@ struct PreviewWebView: AdwaitaWidget {
                     // these land silently — unlike the macOS adapter, where a drop means broken
                     // wiring and is logged.
                     return
+                case .log(let message, let isWarning):
+                    await logCenter.append(source: "wysiwyg-engine", stream: isWarning ? .stderr : .stdout, text: message)
                 case .rejected(let reason):
                     await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "rejected message: \(reason)")
                 }
