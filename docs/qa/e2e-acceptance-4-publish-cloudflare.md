@@ -72,7 +72,7 @@ Seed a violation — e.g. paste a real-looking email address into page copy (PII
 Expected:
 
 - The pipeline stops after the scan; **wrangler never runs**.
-- The blocked sheet lists categorized findings (e.g. "PII — email address") with file + remediation, and offers **only "Got it"** — there is no bypass/override control anywhere (hard product rule).
+- The blocked sheet says **"Nothing was published — your live site hasn't changed, and your edits are saved."**, lists each finding in owner terms (e.g. "A personal email address", with the page it's on such as "On /contact/") and keeps the scan's file paths and suggested fix under **Show Details**, and offers **only "OK"** — there is no bypass/override control anywhere (hard product rule, #2211).
 - Remove the violation, redeploy → scan passes. Non-blocking warnings (e.g. OG-image absence) appear in the warnings section without stopping the deploy.
 
 ### 6. Success: live workers.dev URL

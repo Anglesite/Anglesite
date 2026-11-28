@@ -5,30 +5,43 @@ import AnglesiteCore
 /// backup (#1959 — the same no-override gate fronts all three off-device pushes of `Source/`).
 ///
 /// Per the CLAUDE.md durable rule "the app cannot bypass plugin security hooks", this sheet has
-/// no override button — the only action is "Got it", which dismisses. The user is expected to
-/// fix each failure in the source, then retry the action.
+/// no override button — the only action dismisses. Because the owner can't override it, the sheet
+/// has to say more than a bypassable warning would (#2211): what was found and what publishing it
+/// would do, in the owner's terms; where it is, as a page address; and — always — that nothing
+/// left the Mac. The scan's own wording and file paths are technical (`dist/`, `_headers`), so
+/// they stay under each finding's Details disclosure (decision D1). Copy lives in
+/// `OwnerFacingCopy.gate(_:)`.
 struct BlockedDeploySheetView: View {
     /// Which action the gate refused — the findings list below reads identically for every
     /// context; only the header's consequence copy differs, so a blocked **Backup** doesn't tell
-    /// the owner their site "can't ship" / won't "publish" when they only asked to back it up
-    /// (PR #1981 review). Deploy and "Publish to GitHub" share `.shipping`'s wording — the
-    /// review didn't flag Publish's reuse of Deploy's copy, and a GitHub push genuinely is a step
-    /// toward shipping the site; only `.backup` needed its own.
+    /// the owner their site won't "publish" when they only asked to back it up (PR #1981
+    /// review). Deploy and "Publish to GitHub" share `.shipping`'s wording.
     enum Context: Equatable {
         case shipping
         case backup
 
         var title: String {
             switch self {
-            case .shipping: return "Can't publish yet"
-            case .backup: return "Can't back up yet"
+            case .shipping: return String(localized: "Your changes weren't published")
+            case .backup: return String(localized: "Your site wasn't backed up")
             }
         }
 
-        var subtitle: String {
+        /// What is safe. Required content, not decoration: with no override, this is the line
+        /// that tells the owner nothing went wrong in public.
+        var reassurance: String {
             switch self {
-            case .shipping: return "The pre-deploy scan found issues that need fixing before this site can ship."
-            case .backup: return "Anglesite's safety check found issues that need fixing before this site can be backed up."
+            case .shipping:
+                return String(localized: "Anglesite's safety check found something that shouldn't go public. Nothing was published — your live site hasn't changed, and your edits are saved.")
+            case .backup:
+                return String(localized: "Anglesite's safety check found something that shouldn't leave this Mac. Nothing was sent, and your edits are saved.")
+            }
+        }
+
+        var nextStep: String {
+            switch self {
+            case .shipping: return String(localized: "Fix each item below, then publish again.")
+            case .backup: return String(localized: "Fix each item below, then back up again.")
             }
         }
     }
@@ -46,16 +59,20 @@ struct BlockedDeploySheetView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text(context.nextStep)
+                        .font(.subheadline).fontWeight(.semibold)
                     ForEach(Array(failures.enumerated()), id: \.offset) { _, failure in
-                        FailureCard(failure: failure)
+                        FindingCard(finding: OwnerFacingCopy.gate(failure), severity: .blocker)
                     }
                     if !warnings.isEmpty {
                         Divider().padding(.vertical, 4)
-                        Text("Warnings")
+                        Text("Also worth a look")
                             .font(.subheadline).fontWeight(.semibold)
                             .foregroundStyle(.secondary)
+                        Text("These don't stop publishing.")
+                            .font(.caption).foregroundStyle(.secondary)
                         ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
-                            WarningCard(warning: warning)
+                            FindingCard(finding: OwnerFacingCopy.gate(warning), severity: .advisory)
                         }
                     }
                 }
@@ -65,7 +82,7 @@ struct BlockedDeploySheetView: View {
             Divider()
             HStack {
                 Spacer()
-                Button("Got it", action: onDismiss)
+                Button("OK", action: onDismiss)
                     .keyboardShortcut(.defaultAction)
             }
             .padding(16)
@@ -74,156 +91,84 @@ struct BlockedDeploySheetView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "shield.lefthalf.filled")
                 .font(.title)
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(context.title).font(.title3).fontWeight(.semibold)
-                Text(context.subtitle)
+                Text(context.reassurance)
                     .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(16)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
-private struct FailureCard: View {
-    let failure: PreDeployCheck.ScanFailure
+private struct FindingCard: View {
+    enum Severity { case blocker, advisory }
+
+    let finding: OwnerFacingCopy.GateFinding
+    let severity: Severity
+
+    private var tint: Color { severity == .blocker ? .red : .orange }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: categoryIcon(failure.category))
-                    .foregroundStyle(.red)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: severity == .blocker ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(tint)
                     .accessibilityHidden(true)
-                Text(categoryLabel(failure.category))
+                Text(finding.title)
                     .font(.subheadline).fontWeight(.semibold)
-                if let file = failure.file {
-                    Text(file)
+                if let page = finding.page {
+                    Text("On \(page)")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Text(finding.consequence)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail = finding.detail {
+                DisclosureGroup("Show Details") {
+                    Text(verbatim: detail)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                        // Path is middle-truncated for layout; read the whole thing aloud.
-                        .accessibilityLabel("File")
-                        .accessibilityValue(file)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
                 }
-            }
-            if failure.category == .appOwnedScriptRestored {
-                // #1958: the primary line is the consequence to the owner ("your safety check had
-                // been changed; it's been restored"); the file paths are technical detail and stay
-                // behind a Details disclosure rather than on the primary surface (owner decision
-                // D1 — raw paths never lead).
-                Text(failure.message).font(.callout)
-                if let remediation = failure.remediation {
-                    Text(remediation)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let detail = failure.detail, !detail.isEmpty {
-                    DisclosureGroup("Details") {
-                        Text(verbatim: detail)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 4)
-                    }
-                    .font(.caption)
-                }
-            } else {
-                Text(failure.detail ?? failure.message).font(.callout)
-                if let remediation = failure.remediation {
-                    Text(remediation)
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                .font(.caption)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(NSColor.controlBackgroundColor))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.red.opacity(0.25)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(0.25)))
         .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func categoryIcon(_ category: PreDeployCheck.ScanFailure.Category) -> String {
-        switch category {
-        case .piiEmail, .piiPhone, .piiSSN: return "person.crop.circle.badge.exclamationmark"
-        case .exposedToken: return "key.fill"
-        case .thirdPartyScript: return "network"
-        case .keystaticRoute: return "lock.shield"
-        case .cspMisconfigured: return "shield.slash"
-        case .embedMediaHotlink: return "photo.badge.exclamationmark"
-        case .wellKnownCollision: return "exclamationmark.lock"
-        case .anglesiteConfigInvalid: return "doc.badge.gearshape"
-        case .restrictedContentInSource, .restrictedContentInDist: return "lock.trianglebadge.exclamationmark"
-        case .appOwnedScriptRestored: return "checkmark.shield"
-        case .other: return "exclamationmark.triangle"
-        }
-    }
-
-    private func categoryLabel(_ category: PreDeployCheck.ScanFailure.Category) -> String {
-        switch category {
-        case .piiEmail: return "PII — email address"
-        case .piiPhone: return "PII — phone number"
-        case .piiSSN: return "PII — SSN"
-        case .exposedToken: return "Exposed token"
-        case .thirdPartyScript: return "Third-party script"
-        case .keystaticRoute: return "Keystatic admin route"
-        case .cspMisconfigured: return "CSP misconfigured"
-        case .embedMediaHotlink: return "Hotlinked embed media"
-        case .wellKnownCollision: return "/.well-known/ collision"
-        case .anglesiteConfigInvalid: return "Site settings file invalid"
-        case .restrictedContentInSource: return "Restricted content in the site's files"
-        case .restrictedContentInDist: return "Restricted content in the published output"
-        case .appOwnedScriptRestored: return "Safety check restored"
-        case .other: return "Other"
-        }
     }
 }
 
-private struct WarningCard: View {
-    let warning: PreDeployCheck.ScanWarning
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .accessibilityHidden(true)
-                Text(categoryLabel(warning.category))
-                    .font(.subheadline).fontWeight(.semibold)
-            }
-            Text(warning.detail ?? warning.message).font(.callout)
-            if let remediation = warning.remediation {
-                Text(remediation)
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.orange.opacity(0.25)))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func categoryLabel(_ category: PreDeployCheck.ScanWarning.Category) -> String {
-        switch category {
-        case .missingOgImage: return "Missing OG image"
-        case .maintenanceOverdue: return "Maintenance overdue"
-        case .seoCritical: return "SEO — critical"
-        case .seoWarning: return "SEO — warning"
-        case .orphanedRoute: return "Orphaned route"
-        case .mixedContent: return "Mixed content"
-        case .sriMissing: return "Missing subresource integrity"
-        case .externalLinkRel: return "Missing rel=noopener"
-        case .missingSecurityArtifact: return "Missing security artifact"
-        case .securityTxtIssue: return "security.txt issue"
-        case .mtaStsIssue: return "MTA-STS issue"
-        case .thirdPartyScript: return "Third-party script"
-        case .wellKnownArtifact: return "/.well-known/ file excluded"
-        case .other: return "Other"
-        }
-    }
+#Preview {
+    BlockedDeploySheetView(
+        failures: [
+            .init(
+                category: .exposedToken,
+                message: "Pattern matching a Stripe secret key in built output.",
+                file: "dist/contact/index.html",
+                remediation: "Remove the key from the page and move it to Cloudflare secrets."
+            ),
+            .init(category: .piiEmail, message: "Email address found: jo@example.com", file: "dist/about/index.html"),
+        ],
+        warnings: [
+            .init(category: .missingOgImage, message: "dist/blog/index.html lacks og:image", file: "dist/blog/index.html"),
+        ],
+        onDismiss: {}
+    )
 }

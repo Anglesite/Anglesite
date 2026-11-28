@@ -95,4 +95,71 @@ struct OwnerFacingCopyTests {
     func backupDestination() {
         #expect(OwnerFacingCopy.backupDestination(remote: "https://github.com/me/site.git") == "GitHub")
     }
+
+    // MARK: Safety check (#2211)
+
+    /// Output paths and scan vocabulary the primary lines of the blocked-publish sheet must not
+    /// show — they belong under Show Details.
+    private static func leaksScanWording(_ text: String) -> Bool {
+        ["dist/", "_headers", ".gitignore", ".html", "CSP", "PII", "Content-Security-Policy"]
+            .contains { text.contains($0) }
+    }
+
+    @Test("every blocker reads in the owner's terms and keeps the scan's wording as detail",
+          arguments: PreDeployCheck.ScanFailure.Category.allCases.filter { $0 != .appOwnedScriptRestored })
+    func gateFailureIsOwnerPhrased(category: PreDeployCheck.ScanFailure.Category) {
+        let failure = PreDeployCheck.ScanFailure(
+            category: category,
+            message: "dist/_headers has no Content-Security-Policy.",
+            file: "dist/contact/index.html",
+            remediation: "Add .env to .gitignore before publishing."
+        )
+        let finding = OwnerFacingCopy.gate(failure)
+        #expect(!finding.title.isEmpty)
+        #expect(!finding.consequence.isEmpty)
+        for line in [finding.title, finding.consequence] {
+            #expect(!Self.usesForbiddenVocabulary(line), "leaked vocabulary: \(line)")
+            #expect(!Self.leaksScanWording(line), "leaked scan wording: \(line)")
+        }
+        #expect(finding.page == "/contact/")
+        let detail = finding.detail
+        #expect(detail?.contains(failure.message) == true)
+        #expect(detail?.contains("Add .env to .gitignore") == true)
+        #expect(detail?.contains("dist/contact/index.html") == true)
+    }
+
+    @Test("every warning reads in the owner's terms and keeps the scan's wording as detail",
+          arguments: PreDeployCheck.ScanWarning.Category.allCases)
+    func gateWarningIsOwnerPhrased(category: PreDeployCheck.ScanWarning.Category) {
+        let warning = PreDeployCheck.ScanWarning(category: category, message: "dist/blog/index.html lacks og:image", file: "dist/blog/index.html")
+        let finding = OwnerFacingCopy.gate(warning)
+        for line in [finding.title, finding.consequence] {
+            #expect(!line.isEmpty)
+            #expect(!Self.usesForbiddenVocabulary(line), "leaked vocabulary: \(line)")
+            #expect(!Self.leaksScanWording(line), "leaked scan wording: \(line)")
+        }
+        #expect(finding.page == "/blog/")
+        #expect(finding.detail?.contains(warning.message) == true)
+    }
+
+    @Test("a restored safety check leads with the scan's owner-phrased message and hides paths")
+    func gateRestoredScriptLeadsWithMessage() {
+        let failure = PreDeployCheck.ScanFailure(
+            category: .appOwnedScriptRestored,
+            message: "Your site's safety check had been changed, so Anglesite restored it.",
+            file: "scripts/pre-deploy-check.ts",
+            detail: "scripts/pre-deploy-check.ts"
+        )
+        let finding = OwnerFacingCopy.gate(failure)
+        #expect(finding.consequence == failure.message)
+        #expect(finding.page == nil)
+        #expect(finding.detail == "scripts/pre-deploy-check.ts")
+    }
+
+    @Test("a finding off any page has no address, and an empty scan gives no detail")
+    func gateFindingWithoutPage() {
+        let finding = OwnerFacingCopy.gate(PreDeployCheck.ScanFailure(category: .other, message: "  ", file: nil))
+        #expect(finding.page == nil)
+        #expect(finding.detail == nil)
+    }
 }
